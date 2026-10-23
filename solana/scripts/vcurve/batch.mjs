@@ -6,7 +6,8 @@
 //   verify <list file>: the owner, on his own computer, before he signs. It re-reads `Launchpad`, `LaunchBatch`, each
 //     listed city's `Coin`, `Approval` and `TickerLock`, the old program's `Coin` and `Approval`, the configs, every
 //     pending per-city `Approval` and the Clock sysvar (the time it judges by); with `--rpc` twice every one of them
-//     must agree on both RPCs (the clocks within a minute; review R8-DIFF-1); checks the file's schema and rebuilds the
+//     must agree on both RPCs (the clocks within a minute; review R8-DIFF-1), the coins, which every trade rewrites, in
+//     whether they exist and their owner only (review R8-NEW-1); checks the file's schema and rebuilds the
 //     tree from its entries (review MK-1); re-checks every entry as the program will at launch (sdk/curve/batch.mjs
 //     `entryProblems`), and refuses a ticker another city can still launch with, from its pending approval or from the
 //     batch in force (T87, review R7-BA-2); prints the day's changes; and, when nothing is wrong, prints the unsigned
@@ -123,6 +124,13 @@ export function batchAddresses(entries, { programId = CURVE_PROGRAM_ID, cluster 
 }
 /** Every address of `batchAddresses` as one list (what `verify` and `check` fetch). */
 export const allAddresses = (A) => [A.launchpad, A.launchBatch, ...A.configs.values(), ...[...A.cities.values()].flatMap((c) => Object.values(c)), ...A.tickers.values()];
+/**
+ * The addresses of `batchAddresses` whose content every trade rewrites: each city's `Coin` and the old program's `Coin`
+ * (reserves, `tokens_sold`, fee counters). The verifier uses only whether they exist, so two RPCs are compared on that
+ * and on their owner, never on their bytes: two honest RPCs a slot apart differ there while the city trades, and no
+ * RPC can be asked for one given slot (`minContextSlot` is only a floor). Review R8-NEW-1.
+ */
+export const presenceOnlyAddresses = (A) => [...A.cities.values()].flatMap((c) => [c.coin, c.legacyCoin]);
 
 /** The `chain` argument of `entryProblems` from the fetched accounts (`accounts`: address -> account or null). */
 export function chainOf(A, accounts, { programId = CURVE_PROGRAM_ID, heldTickers = null } = {}) {
@@ -708,15 +716,20 @@ async function fetchAccounts(connection, addresses) {
   return out;
 }
 const sameAccount = (x, y) => (!x || !y ? !x === !y : x.owner === y.owner && Buffer.from(x.data).equals(Buffer.from(y.data)));
+/** Whether two RPCs agree that an account exists (as `exists` judges it) and, when it does, on its owner (review R8-NEW-1). */
+const samePresence = (x, y) => exists(x) === exists(y) && (!exists(x) || String(x.owner) === String(y.owner));
 /**
  * The accounts at `addresses` and the Clock sysvar as each RPC returned them (`views`, one map per RPC) compared: every
- * account must be the same on every RPC (owner and data), and the clocks within CLOCK_TOLERANCE_SECS; `now` is the
- * earliest clock (review R8-DIFF-1). Returns `{ accounts (the first RPC's), now, problems }`.
+ * account must be the same on every RPC (owner and data), those of `presenceOnly` (`presenceOnlyAddresses`: the coins
+ * every trade rewrites) only in whether they exist and their owner (review R8-NEW-1), and the clocks within
+ * CLOCK_TOLERANCE_SECS; `now` is the earliest clock (review R8-DIFF-1). Returns `{ accounts (the first RPC's), now, problems }`.
  */
-export function compareChainViews(views, addresses) {
+export function compareChainViews(views, addresses, { presenceOnly = [] } = {}) {
   const problems = [];
   const keys = addresses.map(String);
-  const differ = keys.filter((k) => views.some((v) => !sameAccount(v[k] ?? null, views[0][k] ?? null)));
+  const loose = new Set(presenceOnly.map(String));
+  const same = (k) => (loose.has(k) ? samePresence : sameAccount);
+  const differ = keys.filter((k) => views.some((v) => !same(k)(v[k] ?? null, views[0][k] ?? null)));
   if (differ.length) problems.push({ code: 'RPC_DISAGREE', message: `the RPCs return different accounts (${differ.slice(0, 4).join(', ')}${differ.length > 4 ? ` and ${differ.length - 4} more` : ''}): one of them is lying or behind` });
   let now = null;
   try {
@@ -728,10 +741,15 @@ export function compareChainViews(views, addresses) {
   return { accounts: Object.fromEntries(keys.map((k) => [k, views[0][k] ?? null])), now, problems };
 }
 /** `compareChainViews` of the accounts at `addresses` (and the Clock sysvar, in the same request) read from every RPC. */
-async function readChainView(connections, addresses) {
+async function readChainView(connections, addresses, opts = {}) {
   const keys = [...new Set([...addresses.map(String), CLOCK_SYSVAR])];
-  return compareChainViews(await Promise.all(connections.map((c) => fetchAccounts(c, keys))), addresses);
+  return compareChainViews(await Promise.all(connections.map((c) => fetchAccounts(c, keys))), addresses, opts);
 }
+/** Every account `verify` and `check` read for `entries`, from every RPC, the traded coins compared by presence (review R8-NEW-1). */
+const readCityView = (connections, entries, at) => {
+  const A = batchAddresses(entries, at);
+  return readChainView(connections, allAddresses(A), { presenceOnly: presenceOnlyAddresses(A) });
+};
 /** Every pending per-city `Approval` of the program (getProgramAccounts on its discriminator) from every RPC, compared (review R8-DIFF-1): `{ approvals, problems }`. */
 async function readApprovals(connections, programId) {
   const views = await Promise.all(connections.map((c) => c.getProgramAccounts(new PublicKey(programId), { filters: [{ memcmp: { offset: 0, bytes: base58(ACCOUNT_DISCRIMINATORS.Approval) } }] })));
@@ -903,7 +921,7 @@ async function main(argv) {
     let entries = [];
     try { const x = JSON.parse(file); entries = (x.kind !== undefined ? parseArchiveEntry(x).list : parseLaunchBatchFile(x)).entries; } catch { /* reported by checkStoredBatch */ }
     // review R8-DIFF-4: with two RPCs, both are read and must agree
-    const view = await readChainView(connections, allAddresses(batchAddresses(entries, { programId, cluster })));
+    const view = await readCityView(connections, entries, { programId, cluster });
     if (view.problems.length) return report(view.problems, retry);
     const { problems } = checkStoredBatch({ file, accounts: view.accounts, programId, cluster });
     for (const p of problems) console.log(`PROBLEM ${p.code}: ${p.message}`);
@@ -932,7 +950,7 @@ async function main(argv) {
   const previous = o.previous ? readFileSync(o.previous, 'utf8') : null;
   const inForce = o.inForce ? readFileSync(o.inForce, 'utf8') : null;
   const extra = holderCandidateEntries({ launchBatch: lb, archive: arch.signed, previous, inForce, programId });
-  const rest = await readChainView(connections, allAddresses(batchAddresses([...parsed.entries, ...extra], { programId, cluster })));
+  const rest = await readCityView(connections, [...parsed.entries, ...extra], { programId, cluster });
   if (rest.problems.length) return report(rest.problems, dontSign);
   const accounts = { ...rest.accounts, ...heads.accounts };
   const ap = await readApprovals(connections, programId);

@@ -141,7 +141,10 @@ he signs the day's `publish_launch_batch`), his confirmation (`confirm <seq>
 twice the two must be different providers (by IP address, or by the last two
 labels of the host name), and every account, the Clock sysvar (within a
 minute; the earlier is used) and the pending approvals must agree on both, for
-`verify`, `confirm` and `check` alike (reviews R8-DIFF-1, R8-DIFF-4). `verify` prints the
+`verify`, `confirm` and `check` alike (reviews R8-DIFF-1, R8-DIFF-4); each city's
+`Coin` (and the old program's), which every trade rewrites, is compared only in
+whether it exists and its owner, so a trade between the two reads stops nothing
+(R8-NEW-1). `verify` prints the
 day's changes only against lists the owner signed and confirmed (reviews
 R6-DIFF-1, R6-RT-1, R7-BA-1, R7-3): its archive (`--archive <dir>`, default
 `$VICINITY_BATCH_ARCHIVE` or `~/.vicinity-curve/launch-batches`) keeps each
@@ -181,6 +184,12 @@ once (`--variants`, default 4) and repeats (`--rounds`) until the chain shows
 the stop. It needs `--rpc` twice, two providers the website does not operate or
 relay: it reads both, sends through both, and reports the stop only when both
 show it and one of the member's transactions is confirmed (review R8-OPS-2).
+Every RPC call has a timeout (`--timeout`, seconds, default 8): an RPC that
+fails or does not answer is reported, the stop goes through the other at once
+(each blockhash's variants are sent the moment it arrives), and the run then
+ends with `PROBLEM RPC_FAILED` (exit 1), never a success on one RPC's word; the
+print-only mode prints the variants on every blockhash obtained. RPCs are
+named by host only, never by their full URL.
 Each transaction carries a compute-unit limit (150,000) and price
 (`--priority-fee`, micro-lamports per unit, default 1,000,000, doubled each
 round up to 50,000,000; review R8-DIFF-7). With `--keypair <file>` it signs

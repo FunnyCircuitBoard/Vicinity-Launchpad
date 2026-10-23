@@ -764,10 +764,12 @@ export const SOL_ = (x) => BigInt(Math.round(Number(x) * 1e9));
  * getSignatureStatuses). `lie(address, account)` may return another account (or null) for an address, as a malicious or
  * compromised RPC would (reviews R7-BA-1, R7-4); `rpc(request)` may return a whole answer for any method (anything but
  * undefined; `{ drop: true }` for sendTransaction answers the signature without sending; review R8-DIFF-1, R8-OPS-2);
- * `host` is the loopback address it listens on (two stubs on 127.0.0.1 and 127.0.0.2 are two providers, review
- * R8-DIFF-4). Returns `{ url, close, calls }`.
+ * `before(request)` is awaited before a request is answered (a transaction landing between two RPCs' reads, review
+ * R8-NEW-1); `status(request)` may return an HTTP status to answer with instead (503: a failing provider) or 'silent'
+ * (the request is never answered; review R8-OPS-2); `host` is the loopback address it listens on (two stubs on
+ * 127.0.0.1 and 127.0.0.2 are two providers, review R8-DIFF-4). Returns `{ url, close, calls }`.
  */
-export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, host = '127.0.0.1' } = {}) {
+export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, before = async () => {}, status: httpStatus = () => undefined, host = '127.0.0.1' } = {}) {
   const calls = [];
   const view = (k) => lie(String(k), w.accountInfo(String(k)));
   const wire = (a) => ({ data: [Buffer.from(a.data).toString('base64'), 'base64'], executable: false, lamports: Number(a.lamports), owner: String(a.owner), rentEpoch: 0, space: a.data.length });
@@ -775,6 +777,7 @@ export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, 
   const status = (h) => (h ? { slot: Number(h.slot), confirmations: null, err: h.err ? { stub: h.err } : null, confirmationStatus: 'confirmed' } : null);
   const one = async (m) => {
     calls.push(m.method);
+    await before(m);
     const slot = Number(w.svm.getClock().slot);
     const over = rpc(m);
     if (over !== undefined && !(m.method === 'sendTransaction' && over?.drop)) return { jsonrpc: '2.0', id: m.id, result: over };
@@ -815,13 +818,20 @@ export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, 
     req.on('data', (c) => { body += c; });
     req.on('end', async () => {
       const m = JSON.parse(body);
+      const code = httpStatus(Array.isArray(m) ? m[0] : m);
+      if (code !== undefined) {
+        for (const x of Array.isArray(m) ? m : [m]) calls.push(`${x.method}:${code}`);
+        if (code !== 'silent') { res.statusCode = code; res.end('stub: unavailable'); }
+        return;
+      }
       const out = Array.isArray(m) ? await Promise.all(m.map(one)) : await one(m);
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify(out));
     });
   });
   await new Promise((ok) => { server.listen(0, host, ok); });
-  return { url: `http://${host}:${server.address().port}`, close: () => new Promise((ok) => { server.close(ok); }), calls };
+  // a silent stub holds its requests open: close them with the server
+  return { url: `http://${host}:${server.address().port}`, close: () => new Promise((ok) => { server.close(ok); server.closeAllConnections(); }), calls };
 }
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function bs58decode(text) {

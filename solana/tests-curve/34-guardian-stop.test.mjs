@@ -14,6 +14,9 @@
 //     both and reports the stop only when both show it and one of the member's transactions is confirmed.
 //   * R8-DIFF-7: each transaction carries a compute-unit limit and price (outside the vault message), so the stop
 //     competes for the slot with a thief who pays priority fees for the multisig's next index.
+// The verification of round 8 (R8-OPS-2 residual): one RPC answering HTTP 503 ended the run before anything was sent,
+// a silent one hung it, and print-only used the first RPC's blockhash alone; each RPC is now asked within a timeout,
+// the stop goes through the one that answers, and print-only covers every blockhash obtained.
 // The guardian multisig is written as the Squads program writes one (encodeSquadsMultisig; its address the PDA of its
 // create key with that bump, its members sorted as Squads sorts them), controlled by the admin, 1 of 3, no time lock.
 import test from 'node:test';
@@ -28,7 +31,7 @@ import { World, S, SOL, expectFail, squadsProgramPath, rpcStub } from './helpers
 import { SQUADS, encodeSquadsMultisig, decodeSquadsMultisig, squadsVaultPda, checkSquadsRoles } from '../scripts/vcurve/preflight.mjs';
 import {
   guardianStopInstructions, squadsVaultCall, squadsProposalCancel, squadsMultisigPda, stopDone, stopPreconditions, parseArgs, messageHash,
-  STOP_COMPUTE_UNITS, DEFAULT_PRIORITY_FEE, roundPriorityFee,
+  STOP_COMPUTE_UNITS, DEFAULT_PRIORITY_FEE, roundPriorityFee, withTimeout, rpcLabel, summarizeViews, blockhashGroups,
 } from '../scripts/vcurve/guardian-stop.mjs';
 
 const { PublicKey } = web3;
@@ -229,5 +232,91 @@ test('R8-OPS-2, R8-DIFF-7 (review round 8) one lying RPC that serves a halted La
     const lp = w2.w.launchpad();
     assert.deepEqual([lp.launchesPaused, lp.buysHalted, w2.w.launchBatch().halted], [true, true, true]);
   } finally { await r1.close(); await r2.close(); }
+  await w.finish();
+});
+
+test('R8-OPS-2 residual (verification of round 8) one bad RPC no longer blocks a guardian stop: an RPC answering HTTP 503 ended the run before anything was sent, a silent one hung it, and print-only built its variants on the first RPC\'s blockhash alone; now each RPC is asked within a timeout, the stop goes through the one that answers, every RPC\'s state is reported, and one RPC alone is never reported as proof', async () => {
+  const { w, b, bSecret, multisig, index } = await guardianWorld();
+  const mallory = await w.signer(20n);
+  await w.publishBatch([{ cityId: 8501n, founder: mallory, symbol: 'BADRPC' }], { label: 'the thief\'s publication' });
+  const dir = mkdtempSync(join(tmpdir(), 'vcurve-r8-stop-rpc-'));
+  const keyFile = join(dir, 'member.json');
+  writeFileSync(keyFile, JSON.stringify([...bSecret]), { mode: 0o600 });
+  const halted = () => { const lb = w.launchBatch(); return [lb.halted, lb.latest.cleared]; };
+  // a failing provider (every request answered 503), a silent one (never answers), and one whose blockhash is invented
+  const failing = await rpcStub(w, { host: '127.0.0.2', status: () => 503 });
+  const silent = await rpcStub(w, { host: '127.0.0.3', status: () => 'silent' });
+  const fakeHash = web3.Keypair.generate().publicKey.toBase58();
+  const inventor = await rpcStub(w, { host: '127.0.0.4', rpc: (m) => (m.method === 'getLatestBlockhash' ? { context: { slot: 1 }, value: { blockhash: fakeHash, lastValidBlockHeight: 10 ** 9 } } : undefined) });
+  const honest = await rpcStub(w);
+  const signed = ['--multisig', multisig, '--keypair', keyFile, '--clear', '--rounds', '1', '--timeout', '1', '--program-id', String(w.programId)];
+  const host = (r) => r.url.replace('http://', '').replace(/[.]/g, '\\.');
+  try {
+    // print only, through the failing RPC (named first) and the honest one: before, the 503 ended the run with nothing printed
+    let out = await runStop(['--rpc', failing.url, '--rpc', honest.url, '--multisig', multisig, '--member', String(b.address), '--clear', '--variants', '2', '--timeout', '1', '--program-id', String(w.programId)]);
+    assert.equal(out.code, 0, out.text);
+    assert.match(out.text, new RegExp(`RPC 1 \\(${host(failing)}\\): failed: .*503`));
+    assert.match(out.text, new RegExp(`RPC 2 \\(${host(honest)}\\): answered \\(multisig transaction index ${index()}; does not show the stop\\)`));
+    assert.deepEqual([...out.text.matchAll(/^index (\d+): message hash/gm)].map((m) => BigInt(m[1])), [index() + 1n, index() + 2n]);
+    assert.doesNotMatch(out.text, /api-key|\?/, 'an RPC is named by its host only');
+
+    // print only, the RPC that invents its blockhash named first: before, every variant was built on its blockhash and
+    // none could land; now each blockhash gets its variants, and the honest one's executes when signed as printed
+    out = await runStop(['--rpc', inventor.url, '--rpc', honest.url, '--multisig', multisig, '--member', String(b.address), '--clear', '--variants', '2', '--timeout', '1', '--program-id', String(w.programId)]);
+    assert.equal(out.code, 0, out.text);
+    const groups = [...out.text.matchAll(/^blockhash (\S+) \(from ([^)]*\)[^:]*)\):$/gm)].map((m) => m[1]);
+    assert.deepEqual(new Set(groups), new Set([fakeHash, String(w.svm.latestBlockhash())]));
+    const blocks = [...out.text.matchAll(/^index (\d+): message hash (\S+)\n(\S+)$/gm)];
+    assert.equal(blocks.length, 4);
+    const onHonest = blocks.filter((m) => web3.Transaction.from(Buffer.from(m[3], 'base64')).recentBlockhash === String(w.svm.latestBlockhash()));
+    assert.deepEqual(onHonest.map((m) => BigInt(m[1])), [index() + 1n, index() + 2n]);
+
+    // signed, the failing RPC first: before, the 503 ended the run before anything was sent (exit 1, nothing on chain).
+    // Now the stop goes through the honest RPC, is on chain, and the tool says one RPC is no proof (exit 1)
+    assert.deepEqual(halted(), [false, false]);
+    out = await runStop(['--rpc', failing.url, '--rpc', honest.url, ...signed]);
+    assert.equal(out.code, 1, out.text);
+    assert.match(out.text, /warning RPC_FAILED: RPC 1 .* failed or did not answer: the stop goes ahead through the RPC that answers/);
+    assert.match(out.text, /round 1: sent \d+ variant\(s\) .*RPC 1 \(\S+\) accepted 0 of \d+ \(.*503.*\); RPC 2 \(\S+\) accepted (\d+) of \1/);
+    assert.match(out.text, new RegExp(`PROBLEM RPC_FAILED: RPC 2 \\(${host(honest)}\\) shows the stop and this member's transaction \\S+ confirmed, and RPC 1 \\(${host(failing)}\\) failed or did not answer: one RPC is no proof`));
+    assert.ok(stopDone(state(w), { clear: true }), 'the stop is on chain');
+    assert.ok(honest.calls.includes('sendTransaction'));
+    assert.ok(failing.calls.includes('sendTransaction:503'), 'it was sent through the failing RPC too');
+
+    // signed, a silent RPC first, after the admin lifts the halt and a new thief's batch: before, the tool hung with no
+    // output (web3.js has no timeout); now it reports the silent RPC after the timeout, the stop lands through the
+    // honest one, and the run ends within seconds
+    await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: w.approver.address })], [w.admin], 'the admin lifts the halt (set_launch_approver)');
+    await w.publishBatch([{ cityId: 8502n, founder: mallory, symbol: 'SILENT' }], { label: 'the thief\'s next publication' });
+    assert.deepEqual(halted(), [false, false]);
+    const t0 = Date.now();
+    out = await runStop(['--rpc', silent.url, '--rpc', honest.url, ...signed]);
+    assert.ok(Date.now() - t0 < 20_000, `the run took ${Date.now() - t0} ms`);
+    assert.equal(out.code, 1, out.text);
+    assert.match(out.text, new RegExp(`RPC 1 \\(${host(silent)}\\): failed: no answer within 1 s`));
+    assert.match(out.text, /PROBLEM RPC_FAILED: RPC 2 .* shows the stop and this member's transaction \S+ confirmed, and RPC 1 .* failed or did not answer/);
+    assert.ok(stopDone(state(w), { clear: true }), 'the stop is on chain');
+
+    // both RPCs failing: nothing can be built, said at once
+    out = await runStop(['--rpc', silent.url, '--rpc', failing.url, ...signed]);
+    assert.equal(out.code, 1, out.text);
+    assert.match(out.text, /PROBLEM: neither RPC answered: nothing can be built/);
+  } finally {
+    await failing.close(); await silent.close(); await inventor.close(); await honest.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // the pieces: the timeout, the RPC's name, the summary of the views (proof needs every RPC), the blockhash groups
+  await assert.rejects(withTimeout(new Promise(() => {}), 50), /no answer within 0\.05 s/);
+  assert.equal(await withTimeout(Promise.resolve(7), 50), 7);
+  assert.equal(rpcLabel('https://mainnet.helius-rpc.com/?api-key=SECRET', 0), 'RPC 1 (mainnet.helius-rpc.com)');
+  assert.equal(rpcLabel('https://x.example:8899/v1/SECRET', 1), 'RPC 2 (x.example:8899)');
+  const lpv = w.launchpad(); const lbv = w.launchBatch();
+  const ok = { ok: true, raw: [null, null, null], launchpad: lpv, launchBatch: lbv };
+  const sum = summarizeViews([ok, { ok: false, error: 'HTTP 503' }], { clear: true });
+  assert.deepEqual([sum.all, sum.shown, sum.failed, sum.answered.length], [false, true, [1], 1]);
+  assert.deepEqual((({ all, shown }) => ({ all, shown }))(summarizeViews([ok, ok], { clear: true })), { all: true, shown: true });
+  assert.equal(summarizeViews([{ ok: false, error: 'x' }, { ok: false, error: 'y' }], { clear: true }).shown, false);
+  assert.deepEqual([...blockhashGroups(['h1', { error: 'x' }, 'h1', 'h2']).entries()], [['h1', [0, 2]], ['h2', [3]]]);
   await w.finish();
 });

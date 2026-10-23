@@ -15,7 +15,9 @@
 // RPC and must agree (R8-DIFF-1), `check` too and two RPCs of one provider count as one (R8-DIFF-4); the website's
 // window is the default one, and `confirm` (and the alarm) compare the transaction that wrote a record with the one the
 // owner verified (R8-DIFF-2); the archive's MAC key lives outside any archive folder and is 32 bytes (R8-DIFF-5); an
-// approver that is not a wallet key is refused (R8-DIFF-6).
+// approver that is not a wallet key is refused (R8-DIFF-6). The verification of round 8: the coins, which every trade
+// rewrites, are compared between the RPCs by existence and owner only, so a trade between the two reads stops nothing
+// (R8-NEW-1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -29,7 +31,7 @@ import { World, S, SOL, rpcStub, expectFail } from './helpers.mjs';
 import {
   verifyListFile, checkStoredBatch, batchAddresses, allAddresses, parseArgs, changeLines, recordLive, archiveEntry, confirmPublication,
   decodePageTransaction, checkPageTransaction, messageHash, holderCandidateEntries, rpcProvider, rpcUrlsProblem, writeArchiveEntry, readArchive,
-  archiveKey, compareChainViews, CLOCK_SYSVAR,
+  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses,
 } from '../scripts/vcurve/batch.mjs';
 
 const snapshot = (w, entries) => Object.fromEntries(allAddresses(batchAddresses(entries, { programId: w.programId })).map((k) => [k, w.accountInfo(k)]));
@@ -965,5 +967,95 @@ test('R8-DIFF-6 (review round 8) an approver that is not a wallet key (a Squads 
   const r = verifyListFile({ file: L, accounts: snapshot(w, L.entries), approvals: approvalsOf(w), approver: vaultApprover, now: w.now(), programId: w.programId, chainConfirmed: true });
   assert.deepEqual([codes(r.problems), r.publish], [['APPROVER_NOT_WALLET_KEY'], null]);
   assert.match(r.problems[0].message, /cannot check a publication made through Squads/);
+  await w.finish();
+});
+
+test('R8-NEW-1 (verification of round 8) a trade landing between the two RPCs\' reads rewrites a coin the verifier reads (a city of the batch in force, launched and trading): the coins are compared only in whether they exist and their owner, so the daily verify, a first use and check run while yesterday\'s coins trade; a hidden coin is still RPC_DISAGREE', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const fs = []; for (let i = 0; i < 4; i++) fs.push(await w.signer(20n));
+  const trader = await w.signer(50n);
+  const sc = scratch();
+  const A = { cityId: 9971n, founder: fs[0], symbol: 'TA' }; const B = { cityId: 9972n, founder: fs[1], symbol: 'TB' };
+  const C = { cityId: 9973n, founder: fs[2], symbol: 'TC' };
+  const coinA = String(w.P.coin(A.cityId));
+  // the second RPC, asked for coin A while a trade is armed, waits until the first has served coin A, lets a buy land,
+  // then answers: two honest RPCs, a slot apart, around a trade
+  let armed = false; let armedFirst = false; let served = null; let firstServed = () => {}; let seenFirst = null; let trades = 0; let hA = null; let hideCoin = false;
+  const arm = () => { armed = true; armedFirst = true; served = new Promise((ok) => { firstServed = ok; }); };
+  const first = await rpcStub(w, { lie: (addr, a) => { if (armedFirst && addr === coinA && a) { armedFirst = false; seenFirst = Buffer.from(a.data); firstServed(); } return a; } });
+  const second = await rpcStub(w, {
+    host: '127.0.0.2',
+    lie: (addr, a) => (hideCoin && addr === coinA ? null : a),
+    before: async (m) => {
+      if (!armed || m.method !== 'getMultipleAccounts' || !m.params[0].includes(coinA)) return;
+      armed = false;
+      await served;
+      await w.buy(trader, hA, 250_000_000n, { label: 'a trade between the two RPCs\' reads' });
+      trades++;
+    },
+  });
+  const rpcs = ['--rpc', first.url, '--rpc', second.url];
+  const verify = (name, file, more = [], s = sc) => cli(['verify', s.put(name, file), ...rpcs, '--approver', String(approver.address), '--program-id', String(w.programId), '--archive', s.archive, ...more], s.env);
+  const traded = () => { assert.equal(trades, 1, 'the trade landed between the reads'); assert.ok(!seenFirst.equals(Buffer.from(w.accountInfo(coinA).data)), 'the two RPCs served coin A with different bytes'); trades = 0; };
+  const sc2 = scratch();
+  try {
+    // day 1: batch 1 (A, B) verified, signed, confirmed; at its valid_from A launches and trades
+    const F1 = listFile(w, [A, B], 1n);
+    await publishConfirmed(w, approver, sc, rpcs, 'r1.json', F1);
+    w.warpTo(w.launchBatch().latest.validFrom);
+    hA = await w.launchFromBatch({ batch: S.parseLaunchBatchFile(F1), cityId: A.cityId, founder: fs[0], label: 'A launches from batch 1' });
+    await w.buy(trader, hA, 500_000_000n, { label: 'A trades' });
+    // day 2: batch 2 (B, C). The verifier reads coin A (a city of the batch in force, which may hold a ticker); a buy
+    // lands between the first RPC's read and the second's. Before the fix: RPC_DISAGREE naming coin A, no transaction
+    const F2 = listFile(w, [B, C], 2n);
+    arm();
+    let c = await verify('r2.json', F2);
+    traded();
+    assert.equal(c.code, 0, c.out);
+    assert.doesNotMatch(c.out, /RPC_DISAGREE/);
+    assert.match(c.out, /unsigned publish_launch_batch/);
+    // a first use on another computer: batch 1 from --previous, read from both RPCs, with a trade between the reads
+    arm();
+    c = await verify('r2.json', F2, ['--previous', sc2.put('r1.json', F1)], sc2);
+    traded();
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /unsigned publish_launch_batch/);
+    // the monitor's check of batch 1 reads coin A too
+    arm();
+    c = await cli(['check', sc.put('r1.json', F1), ...rpcs, '--program-id', String(w.programId)], sc.env);
+    traded();
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /the stored batch is the list \(both RPCs agree\)/);
+    // the coin's existence is still compared: an RPC hiding coin A stops the run (R8-DIFF-1)
+    hideCoin = true;
+    c = await verify('r2.json', F2);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, new RegExp(`PROBLEM RPC_DISAGREE: the RPCs return different accounts \\(${coinA}\\)`));
+    assert.doesNotMatch(c.out, /unsigned publish_launch_batch/);
+    hideCoin = false;
+    // the comparison itself: the coins (and the old program's) by existence and owner; every other account byte for byte
+    const Ad = batchAddresses(F2.entries.concat(F1.entries), { programId: w.programId });
+    const loose = presenceOnlyAddresses(Ad);
+    assert.deepEqual(new Set(loose), new Set([A, B, C].flatMap((e) => [String(w.P.coin(e.cityId)), String(w.P.legacyCoin(e.cityId))])));
+    const clock = w.accountInfo(CLOCK_SYSVAR);
+    const lp = String(w.P.launchpad());
+    const legacyA = String(w.P.legacyCoin(A.cityId));
+    const coinNow = w.accountInfo(coinA);
+    const flip = (a) => { const d = Buffer.from(a.data); d[d.length - 100] ^= 1; return { ...a, data: d }; };
+    const fakeLegacy = { owner: String(S.CLUSTERS.mainnet.legacyProgram), lamports: 1n, data: Buffer.alloc(64, 1) };
+    const view = (over = {}) => ({ [CLOCK_SYSVAR]: clock, [lp]: w.accountInfo(lp), [coinA]: coinNow, [legacyA]: fakeLegacy, ...over });
+    const cmp = (v) => codes(compareChainViews([view(), v], [lp, coinA, legacyA], { presenceOnly: loose }).problems);
+    assert.deepEqual(cmp(view({ [coinA]: flip(coinNow) })), [], 'a coin after a trade');
+    assert.deepEqual(cmp(view({ [legacyA]: flip(fakeLegacy) })), [], 'an old program\'s coin after a trade');
+    assert.deepEqual(cmp(view({ [coinA]: null })), ['RPC_DISAGREE'], 'a hidden coin');
+    assert.deepEqual(cmp(view({ [legacyA]: null })), ['RPC_DISAGREE'], 'a hidden old coin');
+    assert.deepEqual(cmp(view({ [coinA]: { ...coinNow, owner: S.ADDRESSES.token } })), ['RPC_DISAGREE'], 'a coin of another owner');
+    assert.deepEqual(cmp(view({ [lp]: flip(w.accountInfo(lp)) })), ['RPC_DISAGREE'], 'the Launchpad, byte for byte');
+    assert.deepEqual(codes(compareChainViews([view(), view({ [coinA]: flip(coinNow) })], [lp, coinA, legacyA]).problems), ['RPC_DISAGREE'], 'without presenceOnly every account is compared byte for byte');
+  } finally {
+    await first.close(); await second.close();
+    sc.done(); sc2.done();
+  }
   await w.finish();
 });

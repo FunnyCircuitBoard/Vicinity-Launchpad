@@ -6,7 +6,8 @@ entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review rou
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
-entries 83 to 90 review round 7, and entries 91 to 96 review round 8). The
+entries 83 to 90 review round 7, entries 91 to 96 review round 8, and entries 97 and 98 the
+verification of round 8). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2909,7 +2910,9 @@ read it, while two URLs of one provider (a trailing slash, another key) counted 
   earlier time keeps records live longer and moves the default window earlier, never past what the program allows);
   every account (`Launchpad`, `LaunchBatch`, configs, each city's and each holder city's accounts) must be the same on
   every RPC (`RPC_DISAGREE`, naming the accounts); the pending approvals must be the same set on every RPC. Any
-  disagreement stops the run (retry, and do not sign until they agree). `getBlockTime` is no longer used.
+  disagreement stops the run (retry, and do not sign until they agree). `getBlockTime` is no longer used. (Narrowed
+  by the verification of round 8, entry 97: each `Coin`, which every trade rewrites, is compared by existence and
+  owner only.)
 * `check` and `confirm` read every RPC the same way.
 * Two `--rpc` must be two providers: their IP addresses, or the last two labels of their host names, differ
   (`rpcProvider`); `https://x.example` and `https://x.example/`, or `mainnet.helius-rpc.com` and
@@ -3013,7 +3016,8 @@ reproduced in litesvm).
   the multisig, so one lying RPC can neither spoil every variant nor fake the result. A precondition that only one RPC
   shows unmet does not keep the member from stopping (a warning says the RPCs disagree). When both show the stop but
   none of the member's transactions is confirmed after the rounds, the tool says so (exit 1): another member's stop, or
-  RPCs not to be trusted.
+  RPCs not to be trusted. (Completed by the verification of round 8, entry 98: each RPC within a timeout, so one that
+  fails or does not answer never holds the stop.)
 * Each transaction starts with `SetComputeUnitLimit(150,000)` (a stop measured about 90,000 units) and
   `SetComputeUnitPrice` (`--priority-fee`, micro-lamports per unit, default 1,000,000, about 0.00015 SOL per
   transaction, doubled each round up to 50,000,000), outside the vault message, so the stop itself is unchanged.
@@ -3052,3 +3056,76 @@ named by `--archive` or $VICINITY_BATCH_ARCHIVE, is warned as moved, its entry i
 round 8: the thief's list was the baseline and GEVIL vanished); `readArchive` with the folder's own key and with this
 computer's; key files of 0, 14, 3 and 62 characters stop the run; a key is created once and never replaced, and its
 fingerprint printed. Every CLI run of the suites names a scratch HOME.
+
+### 97. The coins, which every trade rewrites, are compared between the RPCs by existence and owner (8.4 step 2, 14.1; verification of round 8, R8-NEW-1)
+
+**Spec.** NOTES 92 (review R8-DIFF-1): "every account (`Launchpad`, `LaunchBatch`, configs, each city's and each
+holder city's accounts) must be the same on every RPC".
+
+**Issue.** Byte for byte included each city's `Coin` and the old program's `Coin`, whose reserves, `tokens_sold`, fee
+counters and `trade_seq` change with every buy, sell, buyback and fee claim. `verify` reads the coins of the list's
+cities and of the cities of the stored batches (the holder candidates of entry 86), so yesterday's cities, launched
+and trading: two honest RPCs one slot apart then disagree, `verify` stops with `RPC_DISAGREE` whenever one of those
+coins trades between the two reads, and on a first use, where two RPCs are required, the owner may not get a
+transaction at all; `check` the same. Reproduced in litesvm: a buy landing between the two RPCs' reads of the daily
+`verify` gave `RPC_DISAGREE` naming the coin and no transaction. Low.
+
+**Choice.** The verifier uses only whether a coin exists (a city with a coin is refused, and a holder city with a
+coin holds no ticker), never its content. `compareChainViews` therefore compares the accounts of
+`presenceOnlyAddresses` (each read city's `Coin` and old-program `Coin`) by existence, as the verifier judges it, and
+by owner, and every other account byte for byte as before: `Launchpad`, `LaunchBatch`, the configs, the per-city and
+old-program `Approval`s and the `TickerLock`s change only with an admin call, a launch, a publication or a clear,
+after which the owner runs it again. A hidden or invented coin, or one of another owner, is still `RPC_DISAGREE`.
+Reading both RPCs at one slot was considered and not built: `minContextSlot` only sets a floor (an RPC answers at its
+own, newer slot), and no RPC serves accounts as they stood at a past slot. Neither the program nor the SDK changes.
+
+Tests. `33-batch-verifier` R8-NEW-1 (the real CLI against two stubs; the second, asked for the coin, waits until the
+first has served it, lets a buy land, then answers): batch 1 confirmed, its city A launched and trading; the daily
+`verify` of batch 2, a first use with `--previous`, and `check` of batch 1 each read coin A on both sides of a trade
+and pass (before: `RPC_DISAGREE` naming coin A, no transaction); an RPC hiding coin A is still `RPC_DISAGREE`;
+`compareChainViews` with `presenceOnly`: a coin and an old program's coin after a trade agree, a hidden coin, a hidden
+old coin and a coin of another owner disagree, the `Launchpad` is still compared byte for byte, and without
+`presenceOnly` a traded coin disagrees.
+
+### 98. One failing or silent RPC never holds a guardian stop (8.4 step 5, 14.1; verification of round 8, the residual of R8-OPS-2)
+
+**Spec.** NOTES 95 and the tool's header: "one lying or failing RPC can neither report a stop that is not on chain
+nor drop the stop unseen".
+
+**Issue.** The two RPCs were read with `Promise.all` and no timeout. One RPC answering HTTP 503 rejected the first
+read, and the tool exited (status 1) before building or sending anything, in print-only mode too; a silent RPC (the
+connection accepted, never answered) hung it without output, since web3.js sets no timeout; the sends went RPC after
+RPC, so a silent first RPC would have held every send through the second; and the print-only mode built its variants
+on the first RPC's blockhash alone, so an RPC inventing its blockhash, named first, spoiled every printed variant.
+Reproduced against the round-8 tool in litesvm: through a 503 RPC, print-only and signed both exited 1 within 0.3
+seconds with nothing printed or sent; through a silent RPC, no output and nothing sent until the run was killed at
+45 seconds; with the inventor first, both printed variants carried the invented blockhash. Low.
+
+**Choice.**
+* Every RPC call carries a timeout (`--timeout`, seconds, default 8, 1 to 60; web3.js's retries on HTTP 429 are off,
+  since the polls retry anyway), and each RPC is read on its own: one that fails or does not answer is reported
+  ("failed: 503 ...", "failed: no answer within 8 s", `warning RPC_FAILED`) and the stop goes ahead through the one
+  that answers; the preconditions and the next indices come from the RPCs that answered. Neither answering is a
+  `PROBLEM` at once.
+* Each RPC's blockhash is used as soon as it arrives: its variants are signed and sent through every RPC at once, each
+  send within the timeout, so no send through an honest RPC waits for a bad one. Each round reports how many sends
+  each RPC accepted, and every RPC's state (its view of the multisig's index, whether it shows the stop) is printed at
+  the start and at the end. An RPC is named by its number and host only, so an API key in its URL is never printed
+  (the round-8 tool printed the whole URL when a send failed).
+* The print-only mode prints the variants on every blockhash the RPCs gave, each group headed by its blockhash and the
+  RPCs that gave it.
+* The protection against a false success holds: exit 0 only when both RPCs answer and show the stop and one of the
+  member's transactions is confirmed. When the RPC that answers shows the stop with the member's transaction confirmed
+  and the other failed, the tool sends no more rounds (none would make it surer) and says `PROBLEM RPC_FAILED`: one
+  RPC is no proof; check `LaunchBatch` through a third provider and tell the other members (exit 1). Before sending,
+  one answering RPC that already shows the stop does not hold the member back: a repeated stop changes nothing.
+
+Tests. `34-guardian-stop` R8-OPS-2 residual (the real CLI against stubs that answer 503, never answer, or invent their
+blockhash, each named first): print-only through the 503 RPC prints the honest RPC's variants and reports the 503
+(before: exit 1, nothing printed); print-only with the inventor prints both blockhash groups, and the honest one's
+variants are for the next indices (before: only the invented blockhash); signed through the 503 RPC, the stop lands
+through the honest one (before: nothing sent), the round's report shows no send accepted by the failing RPC and every
+send by the honest one, and the tool exits 1 with `RPC_FAILED`; signed through the silent RPC (a 1-second timeout),
+the same within seconds (before: no output); both failing is a `PROBLEM` at once; `withTimeout`, `rpcLabel` (the host
+only), `summarizeViews` (proof needs every RPC) and `blockhashGroups`. The suites' JSON-RPC stub gained `before`
+(awaited before it answers) and `status` (an HTTP status, or 'silent'), and closes the connections it holds.
