@@ -198,22 +198,32 @@ export async function clearApproved(db, cityId) {
   catch (e) { if (!noTable(e) && !noColumn(e)) throw e; } // no table or no column yet: nothing was ever marked
 }
 /**
- * Every city's choice, Map(city id -> { mint, design_at }), for the pages that list many coins (src/launchpad.js). No table: empty.
+ * Every city's choice, Map(city id -> { mint, design_at, symbol, name, content_hash, approved_hash }), for the pages that list many
+ * coins (src/launchpad.js). No table: empty. (A coin_ready made before approved_hash existed reads as "not approved", as chosenOf.)
  */
 export async function readyChoices(db) {
-  const rows = await read(db, () => db.prepare("SELECT city_id, mint, design_at FROM coin_ready").all());
+  const sql = (approved) => `SELECT r.city_id, r.mint, r.design_at, r.symbol, r.content_hash, ${approved} AS approved_hash, v.name
+    FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id`;
+  const rows = await read(db, async () => {
+    try { return await db.prepare(sql("r.approved_hash")).all(); }
+    catch (e) { if (noColumn(e)) return db.prepare(sql("NULL")).all(); throw e; }
+  });
   return new Map(((rows && rows.results) || []).map((r) => [String(r.city_id), r]));
 }
 /**
- * Who made a city's coin design, as the pages may say it: "vicinity" when the design row IS a ready-made version (src/coinready.js):
- * the version bound to the launched coin (whatever any switch says now: it is the coin's for ever), or, with COIN_V2_READY on, the
- * chosen version while it is still the design row (its updated_at). Else null (the founder's own design, or nothing known).
- * `coin`: { mint, updatedAt } of the design row; `choice`: its coin_ready row (chosenOf or readyChoices), or null.
+ * Who made a city's coin design, as the pages may say it: { by: "vicinity", chosen } when the design row IS a ready-made version
+ * (src/coinready.js): the version bound to the launched coin (whatever any switch says now: it is the coin's for ever; chosen), or,
+ * with COIN_V2_READY on, the chosen version while it is still the design row (its updated_at). Else null (the founder's own design,
+ * or nothing known). `coin`: { mint, updatedAt } of the design row; `choice`: its coin_ready row (chosenOf or readyChoices), or null.
+ * `holds()`: does that unlaunched choice still hold (src/coinready.js choiceHolds: its ticker and name are the city list's now, or an
+ * approval on chain was given from it)? Asked only for such a choice. One that no longer holds is Vicinity's design still, but nobody's
+ * choice now (chosen: false): the owner's list says the founder must use the coin again, and their card offers the new version.
  */
-export function madeByOf(env, coin, choice) {
+export async function madeByOf(env, coin, choice, holds) {
   if (!coin || !choice) return null;
-  if (coin.mint) return choice.mint && choice.mint === coin.mint ? "vicinity" : null;
-  return coinV2ReadyOn(env) && !choice.mint && choice.design_at === coin.updatedAt ? "vicinity" : null;
+  if (coin.mint) return choice.mint && choice.mint === coin.mint ? { by: "vicinity", chosen: true } : null;
+  if (!coinV2ReadyOn(env) || choice.mint || choice.design_at !== coin.updatedAt) return null;
+  return { by: "vicinity", chosen: Boolean(await holds()) };
 }
 /** The picture of a launched coin bound to `mint` (its art SHA-256), or null. */
 export async function boundArtOf(db, mint) {

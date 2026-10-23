@@ -18,6 +18,7 @@ import { metadataAddress } from "../src/sol/metaplex.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
 import { PROGRAM, SYRACUSE, UTICA, approvalAccount, launchOnChain, metadataAccount, seenOf, world } from "./helpers/readyworld.js";
 import { addr } from "./helpers/lpchain.js";
+import { _resetLaunchpad, handleLaunchpad } from "../src/launchpad.js";
 
 before(async () => { const r = await nodeRenderer(); _setArtRenderer(r); });
 after(() => { _setArtRenderer(null); realClock(); });
@@ -317,4 +318,58 @@ test("S1R-1: /api/coins?city= says who made the design: the ready-made coin chos
   assert.equal("madeBy" in studio, false);
   w2.env.COIN_V2_READY = "on";
   assert.equal("madeBy" in (await w2.get(browser(w2.env), `/api/coins?city=${UTICA}`)).coin, false);
+});
+
+test("S1R-3 / F1: a choice the city list moved away from is Vicinity's design still, but nobody's choice: the coin answer and the Launchpad card say chosen: false", async () => {
+  const w = await world();
+  const pub = async () => (await w.get(browser(w.env), `/api/coins?city=${UTICA}`)).coin;
+  const lpCard = async () => {
+    _resetLaunchpad();
+    const r = await handleLaunchpad({ ...w.env, LAUNCHPAD_V2: "on" }, w.both);
+    return (await r.json()).coins.find((c) => c.city.id === UTICA);
+  };
+  const said = (c) => [c.madeBy, c.chosen];
+  await w.useCoin(); // Utica chose $UTICA
+  assert.deepEqual(said(await pub()), ["vicinity", true]);
+  assert.deepEqual([(await lpCard()).status, ...said(await lpCard())], ["designed", "vicinity", true]);
+  // a renamed region (S1R-4): the ticker and the name are the list's still, so the choice holds (the owner's list can approve it)
+  relist(w, { 5128581: "NYC", 5140405: "SYRACUSE", 5106834: "ALBANY", 5142056: "UTICA" }, { "US.NY": "New York State" });
+  assert.equal((await w.card()).ok, true, JSON.stringify((await w.card()).reasons));
+  assert.deepEqual(said(await pub()), ["vicinity", true]);
+  // the list gives UTICA to Syracuse and UTICA2 to Utica: the owner's list and the founder's own card say it no longer matches, and so
+  // does every page: Vicinity's design, chosen by nobody now (never "Chosen" next to $UTICA2, which the founder never chose)
+  relist(w, { 5128581: "NYC", 5140405: "UTICA", 5106834: "ALBANY", 5142056: "UTICA2" });
+  assert.match((await w.card()).reasons.join(" "), /no longer matches the city list/);
+  const uv = await view(w, w.f);
+  assert.deepEqual([uv.inUse, uv.coin.ticker, uv.chosen.ticker], [false, "UTICA2", "UTICA"]);
+  assert.deepEqual(said(await pub()), ["vicinity", false]);
+  const card = await lpCard();
+  assert.deepEqual([card.status, card.ticker, ...said(card)], ["designed", "UTICA2", "vicinity", false]);
+  // the list cannot be read: a choice is never assumed stale (as src/coinready.js staleChoice)
+  const assets = w.env.ASSETS;
+  w.env.ASSETS = { fetch: async () => new Response("", { status: 503 }) };
+  _resetCityCache(); _resetTickers();
+  assert.deepEqual(said(await pub()), ["vicinity", true]);
+  w.env.ASSETS = assets;
+  _resetCityCache(); _resetTickers();
+  // the founder uses the new version: chosen again
+  await reprove(w.f);
+  const a = await w.post(w.f, "/api/coins/ready/art", { cityId: UTICA });
+  assert.equal((await w.post(w.f, "/api/coins/ready/use", { cityId: UTICA, contentHash: a.coin.contentHash })).ok, true);
+  assert.deepEqual(said(await pub()), ["vicinity", true]);
+  assert.deepEqual(said(await lpCard()), ["vicinity", true]);
+  // approved on chain from that version (recorded: lp_approvals_log), then the list moves again: that approval is what launches, so
+  // the coin stays chosen whatever the list says now
+  assert.equal((await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(await w.card()), expiryDays: 7 })).ok, true);
+  await approveOnChain(w, { name: "Utica", symbol: "UTICA2" });
+  await ensureLpAdminSchema(w.env.DB);
+  await w.env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('devnet', ?, ?, 'approve', ?, 'Utica', 'UTICA2', 'x', 'sigB', ?, 'now')")
+    .bind(PROGRAM, UTICA, w.f.w.address, w.owner.w.address).run();
+  relist(w, { 5128581: "NYC", 5140405: "UTICA2", 5106834: "ALBANY", 5142056: "UTICA" });
+  assert.equal((await view(w, w.f)).gate.code, "approved");
+  assert.deepEqual(said(await pub()), ["vicinity", true]);
+  // revoked since: no longer
+  await w.env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('devnet', ?, ?, 'revoke', ?, 'Utica', 'UTICA2', 'x', 'sigC', ?, 'now')")
+    .bind(PROGRAM, UTICA, w.f.w.address, w.owner.w.address).run();
+  assert.deepEqual(said(await pub()), ["vicinity", false]);
 });

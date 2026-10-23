@@ -443,6 +443,20 @@
     const dd = Math.floor(ms / 86400000), hh = Math.floor((ms % 86400000) / 3600000), mm = Math.floor((ms % 3600000) / 60000);
     return dd > 0 ? `${dd}d ${hh}h` : `${hh}h ${mm}m`;
   }
+  /**
+   * The Today line that sends the founder to "Use this coin": its title and its words, from the server's own flags (src/coinready.js
+   * founderView), the way public/coin-ready.js words its note: a choice made by a former founder, the founder's own choice that the city
+   * list or Vicinity's design has moved past (a new version), their choice whose design row changed since, an earlier studio design kept
+   * aside (earlier), or no design at all. Never "your earlier design" for a design that was Vicinity's or a former founder's.
+   */
+  function readyStep(rf, city) {
+    const ch = rf.chosen && !rf.chosen.launched ? rf.chosen : null;
+    if (ch && ch.current && !ch.mine) return [`Choose ${city}'s coin`, "A former founder chose this coin. Use it to make it yours."];
+    if (ch && ch.current) return [`Choose ${city}'s coin again`, "Vicinity's design or the city list changed since you chose. Check the new version, then use it."];
+    if (ch && ch.mine) return [`Choose ${city}'s coin again`, "Your coin's design was changed since you chose it. Check it, then use it again."];
+    if (rf.earlier) return [`Choose ${city}'s coin`, "Your earlier design is kept, but city coins are made by Vicinity now. Check yours, then use it."];
+    return [`${city}'s coin is ready`, "The Vicinity design with your city's ticker, from the city list. Check it, then use it."];
+  }
   function today(d) {
     const f = d.founder || {}, seat = f.seat, c = d.community, n = d.national, sq = d.squad, h = d.holding || {}, u = d.user;
     const city = u.home ? u.home.name : "your city", seated = Boolean(seat && (seat.status === "active" || seat.status === "steward"));
@@ -459,7 +473,7 @@
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
     // the ready-made coin (COIN_V2_READY): said only once the founder's coin answer has a coin (a city the list has no ticker for gets none)
     const rf = readyFounder(), rcoin = Boolean(rf && rf.coin);
-    if (readyOn()) { if (seated && coinKnown && rcoin && !rf.inUse && !rf.gate && (!coin || (!coin.launched && !coin.waiting))) add(coin ? `Choose ${seat.city}'s coin` : `${seat.city}'s coin is ready`, coin ? "Your earlier design is kept, but city coins are made by Vicinity now. Check yours, then use it." : "The Vicinity design with your city's ticker, from the city list. Check it, then use it.", "ok", "founder", "#coin-ready"); }
+    if (readyOn()) { if (seated && coinKnown && rcoin && !rf.inUse && !rf.gate && (!coin || (!coin.launched && !coin.waiting))) add(...readyStep(rf, seat.city), "ok", "founder", "#coin-ready"); }
     else if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
     // the old path's step only while the server says that path is open (never from a guess: a status call still on its way, a probe that failed)
     if (seated && coin && !coin.mint && !coin.waiting && labOpen() && !readyOn()) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");

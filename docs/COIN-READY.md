@@ -74,7 +74,12 @@ revoked it) is `approved_other`; one built from anything else (a studio design a
 with the switch off) is `approved_earlier`, which names the approved name and ticker. In both cases the card shows no coin of its own and
 no preview: what launches is that approval. While a version is approved or launched, the card shows that version, not the defaults as the
 city list reads today. The coin card and the Launchpad say "made by Vicinity" / "Chosen" for a design row that is the
-ready-made coin (`madeBy` in `/api/coins?city=` and on Launchpad cards), never "designed by the City Founder".
+ready-made coin (`madeBy` in `/api/coins?city=` and on Launchpad cards), never "designed by the City Founder". `chosen` says whether that
+choice still holds (`src/coinready.js` `choiceHolds`): its ticker and name are the city list's now, or an approval on chain was given from
+it, or the list cannot be read. One the list moved away from is `chosen: false`: still Vicinity's design, but the pages say "Not chosen
+yet" (or "Not launched" with no founder) and no "chosen <date>", as the owner's list ("no longer matches the city list") and the founder's
+card (a new version to use) do. The founder's Today line is worded from the same answer's flags as their card: a new version of their
+choice, a former founder's choice, their earlier studio design kept aside, or a coin ready.
 
 ## Measured (18 Oct 2026)
 

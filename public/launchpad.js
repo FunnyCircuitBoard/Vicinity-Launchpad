@@ -193,12 +193,14 @@
   const WAITING_LP = ["Old contract waiting", "tag--warn"]; // with the launchpad set up nobody checks such a contract: it can only be rejected
   /**
    * The status tag: text and extra class. $VICINITY before its mint carries the countdown. `lp`: the launchpad is set up. A coin the
-   * server says Vicinity made (madeBy "vicinity": the ready-made coin its founder chose, src/coinart-store.js) is never called designed.
+   * server says Vicinity made (madeBy "vicinity": the ready-made coin its founder chose, src/coinart-store.js) is never called designed;
+   * nor chosen when the server says the choice no longer holds (chosen: false: the city list gave the city another ticker or name since,
+   * src/coinready.js choiceHolds): "Not chosen yet" with a founder seated, else "Not launched".
    */
   function statusLabel(c, { now = Date.now(), opensAt = null, lp = lpOn } = {}) {
     if (c && c.status === "upcoming") { const at = Date.parse(str(c.opensAt)) || opensAt; return [Number.isFinite(at) ? countdownText(at - now) : "Opens soon", "tag--gold"]; }
     if (c && c.status === "waiting" && lp) return WAITING_LP;
-    if (c && c.status === "designed" && c.madeBy === "vicinity") return ["Chosen", ""];
+    if (c && c.status === "designed" && c.madeBy === "vicinity") return c.chosen === false ? [c.founder ? "Not chosen yet" : "Not launched", ""] : ["Chosen", ""];
     const s = STATUS[c && c.status] || ["Designed", ""];
     return s;
   }

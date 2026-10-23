@@ -259,13 +259,33 @@ async function previewOf(env, cityId, { seat, d, c, design }) {
   return { label: PREVIEW_LABEL, ticker: d.ticker, name: d.name, description: d.description, chosen: false,
     city: { name: d.city.name, region: d.city.region, countryName: d.city.countryName }, art: art ? artPath(art.sha256) : null };
 }
-/** An approval the owner gave this city on this launchpad and did not revoke since (lp_approvals_log), or none. Reads only. */
-async function approvalLogged(env, cityId) {
+/**
+ * An approval the owner gave this city on this launchpad and did not revoke since (lp_approvals_log), or none. `of`: { symbol, name }
+ * only one naming exactly these. Reads only.
+ */
+async function approvalLogged(env, cityId, of = null) {
   const s = lpSetup(env);
   if (!s.on) return false;
-  return Boolean(await optional(() => env.DB.prepare(`SELECT a.id FROM lp_approvals_log a WHERE a.action = 'approve' AND a.city_id = ? AND a.cluster = ? AND a.program_id = ?
+  const named = of ? " AND a.symbol = ? AND a.name = ?" : "";
+  return Boolean(await optional(() => env.DB.prepare(`SELECT a.id FROM lp_approvals_log a WHERE a.action = 'approve' AND a.city_id = ? AND a.cluster = ? AND a.program_id = ?${named}
       AND NOT EXISTS (SELECT 1 FROM lp_approvals_log b WHERE b.city_id = a.city_id AND b.cluster = a.cluster AND b.program_id = a.program_id
-        AND b.action = 'revoke' AND b.id > a.id) LIMIT 1`).bind(String(cityId), s.cluster, s.programId).first()));
+        AND b.action = 'revoke' AND b.id > a.id) LIMIT 1`).bind(String(cityId), s.cluster, s.programId, ...(of ? [of.symbol, of.name] : [])).first()));
+}
+/**
+ * Does a city's choice that is not launched and is still its design row (src/coinart-store.js madeByOf) still hold, so a page may call
+ * the coin chosen? The rule of previewOf and the owner's list (src/lpadmin.js candidateList): its ticker and its version's name are the
+ * city list's now (src/coindefaults.js; `country`: the design row's). One the list moved away from can never be approved ("no longer
+ * matches the city list"): the founder's card offers the new version, and no page says the coin is chosen. An approval the owner gave
+ * on chain from this very version (approved_hash, recorded in lp_approvals_log with its ticker and name, not revoked since) holds
+ * whatever the list says now: that is what launches. A list that cannot be read keeps the choice (never assumed stale, as staleChoice).
+ * `choice`: chosenOf's or readyChoices' row. Reads only.
+ */
+export async function choiceHolds(env, { cityId, country }, choice) {
+  if (!choice) return false;
+  if (choice.approved_hash && choice.approved_hash === choice.content_hash && (await approvalLogged(env, cityId, { symbol: choice.symbol, name: choice.name }))) return true;
+  const d = await coinDefaults(env, cityId, country);
+  if (!d.ok) return d.code === "list_unavailable";
+  return choice.symbol === d.ticker && choice.name === d.name;
 }
 /**
  * The card's coin for a chosen version (its own content, as it was chosen): what an approval built from it fixes and what its launch

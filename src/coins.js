@@ -44,6 +44,7 @@ import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView 
 import { notify, pictureReason } from "./notify.js";
 import { coinV2ReadyOn } from "./flags.js";
 import { boundArtOf, chosenOf, madeByOf } from "./coinart-store.js";
+import { choiceHolds } from "./coinready.js";
 
 const C = POLICY.coins;
 
@@ -136,12 +137,16 @@ export async function handleCoins(request, env, fetchImpl = fetch, now = Date.no
     if (row) { const a = await access(request, env, now, { write: false }); mine = !a.error && await seesReview(env, a.u, row); }
     const coin = coinView(row, { mine });
     // who made the design (madeBy "vicinity": the ready-made coin, src/coinart-store.js madeByOf), so the coin card never calls Vicinity's
-    // coin the founder's design. Looked up only with the switch on or for a launched coin (a version bound to it), so with the switch
-    // off and nothing launched the answer and the reads are as they always were
+    // coin the founder's design, and whether it is chosen (chosen: false for a choice the city list moved away from since: Vicinity's
+    // design still, but nobody's choice now; src/coinready.js choiceHolds). Looked up only with the switch on or for a launched coin (a
+    // version bound to it), so with the switch off and nothing launched the answer and the reads are as they always were
     if (coin && (coinV2ReadyOn(env) || row.mint)) {
       let by = null;
-      try { by = madeByOf(env, { mint: row.mint, updatedAt: row.updated_at }, await chosenOf(env.DB, row.city_id)); } catch (e) { console.error("coin maker unknown", String((e && e.message) || e).slice(0, 80)); }
-      if (by) coin.madeBy = by;
+      try {
+        const choice = await chosenOf(env.DB, row.city_id);
+        by = await madeByOf(env, { mint: row.mint, updatedAt: row.updated_at }, choice, () => choiceHolds(env, { cityId: row.city_id, country: row.country }, choice));
+      } catch (e) { console.error("coin maker unknown", String((e && e.message) || e).slice(0, 80)); }
+      if (by) { coin.madeBy = by.by; coin.chosen = by.chosen; }
     }
     return json({ coin, pairs, vicinity, ...closed });
   }

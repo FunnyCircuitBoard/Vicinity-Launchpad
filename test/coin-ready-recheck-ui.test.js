@@ -105,6 +105,60 @@ test("S1R-2 / SEC-S1-5: an approval on chain that is not this coin's leaves the 
   assert.equal(own.$("#coin-preview").hidden, false);
 });
 
+test("S1R-3 / F1: a choice the city list moved away from (chosen: false) is never 'Chosen' nor 'chosen <date>' on the City tab, for a member or its founder", async () => {
+  const stale = (me) => { me.community.ticker = "UTICA2"; return me; };
+  // a member, the founder seated: Vicinity's design, not chosen
+  const m = await open({ me: stale(memberOf()), ready: { ok: true, mode: "preview", preview: null }, coin: readyRow({ chosen: false }) });
+  assert.deepEqual([m.text("#coin-kicker"), m.text("#coin-status"), m.text("#coin-ticker")], ["City coin · made by Vicinity", "Not chosen yet", "$UTICA2"]);
+  assert.equal(m.text("#coin-by"), "Made by Vicinity from the city list");
+  assert.equal(m.text("#coin-note"), "Made by Vicinity from the city list. Nothing has launched yet.");
+  assert.doesNotMatch(m.text("#coin") || "", /Chosen|chosen Oct/);
+  // no founder now: not launched, as before
+  const n = await open({ me: stale(memberOf({ seat: false })), ready: { ok: true, mode: "preview", preview: null }, coin: readyRow({ chosen: false }) });
+  assert.deepEqual([n.text("#coin-status"), n.text("#coin-by")], ["Not launched", "Made by Vicinity from the city list"]);
+  // the founder: their card offers the new version ($UTICA2, not in use); the coin card does not call $UTICA2 chosen
+  const f = await open({ me: stale(founderMe()), ready: view({ coin: { ...COIN, ticker: "UTICA2", art: ART, contentHash: "c".repeat(64), version: "cccccccc" }, chosen: CHOSEN, inUse: false }), coin: readyRow({ chosen: false }) });
+  assert.equal(f.text("#coin-status"), "Not chosen yet");
+  assert.equal(f.text("#coin-by"), "Made by Vicinity from the city list");
+  assert.equal(f.text("#coin-note"), "Your city coin is made by Vicinity, and the city list changed since it was chosen: see your Founder tab. Nothing has launched yet.");
+  assert.match(f.text("#cr-note"), /Vicinity's design or the city list changed since you chose your coin/);
+  // the choice holds (chosen: true): chosen, with its date
+  const ok = await open({ me: memberOf(), ready: { ok: true, mode: "preview", preview: null }, coin: readyRow({ chosen: true }) });
+  assert.equal(ok.text("#coin-status"), "Chosen");
+  assert.match(ok.text("#coin-by"), /^Made by Vicinity from the city list · chosen Oct 18, 2026$/);
+});
+
+test("F2: the Today line that sends the founder to Use this coin says what the server says: a new version of their choice, a former founder's choice, their earlier design, or a coin ready", async () => {
+  const today = async (ready, coin) => (await open({ ready, coin })).text("#today-list") || "";
+  const EARLIER = /Your earlier design is kept/;
+  // (a) their own choice, still the design row, with a new version since (a renamed region, or the S1R-3 stale ticker): never "earlier"
+  for (const coin of [{ ...COIN, description: "The city coin of Utica, New York State, United States." }, { ...COIN, ticker: "UTICA2" }]) {
+    const t = await today(view({ coin: { ...coin, art: ART, contentHash: "c".repeat(64), version: "cccccccc" }, chosen: CHOSEN, inUse: false, earlier: false, preview: null }), readyRow({ chosen: coin.ticker === "UTICA" }));
+    assert.match(t, /Choose Utica's coin again/);
+    assert.match(t, /Vicinity's design or the city list changed since you chose\. Check the new version, then use it\./);
+    assert.doesNotMatch(t, EARLIER);
+  }
+  // (b) a former founder's choice, looked at by the new founder (who never designed anything)
+  const b = await today(view({ chosen: { ...CHOSEN, mine: false }, inUse: false, earlier: false, preview: null }), readyRow());
+  assert.match(b, /Choose Utica's coin/);
+  assert.match(b, /A former founder chose this coin\. Use it to make it yours\./);
+  assert.doesNotMatch(b, EARLIER);
+  // (c) their own choice whose design row changed since
+  const c = await today(view({ chosen: { ...CHOSEN, current: false }, inUse: false, earlier: true, preview: null }), readyRow({ madeBy: undefined, name: "Utica Coin" }));
+  assert.match(c, /Your coin's design was changed since you chose it\. Check it, then use it again\./);
+  assert.doesNotMatch(c, EARLIER);
+  // (d) an earlier studio design, kept aside by the server (earlier): said as that
+  const d = await today(view({ chosen: null, inUse: false, earlier: true, preview: null }), readyRow({ madeBy: undefined, name: "Utica Coin", pitch: "The Handshake City." }));
+  assert.match(d, /Choose Utica's coin/);
+  assert.match(d, /Your earlier design is kept, but city coins are made by Vicinity now\. Check yours, then use it\./);
+  // (e) no design at all: the coin is ready
+  const e = await today(view({ chosen: null, inUse: false, earlier: false }), null);
+  assert.match(e, /Utica's coin is ready/);
+  assert.match(e, /The Vicinity design with your city's ticker, from the city list\. Check it, then use it\./);
+  // in use: no line
+  assert.doesNotMatch(await today(view({ chosen: CHOSEN, inUse: true, preview: null }), readyRow()), /Choose Utica's coin|coin is ready/);
+});
+
 /* ---------- the Launchpad ---------- */
 const LP_SRC = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
 const LP_HTML = readFileSync(new URL("../public/launchpad.html", import.meta.url), "utf8");
@@ -119,6 +173,11 @@ test("S1R-1: the Launchpad never calls a ready-made coin 'Designed': its tag say
   assert.deepEqual(plain(P.statusLabel({ status: "designed", madeBy: "vicinity" })), ["Chosen", ""]);
   assert.deepEqual(plain(P.statusLabel({ status: "designed" })), ["Designed", ""], "a founder's own design is still that");
   assert.deepEqual(plain(P.statusLabel({ status: "live", madeBy: "vicinity" })), ["Live", "tag--ok"]);
+  // S1R-3 / F1: a choice the city list moved away from (chosen: false) is not called chosen
+  assert.deepEqual(plain(P.statusLabel({ status: "designed", madeBy: "vicinity", chosen: true })), ["Chosen", ""]);
+  assert.deepEqual(plain(P.statusLabel({ status: "designed", madeBy: "vicinity", chosen: false, founder: { handle: "SwiftHarbor10", wallet: "7Np4…4K2", status: "active" } })), ["Not chosen yet", ""]);
+  assert.deepEqual(plain(P.statusLabel({ status: "designed", madeBy: "vicinity", chosen: false, founder: null })), ["Not launched", ""]);
+  assert.deepEqual(plain(P.statusLabel({ status: "live", madeBy: "vicinity", chosen: true })), ["Live", "tag--ok"]);
   assert.equal(P.TAB_NOTE_READY.upcoming, "Upcoming: chosen or designed, not launched yet.");
   // the built page: with the switch off the sentence reads exactly as before (the second wording hidden)
   assert.match(LP_HTML, /the others are <span data-designed-copy>designed and waiting<\/span><span data-ready-copy hidden>chosen or designed, not launched yet<\/span>\./);
