@@ -29,6 +29,12 @@ Devnet uses a throwaway program key only. Mainnet needs the owner, the Squads va
 (`2aVkhRfAEm44tMhFo8oamWvumGGvweFqnUwukRMBkray`) and every user, balance and token stay
 untouched. `vicinity_rewards` is used exactly as deployed today.
 
+The audit pack for the outside auditor is `VICINITY-CURVE-AUDIT.md`: the commit and the files in
+scope, the reproducible build with the expected binary hashes, how to run every suite, the roles
+and keys, every invariant of section 9 and where it is checked, the review history of rounds 1 to
+10, the known limitations, the open owner decisions, the rehearsal D01
+(`VICINITY-CURVE-DEVNET.md`) and the questions for the auditor.
+
 This file merges two independent designs, `vcurve-design/A.md` (security-first minimalism)
 and `vcurve-design/B.md` (economics and integration). Where they differed, the safer choice
 was taken; section 0.2 lists every such decision and its reason. Every number in sections 5

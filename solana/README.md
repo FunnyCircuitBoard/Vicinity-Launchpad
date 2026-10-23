@@ -15,6 +15,17 @@ specification, `LAUNCHPAD-AUDIT.md` its build and test record and
 `LAUNCHPAD-DEVNET.md` its devnet deployment. Everything below is about
 `vicinity_rewards`, which the launchpad work did not change.
 
+**A third program, not deployed:** `vicinity_curve` (`programs/vicinity-curve`,
+with its integer math crate `crates/vicinity-curve-math`), a fully custom
+launchpad without Meteora: one coin per city with its own bonding curve, its
+own pool after graduation, fee buckets, payouts, buyback-and-burn and a daily
+batch launch approval. `VICINITY-CURVE-DESIGN.md` is its specification,
+`VICINITY-CURVE-NOTES.md` its implementation notes, `VICINITY-CURVE-DEVNET.md`
+its rehearsal D01, and `VICINITY-CURVE-AUDIT.md` the audit pack for the
+outside auditor (scope, reproducible build and binary hashes, test suites,
+roles, invariants, review history, open owner decisions). It does not change
+`vicinity_rewards` either.
+
 This file is for the owner and the auditor. `SECURITY.md` has the threat model
 and the list of risks with the mechanism and test that answers each.
 `AUDIT.md` has toolchain versions, the reproducible build, compute units, rent,
@@ -212,6 +223,13 @@ solana/
                                    deploy-devnet.sh (guarded devnet deploy), devnet-demo.mjs (the whole flow on
                                    devnet, resumable from devnet-demo-state.json), devnet-record.mjs (the tables
                                    of LAUNCHPAD-DEVNET.md)
+
+  programs/vicinity-curve/         the custom curve program (VICINITY-CURVE-DESIGN.md, -NOTES.md, -DEVNET.md, -AUDIT.md)
+  crates/vicinity-curve-math/      its pure integer math crate, with the reference model and vectors
+  sdk/curve/                       its SDK: accounts, quotes, instruction builders, events, batch leaves and proofs
+  scripts/vcurve/                  its builds (sbf-builds.sh, idl.sh) and the owner's tools: batch.mjs (batch
+                                   verifier, confirm, monitor check), guardian-stop.mjs, preflight.mjs (deploy checklist)
+  tests-curve/, tests-vcurve/      its in-process suites (litesvm) and the per-transaction invariant checker
 ```
 
 ## Build, test, demo
