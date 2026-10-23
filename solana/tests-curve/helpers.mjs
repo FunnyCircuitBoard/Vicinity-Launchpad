@@ -11,7 +11,8 @@
 //     build of vicinity_curve compiles in (3.2; NOTES entry 27);
 //   * the pinned Metaplex Token Metadata mainnet dump
 //     (scripts/launchpad/fetch-fixtures.sh, SHA-256 checked here too) and, for the
-//     old program's approvals and launches, the pinned Meteora DBC dump;
+//     old program's approvals and launches, the pinned Meteora DBC dump; the pinned
+//     Squads v4 dump where a test loads it (the guardian's stop, review R7-1);
 //   * SPL Token and the associated token program of litesvm, the WSOL mint, and
 //     the clock at a fixed time.
 // Signature checks are on. Every transaction goes through `send`, which runs the
@@ -19,6 +20,7 @@
 // successful transaction and checks that a failed one moved nothing.
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -61,12 +63,22 @@ export const PATHS = Object.freeze({
   legacy: join(RELEASE, 'vicinity_launchpad.so'),
   metaplex: process.env.VCURVE_METAPLEX_SO || join(FIXTURES, 'mpl_token_metadata.so'),
   dbc: join(FIXTURES, 'dbc.so'),
+  // the guardian's Squads v4 program (SQDS4ep65...; immutable on mainnet: its ProgramData has no upgrade authority), for the
+  // guardian's stop through a vault transaction (34-guardian-stop, review R7-1); always the mainnet dump
+  squads: process.env.VCURVE_SQUADS_SO || join(SOL, 'tests-launchpad', 'fixtures', 'programs', 'squads_v4.so'),
 });
 /** Pinned SHA-256 of the dumps (scripts/launchpad/fetch-fixtures.sh, mainnet). */
 const PINS = {
   'mpl_token_metadata.so': '31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011',
   'dbc.so': 'e2bfc853c1a1778dd8ee40ea9a0f3edf5587442360c57c685e7e3024ad0cad47',
+  'squads_v4.so': 'dec8d3e0fae58c7c8f2416e5f67c25e673f047afd6dd2bba4a47e0b29a01d34c',
 };
+/** The pinned Squads v4 dump (review R7-1): its path, the SHA-256 checked unless VCURVE_SQUADS_SO names another file. */
+export function squadsProgramPath() {
+  const p = need(PATHS.squads, 'run "npm run launchpad:fixtures" (dumps Squads v4 from mainnet and checks its pinned hash)');
+  if (!process.env.VCURVE_SQUADS_SO) assert.equal(sha256File(p), PINS['squads_v4.so'], `${p} is not the pinned squads_v4.so`);
+  return p;
+}
 const sha256File = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 function need(p, how) {
   if (!existsSync(p)) throw new Error(`missing ${p}: ${how}`);
@@ -726,3 +738,55 @@ function memoPdas(P) {
 
 /** Shorthand for the default amounts of 5.14. */
 export const SOL_ = (x) => BigInt(Math.round(Number(x) * 1e9));
+
+/**
+ * A JSON-RPC stub serving a World's accounts and clock, for the scripts' real command lines (scripts/vcurve): the methods
+ * they call (getMultipleAccounts, getAccountInfo, getProgramAccounts with memcmp filters, getSlot, getBlockTime,
+ * getLatestBlockhash). `lie(address, account)` may return another account (or null) for an address, as a malicious or
+ * compromised RPC would (reviews R7-BA-1, R7-4). Returns `{ url, close, calls }`.
+ */
+export async function rpcStub(w, { lie = (addr, a) => a } = {}) {
+  const calls = [];
+  const view = (k) => lie(String(k), w.accountInfo(String(k)));
+  const wire = (a) => ({ data: [Buffer.from(a.data).toString('base64'), 'base64'], executable: false, lamports: Number(a.lamports), owner: String(a.owner), rentEpoch: 0, space: a.data.length });
+  const bytesOf = (f) => (f.encoding === 'base64' ? Buffer.from(f.bytes, 'base64') : Buffer.from(bs58decode(f.bytes)));
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const one = (m) => {
+        calls.push(m.method);
+        const slot = Number(w.svm.getClock().slot);
+        let result;
+        if (m.method === 'getMultipleAccounts') result = { context: { slot }, value: m.params[0].map((k) => { const a = view(k); return a ? wire(a) : null; }) };
+        else if (m.method === 'getAccountInfo') { const a = view(m.params[0]); result = { context: { slot }, value: a ? wire(a) : null }; }
+        else if (m.method === 'getProgramAccounts') {
+          const filters = m.params[1]?.filters ?? [];
+          result = w.svm.getProgramAccounts(address(m.params[0])).map((x) => String(x.address)).map((k) => [k, view(k)]).filter(([, a]) => a && filters.every((f) => {
+            if (f.dataSize !== undefined) return a.data.length === f.dataSize;
+            const want = bytesOf(f.memcmp);
+            return Buffer.from(a.data).subarray(f.memcmp.offset, f.memcmp.offset + want.length).equals(want);
+          })).map(([k, a]) => ({ pubkey: k, account: wire(a) }));
+        } else if (m.method === 'getSlot') result = slot;
+        else if (m.method === 'getBlockTime') result = Number(w.now());
+        else if (m.method === 'getLatestBlockhash') result = { context: { slot }, value: { blockhash: String(w.programId), lastValidBlockHeight: slot + 150 } };
+        else return { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: `stub: ${m.method}` } };
+        return { jsonrpc: '2.0', id: m.id, result };
+      };
+      const m = JSON.parse(body);
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(Array.isArray(m) ? m.map(one) : one(m)));
+    });
+  });
+  await new Promise((ok) => { server.listen(0, '127.0.0.1', ok); });
+  return { url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((ok) => { server.close(ok); }), calls };
+}
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function bs58decode(text) {
+  let n = 0n;
+  for (const ch of text) { const i = B58.indexOf(ch); if (i < 0) throw new Error(`not base58: ${text}`); n = n * 58n + BigInt(i); }
+  const out = [];
+  while (n > 0n) { out.unshift(Number(n & 255n)); n >>= 8n; }
+  for (const ch of text) { if (ch !== '1') break; out.unshift(0); }
+  return Uint8Array.from(out);
+}

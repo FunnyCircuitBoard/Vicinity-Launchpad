@@ -116,21 +116,45 @@ precondition from the chain and exits 1 while any is not met. It needs
 `--guardian-multisig`, the guardian's Squads multisig, and refuses one whose
 members can change it (an autonomous multisig; only a controlled multisig whose
 config authority is the admin vault passes), one with a time lock, one the
-guardian is not a vault of, and a launch approver that is one of its member keys
-(review R6-RT-2); `--vault-multisig` adds the same member check for the vault.
-`--proposed-guardian`, `--proposed-payout-authority`,
+guardian is not a vault of, a launch approver that is one of its member keys
+(review R6-RT-2), a threshold above 1 or fewer than two members who can each
+start, approve and execute a stop alone (review R7-2), and a launch approver that
+is any vault of it (review R7-CONF-3); `--vault-multisig` adds the same approver
+checks for the vault's multisig, and `--approver-multisig` checks an approver that
+is a multisig vault (O32 (a): one of its vaults, no time lock, no member key
+shared with the guardian's or the vault's multisig; required when the approver
+is not a wallet key). `--proposed-guardian`, `--proposed-payout-authority`,
 `--proposed-payout-destination` and `--proposed-launch-approver` check a key
 before the proposal that sets it is signed.
 
 `vcurve/batch.mjs` is the owner's batch verifier (`verify <list file>`, before
-he signs the day's `publish_launch_batch`) and the monitor's comparison
-(`check <list file>`, after a publication), 8.4 steps 2 and 3. `verify` prints
-the day's changes only against lists the chain holds (reviews R6-DIFF-1,
-R6-RT-1): the list of a stored batch that can still let founders launch comes
-from the owner's archive of lists he verified (`--archive <dir>`, default
-`~/.vicinity-curve/launch-batches`) or from `--previous`, and must have the
-stored number, root and leaf count; while the stored batch is pending,
-`--in-force` gives the list of the batch in force. Each entry is printed with its
+he signs the day's `publish_launch_batch`), his confirmation (`confirm <seq>
+<root>`, within minutes of its landing) and the monitor's comparison (`check
+<list or archive file>`, after a publication), 8.4 steps 2 and 3. Every `--rpc`
+must be a provider the website does not operate or relay. `verify` prints the
+day's changes only against lists the owner signed and confirmed (reviews
+R6-DIFF-1, R6-RT-1, R7-BA-1, R7-3): its archive (`--archive <dir>`, default
+`$VICINITY_BATCH_ARCHIVE` or `~/.vicinity-curve/launch-batches`) keeps each
+verified list in `pending/` with the window of its transaction, and `confirm`
+moves it to `signed/` only when the chain holds exactly that publication; a live
+stored batch that is not a confirmed list is a problem. On a first use, with an
+empty archive, `--previous` / `--in-force` may stand in, read from two RPCs of
+different providers (`--rpc` twice; review R7-4) and printed in full. With `--tx
+<base64>` it checks that the transaction the website's batch page built is
+exactly the verified publication (review R7-CONF-1); either way it prints the
+message hash a hardware wallet shows when it blind-signs. A ticker another city
+can still launch with is refused (review R7-BA-2). Each entry is printed with its
 metadata hash, and each changed entry names the fields that differ (review
 R6-DIFF-2). It prints the unsigned transaction only when nothing is wrong, and
 never holds or asks for a key.
+
+`vcurve/guardian-stop.mjs` is a guardian member's stop (8.4 step 5; review
+R7-1): `clear_launch_batch(halt = true)` (`--clear`) and/or `set_pause`
+(`--pause-launches`, `--halt-buys`) through the guardian's Squads vault, with
+the vault transaction's create, proposal, approval and execution in one
+transaction, so that no approved proposal waits where another member could
+cancel it; it sends its stop for the multisig's next few transaction indices at
+once (`--variants`, default 4) and repeats (`--rounds`) until the chain shows
+the stop. With `--keypair <file>` it signs with the member's key (never
+printed); with `--member <key>` it only prints the unsigned transactions and
+their message hashes.

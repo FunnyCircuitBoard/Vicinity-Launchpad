@@ -92,7 +92,7 @@ test('R6-RT-2 (review round 6) the checklist reads the guardian\'s Squads multis
     return { accounts: Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)])), legacyAccounts: list(S.CLUSTERS.mainnet.legacyProgram), curveAccounts: list(w.programId) };
   };
   const run = (o = {}) => checkDeployPreconditions({ ...snap([o.guardianMultisig, o.vaultMultisig].filter(Boolean)), vault: o.vault ?? w.admin.address, programId: w.programId, ...o });
-  const SQ = /^(GUARDIAN_MULTISIG|GUARDIAN_NOT|GUARDIAN_TIME|GUARDIAN_ONE|APPROVER_IS|PROPOSED_APPROVER_IS|VAULT_)/;
+  const SQ = /^(GUARDIAN_MULTISIG|GUARDIAN_NOT|GUARDIAN_TIME|GUARDIAN_THRESHOLD|GUARDIAN_TOO_FEW|APPROVER_IS|APPROVER_MULTISIG|APPROVER_NOT|APPROVER_TIME|PROPOSED_APPROVER_IS|VAULT_)/;
   const sq = (r) => ({ problems: codes(r.problems).filter((c) => SQ.test(c)), warnings: codes(r.warnings).filter((c) => SQ.test(c)) });
   // the review's case: before, nothing read the multisig and the checklist was silent; now an unnamed multisig is a problem
   assert.deepEqual(sq(run()).problems, ['GUARDIAN_MULTISIG_UNCHECKED']);
@@ -100,9 +100,10 @@ test('R6-RT-2 (review round 6) the checklist reads the guardian\'s Squads multis
   let r = run({ guardianMultisig: G });
   assert.deepEqual(sq(r).problems, ['GUARDIAN_MULTISIG_NOT_CONTROLLED']);
   assert.match(r.problems.find((p) => p.code === 'GUARDIAN_MULTISIG_NOT_CONTROLLED').message, /autonomous: any 1 of its 3 members .* one stolen member key removes the other members/);
-  // a 2-of-3 autonomous multisig is still not controlled; a config authority other than the vault neither
+  // a 2-of-3 autonomous multisig is still not controlled (and its stops need two members, review R7-2); a config
+  // authority other than the vault neither
   putMultisig(G, { threshold: 2 });
-  assert.deepEqual(sq(run({ guardianMultisig: G })).problems, ['GUARDIAN_MULTISIG_NOT_CONTROLLED']);
+  assert.deepEqual(sq(run({ guardianMultisig: G })).problems, ['GUARDIAN_MULTISIG_NOT_CONTROLLED', 'GUARDIAN_THRESHOLD']);
   putMultisig(G, { configAuthority: owner });
   assert.match(run({ guardianMultisig: G }).problems.find((p) => p.code === 'GUARDIAN_MULTISIG_NOT_CONTROLLED').message, new RegExp(`config authority ${owner} can change`));
   // the fix: a controlled multisig whose config authority is the vault (the time-locked admin) and no time lock
@@ -119,9 +120,9 @@ test('R6-RT-2 (review round 6) the checklist reads the guardian\'s Squads multis
   w.setRaw(ms('fake'), encodeSquadsMultisig({ createKey: owner, configAuthority: w.admin.address, members: [owner] }), S.ADDRESSES.system, 10_000_000n);
   assert.deepEqual(sq(run({ guardianMultisig: ms('fake') })).problems, ['GUARDIAN_MULTISIG_INVALID'], 'owned by another program');
   assert.deepEqual(sq(run({ guardianMultisig: ms('missing') })).problems, ['GUARDIAN_MULTISIG_INVALID']);
-  // one member: a warning
+  // one member: since review R7-2 a problem (the loss of that one key leaves no guardian stop)
   putMultisig(G, { configAuthority: w.admin.address, members: [owner] });
-  assert.deepEqual(sq(run({ guardianMultisig: G })), { problems: [], warnings: ['GUARDIAN_ONE_MEMBER'] });
+  assert.deepEqual(sq(run({ guardianMultisig: G })), { problems: ['GUARDIAN_TOO_FEW_ACTORS'], warnings: [] });
   // the approver as a member key of the guardian multisig (one stolen device: both powers)
   putMultisig(G, { configAuthority: w.admin.address, members: [owner, a, String(approver.address)] });
   assert.deepEqual(sq(run({ guardianMultisig: G })).problems, ['APPROVER_IS_GUARDIAN_MEMBER']);
@@ -182,7 +183,84 @@ test('R6-RT-2 (review round 6) the Squads v4 Multisig layout the checklist reads
   // the fix (O35): a real multisig controlled by the vault, no time lock
   assert.deepEqual(judge(controlled), { problems: [], warnings: [] });
   assert.deepEqual(judge(controlled, { vault: autonomous.expected.createKey }).problems, ['GUARDIAN_MULTISIG_NOT_CONTROLLED'], 'controlled by a key other than the vault');
-  // a real time lock, and an approver among the real members
-  assert.deepEqual(judge(locked).problems, ['GUARDIAN_TIME_LOCK']);
+  // a real time lock (with a threshold of 2 and one member of three able to act alone, review R7-2), and an approver
+  // among the real members
+  assert.deepEqual(judge(locked).problems, ['GUARDIAN_THRESHOLD', 'GUARDIAN_TIME_LOCK', 'GUARDIAN_TOO_FEW_ACTORS']);
   assert.deepEqual(judge(controlled, { approver: controlled.expected.members[2].key }).problems, ['APPROVER_IS_GUARDIAN_MEMBER']);
+});
+
+test('R7-2, R7-CONF-3 (review round 7) the guardian\'s stops must survive the loss of any one member key (threshold 1, at least two members who can each start, approve and execute alone); the launch approver is no vault of the guardian\'s or the vault\'s multisig, and an approver that is a multisig vault is checked against its own multisig', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const [owner, a, b, c] = [await w.signer(1n), await w.signer(1n), await w.signer(1n), await w.signer(1n)].map((k) => String(k.address));
+  const ms = (tag) => S.findPda([Buffer.from(tag)], SQUADS.programId)[0];
+  const put = (addr, o) => w.setRaw(addr, encodeSquadsMultisig({ createKey: owner, members: [owner, a, b], threshold: 1, timeLock: 0, configAuthority: w.admin.address, ...o }), SQUADS.programId, 10_000_000n);
+  const G = ms('r7-guardian'); const V = ms('r7-vault');
+  put(G, {});
+  await w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: squadsVaultPda(G) })], [w.admin], 'set_guardian(vault 0 of G)');
+  const snapshot = (extra) => {
+    const A = checklistAddresses({ programId: w.programId, cluster: 'mainnet' });
+    const keys = [...['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]), ...extra];
+    return { accounts: Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)])), legacyAccounts: [], curveAccounts: [] };
+  };
+  const run = (o = {}) => checkDeployPreconditions({ ...snapshot([G, o.vaultMultisig, o.approverMultisig].filter(Boolean)), vault: o.vault ?? w.admin.address, programId: w.programId, guardianMultisig: G, ...o });
+  const R7 = /^(GUARDIAN_THRESHOLD|GUARDIAN_TOO_FEW|APPROVER_IS|APPROVER_MULTISIG|APPROVER_NOT|APPROVER_TIME|VAULT_NOT)/;
+  const r7 = (r) => codes(r.problems).filter((x) => R7.test(x));
+  const squadsProblems = (r) => codes(r.problems).filter((x) => /^(GUARDIAN_|APPROVER_|VAULT_)/.test(x));
+  assert.deepEqual(squadsProblems(run()), [], 'a controlled 1-of-3 guardian whose three members hold every permission, and a wallet-key approver');
+
+  // R7-2 case (a): members A and B may only vote, so only the owner can start or execute a stop; before round 7 the
+  // checklist was silent (and the real Squads program refuses A's vault transaction, 34-guardian-stop)
+  put(G, { members: [{ key: owner, permissions: 7 }, { key: a, permissions: 2 }, { key: b, permissions: 2 }] });
+  let r = run();
+  assert.deepEqual(r7(r), ['GUARDIAN_TOO_FEW_ACTORS']);
+  assert.match(r.problems.find((p) => p.code === 'GUARDIAN_TOO_FEW_ACTORS').message, /only 1 of the guardian multisig's 3 members can start, approve and execute a stop alone/);
+  // an executor without Initiate cannot start a stop either
+  put(G, { members: [{ key: owner, permissions: 7 }, { key: a, permissions: 6 }, { key: b, permissions: 5 }] });
+  assert.deepEqual(r7(run()), ['GUARDIAN_TOO_FEW_ACTORS']);
+  // two members who can each act alone are enough (the third may vote only)
+  put(G, { members: [{ key: owner, permissions: 7 }, { key: a, permissions: 7 }, { key: b, permissions: 2 }] });
+  assert.deepEqual(r7(run()), []);
+  // case (b): a controlled 3-of-3 (config authority the vault, no time lock, every permission): every stop needs all three
+  put(G, { threshold: 3 });
+  assert.deepEqual(r7(run()), ['GUARDIAN_THRESHOLD']);
+  put(G, { threshold: 2 });
+  assert.deepEqual(r7(run()), ['GUARDIAN_THRESHOLD']);
+  put(G, {});
+
+  // R7-CONF-3: the approver as vault 1 of the guardian's own multisig: the program accepts it (it compares exact keys only)
+  const gVault1 = squadsVaultPda(G, 1);
+  assert.ok((await w.simulate([w.ix.setLaunchApprover({ admin: w.admin.address, approver: gVault1 })], [w.admin])).ok, 'set_launch_approver(vault 1 of the guardian multisig) executes');
+  r = run({ proposed: { launchApprover: gVault1 } });
+  assert.deepEqual(r7(r), ['APPROVER_IS_GUARDIAN_VAULT', 'APPROVER_MULTISIG_UNCHECKED']);
+  assert.match(r.problems.find((p) => p.code === 'APPROVER_IS_GUARDIAN_VAULT').message, /is vault 1 of the guardian multisig/);
+  // the same once set (the current approver), and with the guardian multisig named as the approver multisig
+  await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: gVault1 })], [w.admin], 'set_launch_approver(vault 1 of G)');
+  assert.deepEqual(r7(run({ approverMultisig: G })), ['APPROVER_IS_GUARDIAN_VAULT', 'APPROVER_MULTISIG_SHARES_MEMBER']);
+  await w.send([w.ix.setLaunchApprover({ admin: w.admin.address, approver: approver.address })], [w.admin], 'set_launch_approver(the wallet key again)');
+  // a vault of the vault's multisig (any index) as the approver
+  const vault = squadsVaultPda(V);
+  put(V, { members: [owner, a, b], threshold: 2, timeLock: 172_800, configAuthority: ZERO });
+  put(G, { configAuthority: vault });
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V })), []);
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, proposed: { launchApprover: squadsVaultPda(V, 7) } })), ['APPROVER_IS_VAULT_MULTISIG_VAULT', 'APPROVER_MULTISIG_UNCHECKED']);
+  // O32 (a): an approver multisig of its own: its vault passes when it has no time lock and shares no member key
+  const AM = ms('r7-approver'); const amVault = squadsVaultPda(AM);
+  put(AM, { members: [c, (await w.signer(1n)).address].map(String), threshold: 2, configAuthority: ZERO });
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, approverMultisig: AM, proposed: { launchApprover: amVault } })), []);
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, proposed: { launchApprover: amVault } })), ['APPROVER_MULTISIG_UNCHECKED'], 'a program address as approver needs its multisig named');
+  put(AM, { members: [c, a], threshold: 2, configAuthority: ZERO });
+  r = run({ vault, vaultMultisig: V, approverMultisig: AM, proposed: { launchApprover: amVault } });
+  assert.deepEqual(r7(r), ['APPROVER_MULTISIG_SHARES_MEMBER', 'APPROVER_MULTISIG_SHARES_MEMBER'], 'a shares a member key with the guardian multisig and the vault multisig');
+  put(AM, { members: [c, String((await w.signer(1n)).address)], threshold: 2, timeLock: 600, configAuthority: ZERO });
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, approverMultisig: AM, proposed: { launchApprover: amVault } })), ['APPROVER_TIME_LOCK']);
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, approverMultisig: AM, proposed: { launchApprover: squadsVaultPda(G, 2) } })).sort(), ['APPROVER_IS_GUARDIAN_VAULT', 'APPROVER_NOT_MULTISIG_VAULT', 'APPROVER_TIME_LOCK']);
+  assert.deepEqual(r7(run({ vault, vaultMultisig: V, approverMultisig: AM })), ['APPROVER_NOT_MULTISIG_VAULT', 'APPROVER_TIME_LOCK'], 'a wallet-key approver is not a vault of the multisig named');
+  // the CLI option and the fetched snapshot
+  assert.equal(parseArgs(['--rpc', 'u', '--vault', vault, '--guardian-multisig', G, '--approver-multisig', AM]).approverMultisig, AM);
+  const shape = (k) => { const x = w.accountInfo(k); return x ? { owner: new web3.PublicKey(String(x.owner)), lamports: Number(x.lamports), data: Buffer.from(x.data), executable: false } : null; };
+  const connection = { getMultipleAccountsInfo: async (ks) => ks.map((k) => shape(k.toBase58())), getProgramAccounts: async () => [] };
+  const fetched = await fetchChecklistSnapshot(connection, { programId: w.programId, guardianMultisig: G, vaultMultisig: V, approverMultisig: AM });
+  assert.ok(fetched.accounts[AM], 'the approver multisig is fetched');
+  await w.finish();
 });

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Fetch the Meteora and Metaplex programs the launchpad tests load, straight
 # from mainnet (read-only: `solana program dump`), and check them against the
-# pinned SHA-256 values in LAUNCHPAD-DESIGN.md section 17.
+# pinned SHA-256 values in LAUNCHPAD-DESIGN.md section 17. On mainnet it also
+# fetches Squads v4, which the vicinity_curve suites load for the guardian's
+# stop through a Squads vault transaction (pinned in tests-curve/helpers.mjs;
+# its ProgramData has no upgrade authority, so its pin never moves).
 #
 # A mismatch means Meteora (or Metaplex) upgraded the program on mainnet:
 # stop, read their changelog, rerun the tests on the new binary (the whole
@@ -50,6 +53,9 @@ else
     "dbc dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN e2bfc853c1a1778dd8ee40ea9a0f3edf5587442360c57c685e7e3024ad0cad47"
     "damm_v2 cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG 967ff9fb161eec2e62f66d2c899100739fb747c445f697b8625c86b31b9a2022"
     "mpl_token_metadata metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s 31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011"
+    # Squads v4, for vicinity_curve's guardian stop through a Squads vault transaction (tests-curve/34-guardian-stop,
+    # VICINITY-CURVE-NOTES.md 87). Read from mainnet on 23 Oct 2026: its ProgramData has no upgrade authority (immutable).
+    "squads_v4 SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf dec8d3e0fae58c7c8f2416e5f67c25e673f047afd6dd2bba4a47e0b29a01d34c"
   )
 fi
 mkdir -p "$OUT"

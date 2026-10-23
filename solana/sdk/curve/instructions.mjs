@@ -199,9 +199,16 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
      * holds after it whatever the thief sets during the time lock, so the proposal cannot be made to fail and the
      * thief loses the seat in it. Buys reopen in a later proposal (`setPause({ buys: false })`), after the keeper
      * has drained every backlog; that one fails closed while buybacks are halted.
+     * A thief of the guardian can also clear and halt the batch path (4.26), which only `set_launch_approver` lifts
+     * (review R7-CONF-2): with `launchApprover` (the current approver when `LaunchBatch.halted` is true, or a new key if
+     * the approver may be stolen too) the proposal also sets it, right after `set_guardian`, which clears both stored
+     * batch records and lifts the halt; the approver's next batch takes force a review window after it is published.
+     * No flag the thief can set makes that call fail either.
      */
-    guardianRecovery: ({ admin, guardian, launches = null, keepBuybacksHalted = false }) => [
+    guardianRecovery: ({ admin, guardian, launches = null, keepBuybacksHalted = false, launchApprover = null }) => [
       make('set_guardian', { admin, launchpad: P.launchpad() }, W('set_guardian').pubkey(guardian).done()),
+      ...(launchApprover === null || launchApprover === undefined ? []
+        : [make('set_launch_approver', { admin, launchpad: P.launchpad(), launch_batch: P.launchBatch(), ...evt }, W('set_launch_approver').pubkey(launchApprover).done())]),
       make('set_pause', { authority: admin, launchpad: P.launchpad() },
         W('set_pause').optBool(launches).optBool(null).optBool(keepBuybacksHalted ? true : null).optBool(keepBuybacksHalted ? null : false).done()),
     ],

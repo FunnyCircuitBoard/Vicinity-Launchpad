@@ -278,3 +278,21 @@ test('R6-DIFF-2 (review round 6) the day\'s changes name the fields that differ:
   assert.deepEqual(d.changed.map((c) => [c.after.cityId, c.fields]), [[2_988_507n, ['metaHash']], [5_128_581n, ['founder', 'name']]]);
   assert.deepEqual(S.LEAF_FIELDS, ['founder', 'configId', 'name', 'symbol', 'metaHash']);
 });
+
+test('R7-BA-2, R7-CONF-4 (review round 7) the tickers other cities hold: a pending per-city approval until it expires, an entry of a stored batch in force unless its city has launched; entryProblems and buildLaunchBatch refuse such a ticker for another city, never for the city itself', () => {
+  const f = [key(), key(), key()];
+  const approvals = [{ cityId: 9402n, symbol: 'PARIS', expiresAt: 1_000n }, { cityId: 9403n, symbol: 'ROME', expiresAt: 500n }];
+  const batches = [{ seq: 1n, entries: [{ cityId: '9901', founder: f[0], configId: 0, metaHash: 'ab'.repeat(32), name: 'Spring', symbol: 'SPRING' }, { cityId: 9905n, founder: f[1], configId: 0, metaHash: sha('x'), name: 'Summer', symbol: 'SUMMER' }] }];
+  const held = S.tickerHolders({ approvals, batches, coins: new Set(['9905']), now: 600n });
+  assert.deepEqual([...held.keys()].sort(), ['PARIS', 'SPRING'], 'ROME expired at 500 (ApprovalExpired); SUMMER\'s city has its coin');
+  assert.deepEqual(held.get('PARIS'), [{ cityId: 9402n, what: 'a pending per-city approval (expires 1000)' }]);
+  assert.equal(S.tickerHolders({ approvals, now: null }).size, 2, 'without a clock every pending approval holds its ticker');
+  assert.match(S.tickerConflicts(9401n, 'PARIS', held).join(), /ticker PARIS is held by city 9402 \(a pending per-city approval/);
+  assert.deepEqual(S.tickerConflicts(9402n, 'PARIS', held), [], 'the approval\'s own city');
+  assert.deepEqual(S.tickerConflicts(9401n, 'LYON', held), []);
+  const entry = { cityId: 9902n, founder: f[2], configId: 0, metaHash: sha('y'), name: 'Spring Two', symbol: 'SPRING' };
+  assert.match(S.entryProblems(entry, { chain: { heldTickers: held } }).join(), /ticker SPRING is held by city 9901 \(the stored batch 1\)/);
+  assert.deepEqual(S.entryProblems({ ...entry, cityId: 9901n }, { chain: { heldTickers: held } }), []);
+  assert.deepEqual(S.entryProblems(entry, { chain: {} }), [], 'without heldTickers nothing is assumed');
+  assert.throws(() => S.buildLaunchBatch([entry], { batchSeq: 2n, chain: { heldTickers: held } }), (e) => e.code === 'BadEntries' && /held by city 9901/.test(e.message));
+});

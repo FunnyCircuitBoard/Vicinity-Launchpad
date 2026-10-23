@@ -5,7 +5,8 @@ revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C 
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
-tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval). The
+tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval, and
+entries 83 to 90 review round 7). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2599,3 +2600,249 @@ event accounts. `batch.test.mjs` and `idl.test.mjs` follow the new account lists
 previous binary (built from the commit before review round 6) the test fails at the padded publication: no
 `LaunchBatchPublished` is decoded.
 
+### 83. Only lists the owner signed and confirmed are baselines; the archive keeps the window (8.1, 8.4, T89, 14.1; reviews R7-BA-1, R7-3)
+
+**Spec.** 8.4 step 2 (round 6): the day's changes are computed against the stored batch's list "taken from the
+owner's own archive of the lists he verified", and "a live stored batch the archive does not hold is reported as a
+publication nobody prepared"; NOTES 79.
+
+**Issue.** The CLI wrote a list to the archive as soon as it printed a transaction, before the owner decided, and the
+baseline was any archived list with the stored number, root and leaf count. A list the owner verified and refused
+(say, one the website padded with the attacker's city E) therefore became a trusted baseline: a chain view that
+answered its root and leaf count at the real number (any RPC; 8.4 named none), or the refused list published with a
+stolen approver key, silenced `LATEST_NOT_ARCHIVED`, and the next day's changes no longer showed E. The alarm's own
+message offered `--no-archive` or copying a list file into the archive as remedies, which accept the website's list
+as the baseline too. Reproduced through the exported functions and the real CLI; medium (R7-BA-1), and the same
+root cause reported without the window as low (R7-3).
+
+**Choice.** The safer fix, with both reviews' proposals:
+* The archive has three folders per program: `pending/` (lists `verify` prepared a transaction for, each with the
+  window of that transaction and the approver), `signed/` (lists the owner confirmed on chain) and `refused/`. Only
+  `signed/` is ever a baseline, and an entry matches a stored record only with its number, root, leaf count, window
+  and publisher (`sameArchived`): a thief re-publishing a refused list cannot reproduce the verifier's window unless
+  he publishes within ten minutes of the owner's run and guesses the second, and even then the list is not confirmed.
+* `confirm <seq> <root>` (`confirmPublication`), run within minutes of each publication the owner signed: the
+  stored `latest` must be exactly a pending entry with that number and root (window and publisher included), by
+  the current approver, in a window the program accepts, not cleared, the path not halted; only then is the entry
+  written to `signed/`. Other pending lists for the same number (one he refused) are a problem
+  (`SEVERAL_PENDING`) unless `--discard-others`, which moves them to `refused/`. The owner names the root he signed,
+  so a thief's publication of a refused list cannot be confirmed by mistake.
+* Every archive entry carries an HMAC-SHA-256 under `archive.key`, 32 random bytes the archive creates on first use
+  (mode 0600); `readArchive` ignores, with a warning, any entry without a valid MAC, so a file copied into the archive
+  (the website's list, or an entry forged in the archive's format) is never a baseline.
+* `LATEST_NOT_ARCHIVED` (and `IN_FORCE_NOT_ARCHIVED` for the batch in force while `latest` is pending, which round 6
+  did not check) prints the stored record with its window, publisher and time of publication, says which pending
+  entry it matches (a list he verified and did not confirm: run `confirm` if he signed exactly that, else the key is
+  stolen; a list he verified with another window or signer: a publication he did not sign), tells him to have a
+  guardian member clear it with halt, and offers no way around the alarm.
+The website's batch page is no part of this: the archive lives only on the owner's computer.
+
+Tests. `33-batch-verifier` R7-BA-1, R7-3 (the real CLI against JSON-RPC stubs, one of them answering the refused
+list's root and leaf count): day 1 verified, signed, confirmed; day 2 the refused list X_bad (with E) and the signed
+X_good, whose confirmation is refused while X_bad is pending and then sets it aside; day 3 the honest view shows D
+and E as added, the lying view gives `LATEST_NOT_ARCHIVED` and no transaction (and, through the function, with X_bad
+still pending and the lie copying its window, the message names the list he never confirmed); X_bad published with
+the stolen key is refused at the next verify (pending and in force) and `confirm` of it gives `WINDOW`; a plain list
+and a forged entry copied into `signed/` are ignored. Against the previous verifier the file fails at its import
+(no pending folder, no `confirm`); the review's reproductions fail at their attack step.
+
+### 84. A file stands in for the archive only with two RPCs, and hides nothing (8.4, 14.1; review R7-4)
+
+**Spec.** 8.4 step 2 named no RPC; `--no-archive` and an empty archive (a first use) let a `--previous` file matching
+`LaunchBatch` be the baseline.
+
+**Issue.** That anchor is only as good as the RPC: a stub that rewrote `LaunchBatch.latest`'s root and leaf count to
+those of a forged previous holding E made the forged file the baseline, and E was never printed (info).
+
+**Choice.** Every `--rpc` must be a provider the website does not operate or relay (8.4, 14.1, the scripts' README).
+`--rpc` may be given twice (two different URLs); the CLI reads `Launchpad` and `LaunchBatch` from both and stops at
+`RPC_DISAGREE` when they differ. With an empty archive (or `--no-archive`) and anything published, the chain view
+must be confirmed by two RPCs (`ONE_RPC`, a problem); with an archive, one RPC is a warning. And a file never hides
+an entry any more: with no confirmed list, every entry of the new list is listed as added and the file's entries
+(the live batch's) are printed in full ("not a list this computer confirmed"); the file serves to show what can
+launch now and which tickers it holds (entry 86).
+
+Tests. `33-batch-verifier` R7-4: the review's lying RPC with the forged previous and `--no-archive` gives `ONE_RPC`
+and no transaction; the lying and an honest RPC give `RPC_DISAGREE`; two honest RPCs give `PREVIOUS_NOT_ON_CHAIN`.
+R6-DIFF-1 (function): a first use with the real list on two RPCs prints batch 1 in full and lists every entry,
+E included, as added. Against the previous verifier the review's case printed one added entry and a transaction.
+
+### 85. The website's transaction is checked against the verified one; the owner confirms within minutes (8.4, T89, 14.1; review R7-CONF-1)
+
+**Spec.** 8.4 step 2: "If he signs on the website's batch page instead, he first compares the root, `seq` and window
+the page shows with the verifier's." Step 3: the monitor rebuilds the list from the site's database; `check`
+"does the same".
+
+**Issue.** Nothing tied the bytes the page hands the wallet to what it displays: a compromised page showed the
+verified seq, root and window and had the wallet sign another root (up to 512 entries of the attacker's). Phantom
+shows an unknown instruction and a Ledger only a blind-sign message hash, and the verifier printed no hash and could
+not read the page's transaction. The monitor, fed by the same database, matched; only a `check` with the owner's own
+file caught it, which nothing required. Medium.
+
+**Choice.** (b) and (c) of the review; (a), a hardware-wallet transport inside the verifier, is not built (no Ledger
+library in this repository, and it cannot be tested here):
+* `verify <list> --tx <base64>` decodes the page's unsigned transaction (legacy or v0, `decodePageTransaction`),
+  prepares the publication with the transaction's window, and refuses unless the transaction is exactly it
+  (`checkPageTransaction`): one `publish_launch_batch` with the same accounts, roles and data, the approver its fee
+  payer and only signer, no lookup table, nothing else but at most one compute-unit limit (at most 1,400,000) and
+  one price (at most 1,000,000 micro-lamports). It then prints the message hash, base58 of the SHA-256 of the message
+  bytes, which a Ledger shows when it blind-signs; the verifier's own transaction gets its hash printed too. The
+  owner signs only when the two hashes are equal; a wallet that shows no hash cannot tell him which root he signs.
+* `confirm` (entry 83) is the archive-backed check, a required step within minutes of each publication: a swapped
+  root, window or signer fails it and the message says to page the guardian members.
+* `check` accepts the owner's exported archive entry as well as a list file and then also compares the window and
+  the publisher (`NOT_THE_VERIFIED_WINDOW`, `NOT_THE_VERIFIED_SIGNER`); 8.4 step 3 and 14.1 have the monitor compare
+  against that entry, sent through its own channel, not only against the site's database.
+
+Tests. `33-batch-verifier` R7-CONF-1: the page's transaction with root R2 (`TX_NOT_VERIFIED`), another payer
+(`TX_SIGNERS`), an extra transfer (`TX_OTHER_INSTRUCTION`), another launchpad account (`TX_ACCOUNTS`), no
+publication and bytes that are no transaction are each refused with no pending entry; the right one (v0, with a
+compute-unit price) is accepted and the printed hash equals the SHA-256 of its message; when the page has the
+wallet sign R2 anyway, `confirm` gives `ROOT` and `check` of the exported entry `ROOT` and `LEAF_COUNT`, while the
+site's own list matches. Against the previous verifier `--tx` was an unknown option.
+
+### 86. A ticker another city can still launch with is refused (T87, 8.4, 14.1; reviews R7-BA-2, R7-CONF-4)
+
+**Spec.** T87: "a ticker can be raced only by another approved entry with the same ticker, which the SDK refuses
+within a batch and against pending approvals".
+
+**Issue.** The SDK and the verifier checked only the listed city's own `Approval` and an existing `TickerLock`. With
+the admin's approval of city 9402 for PARIS pending, a list naming 9401 with PARIS passed, and whoever launched first
+took PARIS for good (the `TickerLock` is never closed) while the other launch failed at `init`. Likewise a ticker moved
+to another city while the batch in force still names it for the first (SPRING moved from 9901 to 9902 while batch 1
+is in force: 9901 launches with SPRING during the review window and 9902's entry can never launch). Low; R7-CONF-4 is
+the same root cause.
+
+**Choice.** Implemented, as the review proposed for this program:
+* `tickerHolders({ approvals, batches, coins, now })` maps each ticker to the other cities that can still launch with
+  it: every pending per-city `Approval` not expired at `now` (`launch` refuses an expired one), and every entry of the
+  stored batches that can let founders launch before the new list takes force, unless its city has a coin.
+  `tickerConflicts(cityId, symbol, holders)` gives the reasons for one city and ticker; `entryProblems` (and so
+  `buildLaunchBatch`) refuses with `chain.heldTickers`; 14.1 has the admin page run the same check before an
+  `approve_launch` proposal, there over every stored batch that can still let founders launch, the pending one
+  included (a per-city approval lives up to 30 days, so it would race the pending batch once that takes force).
+* Which batches hold tickers: while `latest` is in force, its list (it stays in force until the new list's
+  `valid_from`); while `latest` is pending, the batch in force (`previous`), since the new list replaces `latest`,
+  which never takes force. The lists come from the archive (or, on a first use, the files of entry 84).
+* The verifier reads every pending `Approval` with `getProgramAccounts` (memcmp on the account discriminator, owner
+  checked by `decodeApproval`) and the `Coin` accounts of the holder cities; a run without the approvals is
+  `APPROVALS_UNREAD`. The old program's approvals are not read: a launch here requires the old program's launches to
+  be paused (8.5), so an old approval cannot race a ticker here.
+What remains is a ticker taken after the list was verified (an approval proposed later): on chain the first launch
+wins and the other fails with nothing lost; T87 now says so.
+
+Tests. `33-batch-verifier` R7-BA-2: A6 (9402 PARIS pending, 9401 PARIS listed: `BAD_ENTRY`, and `buildLaunchBatch`
+throws; after 9402 launches, "the ticker is locked"); an expired approval holds nothing; A11 (SPRING moved while
+batch 1 is in force: refused); a correction of a pending batch is checked against the batch in force; a city that
+launched holds nothing but its locked ticker; `tickerConflicts` for the admin's approval. `batch.test.mjs` R7-BA-2:
+the holders' rules. Against the previous SDK `tickerHolders` does not exist and A6 prepared a publication.
+
+### 87. A guardian member's stop is one transaction (8.1, 8.4 step 5, O34, O35, T85; review R7-1)
+
+**Spec.** 8.1 (round 6): with a controlled guardian multisig "even a guardian member key stolen with it cannot remove
+the other members, who can still clear and pause"; O35.
+
+**Issue.** With a threshold of 1 any member can cancel an approved proposal (Squads `proposal_cancel_v2`). The
+members' stops were vault transactions created, proposed and approved in one transaction and executed in another
+(as the Squads app and the review harness do); between the two, the thief holding the approver key and the owner's
+member key cancelled each one, the executes failed (`InvalidProposalStatus`) and his batch took force. Reproduced
+against the real Squads v4 program; medium.
+
+**Choice.** The tool the review proposed, `scripts/vcurve/guardian-stop.mjs`: `guardianStopInstructions` puts
+`vault_transaction_create`, `proposal_create`, `proposal_approve` and `vault_transaction_execute` in one transaction
+signed by one member, so no approved proposal ever waits to be executed. The inner message is
+`set_pause(launches and/or buys = true)` then `clear_launch_batch(halt = true)`, as 8.4 step 5 orders them. The Squads
+instructions and the vault message are encoded here (no Squads SDK dependency) and were checked byte for byte
+against `@sqds/multisig` 2.1.4's builders, the message compiler and `accountsForTransactionExecute`, and the
+discriminators against `sha256("global:<name>")`. One stop costs about 90,000 compute units (create 27,468, propose
+12,421, approve 8,142, execute 42,284 with the pause and the clear), within one transaction's limit.
+What a member key still allows: the thief can take the multisig's next transaction index just before a member's
+stop lands (a vault transaction is created at `transaction_index + 1`), making it fail. The tool sends its stop for
+the next few indices at once (`--variants`, default 4) and repeats (`--rounds`); a variant beyond the index the stop
+lands at executes a second, harmless clear. Each index the thief takes costs him the rent of a vault transaction he
+cannot close (about 0.002 SOL; the multisig's stale index moves only with a config change, which only the vault can
+make), and he must win every slot of the window. The owner's clear with his restored approver key and the admin's
+remain; O34's clear-only keys would leave nothing to race and stay the owner's decision. The CLI signs with a member
+keypair file (`--keypair`, never printed) and sends, or prints the unsigned transactions and their message hashes
+(`--member`). 8.1, 8.4 step 5, 8.6, O30, O34, O35 and T85 are corrected.
+The checker (`invariants.mjs`) now also attributes the log events of calls into this program made by CPI from
+another program (here Squads), call by call (`cpiCallLogs`), so the stop runs with the checker on.
+
+Tests. `34-guardian-stop` R7-1 (the pinned Squads v4 mainnet dump, added to `npm run launchpad:fixtures`; its
+ProgramData has no upgrade authority, so the pin never moves): with the guardian a controlled 1-of-3 multisig that
+the checklist accepts, the thief publishes; members A and B each create, propose and approve in one transaction, the
+thief cancels with the owner's member key, and their executes fail (`InvalidProposalStatus`); the tool's single
+transaction halts the batch, pauses launches and cannot be cancelled; at `valid_from` the thief's founder cannot
+launch and the thief cannot publish. The index race: the thief takes the next index, the first variant fails
+(`ConstraintSeeds`), the second executes. The CLI's print-only transaction, signed by member B, executes.
+Before this round the tool did not exist; the two-transaction stop is the review's reproduction.
+
+### 88. The checklist: the guardian's stops survive one lost key; the approver is no vault of the guardian's (8.1, 8.4, O32, O35; reviews R7-2, R7-CONF-3)
+
+**Spec.** O35: "1 of 3 of the members (built: the deploy checklist refuses anything else)". O32 (a): an approver
+multisig "distinct from the guardian multisig (the program refuses the guardian)"; 4.4: "the key that stops a wrong
+batch is never the key that signs it".
+
+**Issue.** `checkSquadsRoles` read neither the threshold nor the members' permissions: a controlled 3-of-3, or a 1-of-3
+whose other two members may only vote, passed with no warning, and in the latter only the owner's key can start or
+execute a stop (the real Squads program refuses a vote-only member's vault transaction, `Unauthorized`). Low (R7-2).
+And it compared the approver with member keys only: vault 1 of the guardian's own multisig as approver passed the
+program (`check_approver_separate` compares exact keys) and the checklist, so any guardian member could publish
+batches. Low (R7-CONF-3).
+
+**Choice.** In `checkSquadsRoles`: the guardian multisig's threshold must be 1 (`GUARDIAN_THRESHOLD`) and at least two
+members must hold Initiate, Vote and Execute (`GUARDIAN_TOO_FEW_ACTORS`, which replaces the `GUARDIAN_ONE_MEMBER`
+warning: one member is now a problem); the approver (current or proposed) must be no vault, any index, of the
+guardian's multisig (`APPROVER_IS_GUARDIAN_VAULT`) or the vault's (`APPROVER_IS_VAULT_MULTISIG_VAULT`); an approver
+that is off the ed25519 curve can only sign as a program address, so `--approver-multisig` is then required
+(`APPROVER_MULTISIG_UNCHECKED`), the approver must be one of its vaults (`APPROVER_NOT_MULTISIG_VAULT`), it must have
+no time lock (`APPROVER_TIME_LOCK`) and share no member key with the guardian's or the vault's multisig
+(`APPROVER_MULTISIG_SHARES_MEMBER`). `fetchChecklistSnapshot` fetches the approver multisig. The program is not
+changed: it cannot know the multisigs, and O32 (a) keeps a multisig approver possible; O32 (a) now says the program
+refuses only the guardian's exact key.
+
+Tests. `32-batch-checklist` R7-2, R7-CONF-3: vote-only members, an executor without Initiate, two actors (passes), a
+controlled 3-of-3 and 2-of-3; `set_launch_approver(vault 1 of the guardian multisig)` executes on chain and the
+checklist refuses it as current and as proposed approver; a vault of the vault's multisig; an approver multisig that
+passes, one sharing a member with both multisigs, one with a time lock, a guardian vault named with another approver
+multisig, a wallet key with an approver multisig named; the CLI option and the fetched snapshot. The R6 tests follow
+(a 2-of-3 autonomous multisig now also gives `GUARDIAN_THRESHOLD`; the real time-locked 2-of-3 fixture with mixed
+permissions gives all three). `34-guardian-stop` R7-2 shows the real Squads program refusing the vote-only member.
+Against the previous checklist the R7 test fails at its first refusal (nothing was reported).
+
+### 89. The recovery from a stolen guardian also lifts a batch halt (4.4, 8.1, T72, T73; review R7-CONF-2)
+
+**Spec.** 4.4's recovery, 8.1's worst case for a stolen guardian, T72, T73 and the SDK's `guardianRecovery` predate the
+batch path; 4.26 lets the guardian clear and halt, which only `set_launch_approver` lifts.
+
+**Issue.** After the documented recovery (`set_guardian`, `set_pause`) `LaunchBatch.halted` stayed true: every
+publication and batch launch was refused until a further time-locked proposal. Liveness only; low.
+
+**Choice.** `guardianRecovery({ ..., launchApprover })` adds `set_launch_approver(launchApprover)` right after
+`set_guardian` (the current approver when `LaunchBatch.halted` is true, or a new key if that one may be stolen too). It
+clears both stored records and lifts the halt; no flag the thief can set makes it fail (its checks are on keys the
+admin sets). 4.4, 8.1, T72 and T73 say so.
+
+Tests. `28-governance` R7-CONF-2: the thief guardian pauses launches, halts buys, clears and halts the batch path; the
+old recovery leaves the halt (it never names `LaunchBatch`); late in the time lock the thief halts buybacks; the new
+recovery (set_guardian, set_launch_approver, set_pause) executes, the approver publishes at once, buys reopen in the
+second proposal, the cleared batch cannot be used and the new one launches a city. Against the previous SDK the
+recovery has two instructions and the test fails there.
+
+### 90. The text brought up to date (3.11, 6.6, I20, I21; review R7-CONF-5); a leftover of the round-6 verification
+
+**Issue.** 3.11 and the `BatchRecord.cleared` doc said "every change of the approver", while every
+`set_launch_approver` call clears, the same key included (4.24); I20's per-call rule for a new `Approval` and I21's
+founder sentence did not name the launch approver, which `check_founder_key` and the checker refuse; 6.6's trust
+label did not mention the launch approver, which 14.1's honest copy does. Info.
+
+**Choice.** 3.11, the doc comment in `state.rs` and so the IDL (`sdk/idl/vicinity_curve.json`, regenerated with
+`npm run vcurve:idl`; the comment keeps its two lines, so no source line moves and the binary is the round-6 build
+byte for byte, sha256 `0a5beef2...`) say "every `set_launch_approver` call, the same key included"; I20 and
+I21 name the approver and 4.27; 6.6's label names the approver's daily list of up to 512 launches taking force 12
+hours after signing. The behaviour was already tested (`30-batch`, a same-key `set_launch_approver` clearing both
+records).
+The round-6 verification left a file in the default archive (`~/.vicinity-curve/launch-batches`, from a CLI run
+without `--archive`); the archive layout of entry 83 ignores such files (no `pending/` or `signed/` folder, no MAC).
+Every CLI run of the suites now names a scratch archive and sets `VICINITY_BATCH_ARCHIVE` to a scratch folder, and
+`33-batch-verifier` asserts that nothing was written to the default archive.

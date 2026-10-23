@@ -358,6 +358,42 @@ test('R4-DIFF-4, OPS-3 a stolen guardian traps the one-proposal recovery with a 
   await w.finish();
 });
 
+test('R7-CONF-2 (review round 7) a stolen guardian also clears and halts the batch path; the one recovery proposal, guardianRecovery with the launch approver, replaces the guardian and lifts the halt, so publication and batch launches come back without a further time-locked proposal', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const [f1, f2] = [await w.signer(20n), await w.signer(20n)];
+  const b1 = await w.publishBatch([{ cityId: 4301n, founder: f1, symbol: 'GRBA' }]);
+  w.warpTo(b1.validFrom);
+  const thief = w.guardian;
+  await w.send([w.ix.setPause({ authority: thief.address, launches: true, buys: true })], [thief], 'the thief pauses launches and halts buys');
+  await w.send([w.ix.clearLaunchBatch({ authority: thief.address, halt: true })], [thief], 'the thief clears the batch in force and halts the batch path');
+  assert.equal(w.launchBatch().halted, true);
+  const newGuardian = await w.signer(1n);
+  // the recovery as 4.4 and T73 wrote it before round 7: the guardian is replaced and launches resume, the batch path stays halted
+  const oldRecovery = w.ix.guardianRecovery({ admin: w.admin.address, guardian: newGuardian.address, launches: false });
+  const sim = await w.simulate(oldRecovery, [w.admin]);
+  assert.ok(sim.ok, sim.error);
+  assert.ok(!oldRecovery.some((ix) => ix.accounts.some((a) => a.address === String(w.P.launchBatch()))) && w.launchBatch().halted,
+    'without the approver the recovery never touches LaunchBatch: every publication and batch launch stays refused (BatchesHalted)');
+  // the fix: the same proposal also sets the current approver again, which lifts the halt and clears both records; a late
+  // flag of the thief cannot make it fail
+  w.warpSecs(47 * 3600);
+  await w.send([w.ix.setPause({ authority: thief.address, buybacks: true })], [thief], 'the thief halts buybacks late in the time lock');
+  const recovery = w.ix.guardianRecovery({ admin: w.admin.address, guardian: newGuardian.address, launches: false, launchApprover: approver.address });
+  assert.deepEqual(recovery.map((ix) => ix.data.slice(0, 8).join()), ['set_guardian', 'set_launch_approver', 'set_pause'].map((n) => S.INSTRUCTION_DISCRIMINATORS[n].join()), 'set_launch_approver right after set_guardian');
+  await w.send(recovery, [w.admin], 'guardianRecovery with the launch approver');
+  const lp = w.launchpad(); const lb = w.launchBatch();
+  assert.deepEqual([lp.guardian, lp.launchApprover, lp.launchesPaused, lb.halted, lb.latest.cleared], [String(newGuardian.address), String(approver.address), false, false, true]);
+  await expectFail(() => w.send([w.ix.clearLaunchBatch({ authority: thief.address, halt: true })], [thief], 'the former guardian'), 'Unauthorized');
+  // the approver publishes at once; buys reopen in the second proposal (4.4); the new batch takes force a review window later
+  const b2 = await w.publishBatch([{ cityId: 4302n, founder: f2, symbol: 'GRBB' }], { label: 'the first publication after the recovery' });
+  await w.send([w.ix.setPause({ authority: w.admin.address, buys: false })], [w.admin], 'the second proposal: buys reopen');
+  await expectFail(() => w.launchFromBatch({ batch: b1, cityId: 4301n, founder: f1, label: 'the cleared batch' }), 'BatchSuperseded', 'BatchCleared');
+  w.warpTo(b2.validFrom);
+  await w.launchFromBatch({ batch: b2, cityId: 4302n, founder: f2, label: 'a batch launch after the recovery' });
+  await w.finish();
+});
+
 /**
  * The checklist's snapshot from a World: every address it reads, and the programs' accounts. With `squads`, the
  * guardian is a vault of a controlled Squads multisig whose config authority is the vault (review R6-RT-2: the

@@ -427,8 +427,8 @@ pub struct BatchRecord {
     pub published_slot: u64,
     /// Offset 76. The launch approver who signed it.
     pub publisher: Pubkey,
-    /// Offset 108. Set by every `clear_launch_batch` and every change of the
-    /// approver; never unset (a publication writes a new record).
+    /// Offset 108. Set by every `clear_launch_batch` and every `set_launch_approver`
+    /// call (the same key included); never unset (a publication writes a new record).
     pub cleared: bool,
 }
 

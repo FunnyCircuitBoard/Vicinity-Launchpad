@@ -43,11 +43,19 @@
 //     admin vault, so no member, nor any threshold of members, can change its
 //     members or threshold: in an autonomous 1-of-3 guardian one stolen member
 //     key removes the other members by a config transaction, and their clears
-//     and pauses then fail; the launch approver (and a proposed one) is none
-//     of its member keys;
+//     and pauses then fail; its threshold is 1 and at least two members hold
+//     Initiate, Vote and Execute, so every stop survives the loss or theft of
+//     any one member key (review R7-2); the launch approver (and a proposed
+//     one) is none of its member keys and none of its vaults (any index;
+//     review R7-CONF-3);
 //   * the vault's Squads multisig (`--vault-multisig`, optional): the vault is
 //     one of its vaults; the launch approver (and a proposed one) is none of
-//     its member keys; a warning while it has no time lock (O11).
+//     its member keys and none of its vaults; a warning while it has no time
+//     lock (O11);
+//   * an approver that is not a wallet key (off the ed25519 curve) can only be
+//     a multisig vault (O32 (a)): `--approver-multisig` is then required, the
+//     approver must be one of its vaults, it has no time lock and it shares no
+//     member key with the guardian's or the vault's multisig (review R7-CONF-3).
 // Not checkable here: the published program metadata, that the approver key
 // shares no seed or device with a member key (8.4, O32), and, without
 // `--vault-multisig`, the vault's time lock and members; the operator confirms
@@ -56,6 +64,7 @@
 // Usage (from solana/):
 //   node scripts/vcurve/preflight.mjs --rpc <url> --vault <squads vault>
 //     --guardian-multisig <squads multisig> [--vault-multisig <squads multisig>]
+//     [--approver-multisig <squads multisig>]
 //     [--cluster mainnet|devnet] [--program-id <vicinity_curve id>]
 //     [--before-legacy-close] [--proposed-guardian <key>]
 //     [--proposed-payout-authority <key>] [--proposed-payout-destination <key>]
@@ -243,18 +252,28 @@ export function checkProposedRoleKey({ role, key, lp, curveAccounts = [], vault,
   return { problems, warnings };
 }
 
-const OPTIONS = new Set(['accounts', 'legacyAccounts', 'curveAccounts', 'vault', 'programId', 'cluster', 'beforeLegacyClose', 'proposed', 'guardianMultisig', 'vaultMultisig']);
+const OPTIONS = new Set(['accounts', 'legacyAccounts', 'curveAccounts', 'vault', 'programId', 'cluster', 'beforeLegacyClose', 'proposed', 'guardianMultisig', 'vaultMultisig', 'approverMultisig']);
 const PROPOSED = new Set(['guardian', 'payoutAuthority', 'payoutDestination', 'launchApprover']);
 
+/** Squads v4 permissions a member needs to start, approve and execute a vault transaction alone (Initiate, Vote, Execute). */
+export const SQUADS_ALL_PERMISSIONS = SQUADS.permissions.initiate | SQUADS.permissions.vote | SQUADS.permissions.execute;
+/** Whether `key` is an ed25519 point, so a wallet key; a program address (a Squads vault, any PDA) is not. */
+export const isWalletKey = (key) => PublicKey.isOnCurve(new PublicKey(String(key)).toBytes());
+
 /**
- * The Squads multisigs behind the guardian and the vault (review R6-RT-2). `guardian` and `approver` are the keys after
- * the proposal (the proposed ones where given); `guardianMultisig` / `vaultMultisig` the multisig addresses (or null) and
- * `accounts` the snapshot holding their accounts. The guardian must be a vault of its multisig, which has no time lock and
- * whose config authority is the admin vault (a controlled multisig: no member and no threshold of members can change its
- * members, threshold or time lock; only the time-locked vault can); the approver is no member key of either multisig.
- * Returns `{ problems, warnings }`.
+ * The Squads multisigs behind the guardian, the vault and the launch approver (reviews R6-RT-2, R7-2, R7-CONF-3).
+ * `guardian` and `approver` are the keys after the proposal (the proposed ones where given); `guardianMultisig`,
+ * `vaultMultisig` and `approverMultisig` the multisig addresses (or null) and `accounts` the snapshot holding their
+ * accounts. The guardian must be a vault of its multisig, which has no time lock, whose config authority is the admin
+ * vault (a controlled multisig: no member and no threshold of members can change its members, threshold or time lock;
+ * only the time-locked vault can), whose threshold is 1 and in which at least two members can each start, approve and
+ * execute a stop alone (so the stops survive the loss or theft of any one member key, review R7-2). The approver is no
+ * member key and no vault (any index) of the guardian's or the vault's multisig, so the key that signs batches is never
+ * the key that stops them (4.4, O32; review R7-CONF-3); an approver that is not a wallet key can only be a multisig
+ * vault, so `approverMultisig` is then required: the approver must be one of its vaults, it has no time lock and shares
+ * no member key with the guardian's or the vault's multisig. Returns `{ problems, warnings }`.
  */
-export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig = null, vaultMultisig = null, accounts = {} }) {
+export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig = null, vaultMultisig = null, approverMultisig = null, accounts = {} }) {
   const problems = []; const warnings = [];
   const bad = (code, message) => problems.push({ code, message });
   const read = (addr, code, what) => {
@@ -277,16 +296,46 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
           bad('GUARDIAN_MULTISIG_NOT_CONTROLLED', `the guardian multisig must be a controlled multisig whose config authority is the admin vault ${vault}, so that no member can lock the others out of the guardian's stops (review R6-RT-2); ${who}`);
         }
         if (approverSet && ms.members.some((m) => m.key === approver)) bad('APPROVER_IS_GUARDIAN_MEMBER', `the launch approver ${approver} is a member key of the guardian multisig: one stolen key would publish batches and act as the guardian (8.4, O32, review R6-RT-2)`);
-        if (ms.members.length < 2) warnings.push({ code: 'GUARDIAN_ONE_MEMBER', message: 'the guardian multisig has one member: the fast stops of 8.1 and 8.3 rest on one person' });
+        // review R7-2: every stop is one member's vault transaction (scripts/vcurve/guardian-stop.mjs), so it must need one
+        // approval and be open to at least two members who each hold every permission it uses
+        if (ms.threshold !== 1) bad('GUARDIAN_THRESHOLD', `the guardian multisig's threshold is ${ms.threshold}: every clear and pause would need ${ms.threshold} members, so one member unavailable or stolen could stop the guardian (O35: 1 of 3)`);
+        const actors = ms.members.filter((m) => (m.permissions & SQUADS_ALL_PERMISSIONS) === SQUADS_ALL_PERMISSIONS);
+        if (actors.length < 2) {
+          bad('GUARDIAN_TOO_FEW_ACTORS', `only ${actors.length} of the guardian multisig's ${ms.members.length} members can start, approve and execute a stop alone (Initiate, Vote and Execute): the loss or theft of ${actors.length ? 'that one key' : 'no key'} would leave no guardian stop (review R7-2)`);
+        }
       }
     }
   }
-  if (vaultMultisig) {
-    const ms = read(vaultMultisig, 'VAULT_MULTISIG_INVALID', 'the vault multisig');
-    if (ms) {
-      if (squadsVaultIndexOf(vaultMultisig, vault) === null) bad('VAULT_NOT_MULTISIG_VAULT', `the vault ${vault} is not a vault of the multisig ${vaultMultisig}`);
-      if (approverSet && ms.members.some((m) => m.key === approver)) bad('APPROVER_IS_VAULT_MEMBER', `the launch approver ${approver} is a member key of the vault's multisig (8.4, O32)`);
-      if (ms.timeLock === 0) warnings.push({ code: 'VAULT_TIME_LOCK_UNSET', message: 'the vault\'s multisig has no time lock: O11 sets 48 hours from the first coin launch, unless the owner chose its alternative' });
+  const vaultMs = vaultMultisig ? read(vaultMultisig, 'VAULT_MULTISIG_INVALID', 'the vault multisig') : null;
+  if (vaultMs) {
+    if (squadsVaultIndexOf(vaultMultisig, vault) === null) bad('VAULT_NOT_MULTISIG_VAULT', `the vault ${vault} is not a vault of the multisig ${vaultMultisig}`);
+    if (approverSet && vaultMs.members.some((m) => m.key === approver)) bad('APPROVER_IS_VAULT_MEMBER', `the launch approver ${approver} is a member key of the vault's multisig (8.4, O32)`);
+    if (vaultMs.timeLock === 0) warnings.push({ code: 'VAULT_TIME_LOCK_UNSET', message: 'the vault\'s multisig has no time lock: O11 sets 48 hours from the first coin launch, unless the owner chose its alternative' });
+  }
+  // the approver is never a vault of the guardian's or the vault's multisig (review R7-CONF-3): the program compares exact
+  // keys only, so vault 1 of the guardian multisig would let any guardian member publish batches alone
+  if (approverSet) {
+    for (const [ms, code, what] of [[guardianMultisig, 'APPROVER_IS_GUARDIAN_VAULT', 'the guardian multisig'], [vaultMultisig, 'APPROVER_IS_VAULT_MULTISIG_VAULT', 'the vault\'s multisig']]) {
+      if (!ms) continue;
+      const index = squadsVaultIndexOf(ms, approver);
+      if (index !== null) bad(code, `the launch approver ${approver} is vault ${index} of ${what} ${ms}: its members could publish batches, and the key that stops a wrong batch would be the key that signs it (4.4, O32; review R7-CONF-3)`);
+    }
+    if (!isWalletKey(approver) || approverMultisig) {
+      if (!approverMultisig) {
+        bad('APPROVER_MULTISIG_UNCHECKED', `the launch approver ${approver} is not a wallet key (it is off the ed25519 curve), so it can only sign as a program address, a multisig vault: pass --approver-multisig <its Squads multisig> (O32 (a); review R7-CONF-3)`);
+      } else {
+        const ams = read(approverMultisig, 'APPROVER_MULTISIG_INVALID', 'the approver multisig');
+        if (ams) {
+          if (squadsVaultIndexOf(approverMultisig, approver) === null) bad('APPROVER_NOT_MULTISIG_VAULT', `the launch approver ${approver} is not a vault of the multisig ${approverMultisig}`);
+          if (ams.timeLock !== 0) bad('APPROVER_TIME_LOCK', `the approver multisig has a time lock of ${ams.timeLock} seconds: a publication would execute later than it was prepared, with a window the program may refuse (O32 (a): no time lock)`);
+          const guardianMs = guardianMultisig ? (() => { try { return decodeSquadsMultisig(accounts[String(guardianMultisig)] ?? null); } catch { return null; } })() : null;
+          for (const [other, what] of [[guardianMs, 'the guardian multisig'], [vaultMs, 'the vault\'s multisig']]) {
+            if (!other) continue;
+            const shared = ams.members.filter((m) => other.members.some((o) => o.key === m.key)).map((m) => m.key);
+            if (shared.length) bad('APPROVER_MULTISIG_SHARES_MEMBER', `the approver multisig shares member key(s) ${shared.join(', ')} with ${what}: one stolen key would both sign batches and ${what === 'the guardian multisig' ? 'act as the guardian' : 'vote as the admin'} (O32 (a); review R7-CONF-3)`);
+          }
+        }
+      }
     }
   }
   return { problems, warnings };
@@ -302,7 +351,7 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
  */
 export function checkDeployPreconditions(opts) {
   for (const k of Object.keys(opts ?? {})) if (!OPTIONS.has(k)) throw new TypeError(`checkDeployPreconditions: unknown option ${k}`);
-  const { accounts, legacyAccounts = [], curveAccounts = [], programId = CURVE_PROGRAM_ID, cluster = 'mainnet', beforeLegacyClose = false, proposed = {}, guardianMultisig = null, vaultMultisig = null } = opts;
+  const { accounts, legacyAccounts = [], curveAccounts = [], programId = CURVE_PROGRAM_ID, cluster = 'mainnet', beforeLegacyClose = false, proposed = {}, guardianMultisig = null, vaultMultisig = null, approverMultisig = null } = opts;
   for (const k of Object.keys(proposed)) if (!PROPOSED.has(k)) throw new TypeError(`checkDeployPreconditions: unknown proposed key ${k}`);
   const vault = String(opts.vault);
   const A = checklistAddresses({ programId, cluster });
@@ -395,17 +444,17 @@ export function checkDeployPreconditions(opts) {
   }
   // the Squads multisigs behind the guardian and the vault, with the proposal's keys applied (review R6-RT-2)
   if (after) {
-    const r = checkSquadsRoles({ guardian: after.guardian, approver: after.launchApprover, vault, guardianMultisig, vaultMultisig, accounts });
+    const r = checkSquadsRoles({ guardian: after.guardian, approver: after.launchApprover, vault, guardianMultisig, vaultMultisig, approverMultisig, accounts });
     problems.push(...r.problems); warnings.push(...r.warnings);
   }
   return { problems, warnings };
 }
 
 /** The snapshot `checkDeployPreconditions` reads, from a web3.js Connection (with the given Squads multisigs' accounts). */
-export async function fetchChecklistSnapshot(connection, { programId = CURVE_PROGRAM_ID, cluster = 'mainnet', guardianMultisig = null, vaultMultisig = null } = {}) {
+export async function fetchChecklistSnapshot(connection, { programId = CURVE_PROGRAM_ID, cluster = 'mainnet', guardianMultisig = null, vaultMultisig = null, approverMultisig = null } = {}) {
   const A = checklistAddresses({ programId, cluster });
   const keys = [...['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]),
-    ...[guardianMultisig, vaultMultisig].filter(Boolean).map(String)];
+    ...[...new Set([guardianMultisig, vaultMultisig, approverMultisig].filter(Boolean).map(String))]];
   const infos = await connection.getMultipleAccountsInfo(keys.map((k) => new PublicKey(k)));
   const shape = (address, i) => (i ? { address, owner: i.owner.toBase58(), lamports: BigInt(i.lamports), data: Buffer.from(i.data) } : null);
   const accounts = Object.fromEntries(keys.map((k, n) => [k, shape(k, infos[n])]));
@@ -413,11 +462,11 @@ export async function fetchChecklistSnapshot(connection, { programId = CURVE_PRO
   return { accounts, legacyAccounts: await list(A.ids.legacyProgram), curveAccounts: await list(programId) };
 }
 
-const USAGE = 'usage: node scripts/vcurve/preflight.mjs --rpc <url> --vault <squads vault> --guardian-multisig <squads multisig> [--vault-multisig <squads multisig>] '
+const USAGE = 'usage: node scripts/vcurve/preflight.mjs --rpc <url> --vault <squads vault> --guardian-multisig <squads multisig> [--vault-multisig <squads multisig>] [--approver-multisig <squads multisig>] '
   + '[--cluster mainnet|devnet] [--program-id <id>] [--before-legacy-close] '
   + '[--proposed-guardian <key>] [--proposed-payout-authority <key>] [--proposed-payout-destination <key>] [--proposed-launch-approver <key>]';
-const KEY_FLAGS = new Set(['guardianMultisig', 'vaultMultisig']);
-const VALUE_FLAGS = new Map([['--rpc', 'rpc'], ['--vault', 'vault'], ['--guardian-multisig', 'guardianMultisig'], ['--vault-multisig', 'vaultMultisig'], ['--cluster', 'cluster'], ['--program-id', 'programId'], ['--proposed-guardian', 'guardian'],
+const KEY_FLAGS = new Set(['guardianMultisig', 'vaultMultisig', 'approverMultisig']);
+const VALUE_FLAGS = new Map([['--rpc', 'rpc'], ['--vault', 'vault'], ['--guardian-multisig', 'guardianMultisig'], ['--vault-multisig', 'vaultMultisig'], ['--approver-multisig', 'approverMultisig'], ['--cluster', 'cluster'], ['--program-id', 'programId'], ['--proposed-guardian', 'guardian'],
   ['--proposed-payout-authority', 'payoutAuthority'], ['--proposed-payout-key', 'payoutAuthority'], ['--proposed-payout-destination', 'payoutDestination'],
   ['--proposed-launch-approver', 'launchApprover']]);
 const BOOL_FLAGS = new Map([['--before-legacy-close', 'beforeLegacyClose']]);
@@ -447,7 +496,7 @@ async function main(argv) {
   if (o.error) { console.error(`${o.error}\n${USAGE}`); return 2; }
   const cluster = o.cluster ?? 'mainnet';
   const programId = o.programId ?? CURVE_PROGRAM_ID;
-  const ms = { guardianMultisig: o.guardianMultisig ?? null, vaultMultisig: o.vaultMultisig ?? null };
+  const ms = { guardianMultisig: o.guardianMultisig ?? null, vaultMultisig: o.vaultMultisig ?? null, approverMultisig: o.approverMultisig ?? null };
   const snapshot = await fetchChecklistSnapshot(new web3.Connection(o.rpc, 'confirmed'), { programId, cluster, ...ms });
   const { problems, warnings } = checkDeployPreconditions({ ...snapshot, vault: o.vault, programId, cluster, beforeLegacyClose: Boolean(o.beforeLegacyClose), proposed: o.proposed, ...ms });
   for (const w of warnings) console.log(`warning ${w.code}: ${w.message}`);

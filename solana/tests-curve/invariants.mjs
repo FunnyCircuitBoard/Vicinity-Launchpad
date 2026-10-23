@@ -222,13 +222,17 @@ export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresse
     });
     // each inner instruction belongs to the innermost call that contains it
     for (const c of mine) for (const ii of c.inner) if (!ii.call || ii.call.depth < c.depth) ii.call = c;
+    // the log lines of each call of vicinity_curve made by CPI (a guardian's Squads vault transaction, review R7-1):
+    // the `Program data:` lines logged while that call itself ran, the calls in the order they ran
+    const cpiLogs = cpiCallLogs(seg, w.programId);
+    const viaCpi = mine.filter((c) => c.viaCpi);
+    if (viaCpi.length) assert.equal(cpiLogs.length, viaCpi.length, 'one log frame for each CPI into vicinity_curve');
     for (const c of mine) {
       c.events = eventsOf(c);
-      if (!c.viaCpi) {
-        const logEvents = S.decodeEventLogs(seg, { programId: w.programId });
-        for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} must be an event CPI, not a log (4.21)`);
-        c.events.push(...logEvents);
-      }
+      const lines = c.viaCpi ? [`Program ${w.programId} invoke [1]`, ...cpiLogs[viaCpi.indexOf(c)], `Program ${w.programId} success`] : seg;
+      const logEvents = S.decodeEventLogs(lines, { programId: w.programId });
+      for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} must be an event CPI, not a log (4.21)`);
+      c.events.push(...logEvents);
       calls.push(c); steps.push(c.index); t.calls.push(c); t.events.push(...c.events);
     }
     for (const ii of innerIxs) {
@@ -237,6 +241,26 @@ export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresse
     return t;
   });
   return { keys, signers, feePayer: keys[0], nSignatures: nSigners, top, calls, steps };
+}
+/**
+ * In the logs of one top-level instruction of another program, the `Program data:` lines of each call into
+ * `programId` (not its own event CPIs), in the order the calls ran.
+ */
+function cpiCallLogs(seg, programId) {
+  const out = []; const stack = [];
+  for (const line of seg) {
+    let m = /^Program (\S+) invoke \[(\d+)\]$/.exec(line);
+    if (m) {
+      const frame = { program: m[1], lines: [] };
+      if (m[1] === programId && stack.length && stack[stack.length - 1].program !== programId) out.push(frame.lines);
+      stack.push(frame);
+      continue;
+    }
+    m = /^Program (\S+) (success|failed)/.exec(line);
+    if (m) { stack.pop(); continue; }
+    if (line.startsWith('Program data: ') && stack.length && stack[stack.length - 1].program === programId) stack[stack.length - 1].lines.push(line);
+  }
+  return out;
 }
 function splitLogs(logs) {
   const out = [];

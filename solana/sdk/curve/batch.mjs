@@ -178,11 +178,49 @@ export function verifyLaunchProof({ root, leaf, proof, leafCount }) {
 }
 
 // ---------------------------------------------------------------- building a batch (8.4 step 1, 14.1)
+// ---------------------------------------------------------------- tickers other cities hold (T87; review R7-BA-2)
+/**
+ * Which other cities can still launch with each ticker before a new batch takes force: every pending per-city
+ * `Approval` of this program not yet expired at `now` (`approvals`: decoded accounts, as getProgramAccounts returns
+ * them), and every entry of the stored batches that can let founders launch until then (`batches`: `[{ seq, entries }]`,
+ * the lists of the batch in force and, while it is still pending, not the one the new list replaces), unless its city
+ * already has a coin (`coins`: city ids). Whoever launches first takes the ticker for good (the `TickerLock` is never
+ * closed) and the other launch fails at `init`, so a list must not name a ticker another city holds. Returns
+ * `Map(symbol -> [{ cityId, what }])`.
+ */
+export function tickerHolders({ approvals = [], batches = [], coins = new Set(), now = null } = {}) {
+  const out = new Map();
+  const has = (set, k) => Boolean(set && (set.has(k) || set.has(String(k))));
+  const add = (symbol, cityId, what) => { if (!out.has(symbol)) out.set(symbol, []); out.get(symbol).push({ cityId: BigInt(cityId), what }); };
+  for (const a of approvals) {
+    if (now !== null && BigInt(now) > BigInt(a.expiresAt)) continue; // an expired approval can no longer launch (ApprovalExpired)
+    add(a.symbol, a.cityId, `a pending per-city approval (expires ${a.expiresAt})`);
+  }
+  for (const b of batches) {
+    for (const raw of b.entries) {
+      const e = normalizeEntry(raw);
+      if (!has(coins, e.cityId)) add(e.symbol, e.cityId, `the stored batch ${b.seq}`);
+    }
+  }
+  return out;
+}
+/**
+ * The reasons ticker `symbol` cannot go to city `cityId` because another city holds it (`holders` from `tickerHolders`):
+ * for a batch entry (`entryProblems`) and for the admin's per-city `approve_launch` alike (review R7-BA-2).
+ */
+export function tickerConflicts(cityId, symbol, holders) {
+  const city = BigInt(cityId);
+  return (holders?.get(symbol) ?? []).filter((h) => h.cityId !== city)
+    .map((h) => `ticker ${symbol} is held by city ${h.cityId} (${h.what}): two founders would race for it and the later launch would fail for good`);
+}
+
 /**
  * Why the program would refuse `entry` at its launch today (4.8, 4.10, 4.27), as a list of reasons. `launchpad` is a
  * decoded `Launchpad` (its guardian, payout key and launch approver are refused as founders); `chain` optionally says
  * what exists: `{ coins, legacyCoins, legacyApprovals, approvals: Set of city ids (BigInt or string), tickers: Set of
- * symbols, configs: Map(configId -> decoded LaunchConfig) }`.
+ * symbols, configs: Map(configId -> decoded LaunchConfig), heldTickers: Map from tickerHolders }`. With `heldTickers`,
+ * a ticker another city can still launch with (its pending approval, or its entry in a stored batch in force) is a
+ * reason too (T87; review R7-BA-2).
  */
 export function entryProblems(entry, { launchpad = null, chain = null } = {}) {
   const out = [];
@@ -206,6 +244,7 @@ export function entryProblems(entry, { launchpad = null, chain = null } = {}) {
     if (has(chain.legacyApprovals, e.cityId)) out.push('the city has an approval in the old program');
     if (has(chain.approvals, e.cityId)) out.push('the city has a pending per-city approval (it wins, ApprovalPending)');
     if (chain.tickers && chain.tickers.has(e.symbol)) out.push('the ticker is locked');
+    if (chain.heldTickers) out.push(...tickerConflicts(e.cityId, e.symbol, chain.heldTickers));
     if (chain.configs) {
       const c = chain.configs.get(e.configId) ?? chain.configs.get(String(e.configId));
       if (!c) out.push(`config ${e.configId} does not exist`); else if (!c.enabled) out.push(`config ${e.configId} is disabled`);
