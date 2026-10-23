@@ -35,7 +35,7 @@ import assert from 'node:assert/strict';
 import web3 from '@solana/web3.js';
 import { address } from '@solana/kit';
 import { World, S, expectFail, offlineKey, LAMPORTS, DAY } from './helpers.mjs';
-import { checkDeployPreconditions, checklistAddresses, parseArgs, programDataState } from '../scripts/vcurve/preflight.mjs';
+import { checkDeployPreconditions, checklistAddresses, parseArgs, programDataState, encodeSquadsMultisig, squadsVaultPda, SQUADS } from '../scripts/vcurve/preflight.mjs';
 
 const { PublicKey } = web3;
 const ZERO = S.ADDRESSES.system;
@@ -358,18 +358,33 @@ test('R4-DIFF-4, OPS-3 a stolen guardian traps the one-proposal recovery with a 
   await w.finish();
 });
 
-/** The checklist's snapshot from a World: every address it reads, and the programs' accounts. */
-function checklistSnapshot(w, edit = (a) => a) {
+/**
+ * The checklist's snapshot from a World: every address it reads, and the programs' accounts. With `squads`, the
+ * guardian is a vault of a controlled Squads multisig whose config authority is the vault (review R6-RT-2: the
+ * Launchpad's guardian, at byte 136, is set to that vault in the snapshot only, before `edit`), and the snapshot names
+ * the multisig (`guardianMultisig`).
+ */
+function checklistSnapshot(w, edit = (a) => a, { squads = false } = {}) {
   const A = checklistAddresses({ programId: w.programId, cluster: 'mainnet' });
   const keys = ['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]);
   const list = (program) => w.svm.getProgramAccounts(address(program)).map((a) => ({ address: String(a.address), owner: String(program), lamports: BigInt(a.lamports), data: Buffer.from(a.data) }));
-  return { accounts: edit(Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)]))), legacyAccounts: list(S.CLUSTERS.mainnet.legacyProgram), curveAccounts: list(w.programId) };
+  let accounts = Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)]));
+  const extra = {};
+  if (squads) {
+    const guardianMultisig = S.findPda([Buffer.from('guardian-multisig')], SQUADS.programId)[0];
+    const members = [1, 2, 3].map((i) => S.findPda([Buffer.from(`guardian-member-${i}`)], S.ADDRESSES.system)[0]);
+    const data = encodeSquadsMultisig({ createKey: members[0], configAuthority: w.admin.address, threshold: 1, timeLock: 0, members });
+    const lp = Buffer.from(accounts[A.curveLaunchpad].data); pkb(squadsVaultPda(guardianMultisig)).copy(lp, 136);
+    accounts = { ...accounts, [A.curveLaunchpad]: { ...accounts[A.curveLaunchpad], data: lp }, [guardianMultisig]: { address: guardianMultisig, owner: SQUADS.programId, lamports: 1n, data } };
+    extra.guardianMultisig = guardianMultisig;
+  }
+  return { accounts: edit(accounts), legacyAccounts: list(S.CLUSTERS.mainnet.legacyProgram), curveAccounts: list(w.programId), ...extra };
 }
 const codes = (r) => r.map((x) => x.code).sort();
 
 test('OPS-4, OPS-1 the deploy checklist (scripts/vcurve/preflight.mjs) reads 8.4\'s preconditions from the chain; an old Approval is a problem before closing the old program, which would block its city here forever', async () => {
   const w = await World.create({ dbcProgram: true });
-  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w, o.edit), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
+  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w, o.edit, { squads: true }), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
   // the World's upgrade authority is its deployer: every program's is reported until it is the vault
   assert.deepEqual(codes(run().problems), ['CURVE_UPGRADE_AUTHORITY', 'LEGACY_UPGRADE_AUTHORITY', 'REWARDS_UPGRADE_AUTHORITY']);
   for (const id of [w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram]) {
@@ -507,7 +522,7 @@ test('R5-DIFF-2, R5-CONS-2 the checklist checks a proposed guardian or payout ke
 
 test('R5-DIFF-3, R5-CONS-3 an immutable old program meets the checklist (a warning, not a problem), as 8.5 and O19 recommend instead of a close; its approvals stay revocable warnings', async () => {
   const w = await World.create({ dbcProgram: true });
-  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
+  const run = (o = {}) => checkDeployPreconditions({ ...checklistSnapshot(w, undefined, { squads: true }), vault: w.admin.address, programId: w.programId, beforeLegacyClose: o.close });
   for (const id of [w.programId, S.CLUSTERS.mainnet.rewardsProgram, S.CLUSTERS.mainnet.legacyProgram]) {
     const pd = S.findPda([pkb(id)], S.ADDRESSES.upgradeableLoader)[0];
     const a = w.accountInfo(pd); const d = Buffer.from(a.data); pkb(w.admin.address).copy(d, 13);
@@ -537,7 +552,7 @@ test('R5-DIFF-3, R5-CONS-3 an immutable old program meets the checklist (a warni
   // the other two programs must stay upgradeable by the vault (8.4): immutable there is still reported
   const rewardsPd = S.findPda([pkb(S.CLUSTERS.mainnet.rewardsProgram)], S.ADDRESSES.upgradeableLoader)[0];
   const ra = w.accountInfo(rewardsPd); const rd = Buffer.from(ra.data); rd[12] = 0;
-  const r = checkDeployPreconditions({ ...checklistSnapshot(w, (a) => ({ ...a, [rewardsPd]: { ...a[rewardsPd], data: rd } })), vault: w.admin.address, programId: w.programId });
+  const r = checkDeployPreconditions({ ...checklistSnapshot(w, (a) => ({ ...a, [rewardsPd]: { ...a[rewardsPd], data: rd } }), { squads: true }), vault: w.admin.address, programId: w.programId });
   assert.deepEqual(codes(r.problems), ['REWARDS_UPGRADE_AUTHORITY']);
   await w.finish();
 });

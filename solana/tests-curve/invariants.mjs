@@ -226,7 +226,7 @@ export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresse
       c.events = eventsOf(c);
       if (!c.viaCpi) {
         const logEvents = S.decodeEventLogs(seg, { programId: w.programId });
-        for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} is a money event and must be an event CPI, not a log`);
+        for (const e of logEvents) assert.ok(!S.CPI_EVENTS.includes(e.name), `${e.name} must be an event CPI, not a log (4.21)`);
         c.events.push(...logEvents);
       }
       calls.push(c); steps.push(c.index); t.calls.push(c); t.events.push(...c.events);

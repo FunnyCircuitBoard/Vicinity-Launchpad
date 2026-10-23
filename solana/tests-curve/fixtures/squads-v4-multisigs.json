@@ -1,0 +1,140 @@
+{
+ "about": "Squads v4 Multisig accounts created by the real Squads v4 program (multisig_create_v2) in litesvm, with the values the Squads SDK (@sqds/multisig) decodes from them and its vault PDAs; read by 32-batch-checklist (review R6-RT-2)",
+ "squadsProgram": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+ "programSha256": "dec8d3e0fae58c7c8f2416e5f67c25e673f047afd6dd2bba4a47e0b29a01d34c",
+ "sdk": "@sqds/multisig 2.1.4",
+ "multisigs": [
+  {
+   "label": "autonomous 1 of 3, no time lock (8.1's old suggestion)",
+   "address": "FWwFR2riem54KQN9AECi5XeV3zWnywuZJ6G4vtT1KyuA",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+wovWT5dQEjJ2B8u6KmOqSoYLgKB8b6BckodtPsS5ueNQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+AwAAABaSW9G35e5xANF1DmScqLfloJrMynbS1R0boMODZYiFB2lzlzpqLBH+HS22tMY9W3GyTLkk1NUoL4sjcCCWmebgB8bE7TLzW41j/+qu7sczN4mH8NJ00in5vcv/D0fHYkOHBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "expected": {
+    "createKey": "3k2owWFkqkPfdvxfE1jCKXwymPoaF4qRpHszBqpo1So6",
+    "configAuthority": "11111111111111111111111111111111",
+    "threshold": 1,
+    "timeLock": 0,
+    "transactionIndex": "0",
+    "staleTransactionIndex": "0",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "2X7QmEGQ2w1sUSd9fvywTjAb4tkmUZVHXc4cx74rMj3S",
+      "permissions": 7
+     },
+     {
+      "key": "86e3AU6Y6ydqoe6NZhVW5KqbooNmKHWv3P796iwXGVUT",
+      "permissions": 7
+     },
+     {
+      "key": "ENutSt2vecXJNpBRrVJR63ipTH1FWgeCgtVmC2STxU1c",
+      "permissions": 7
+     }
+    ]
+   },
+   "vaults": [
+    {
+     "index": 0,
+     "address": "4LaURezrNwCVbx59xVgqbWNpRLsQBuwMjRnbBhXc19tZ"
+    },
+    {
+     "index": 1,
+     "address": "DcKJqqnw71sG1uJAgCqaxF9wQrJ3Hn2xjxLPv7LtuAH4"
+    },
+    {
+     "index": 7,
+     "address": "BmC5JjhP4azAWWRdMrkNMQ8zRrmQDL5aPE8C8UKkKn4z"
+    }
+   ]
+  },
+  {
+   "label": "controlled by the vault, 1 of 3, no time lock (O35)",
+   "address": "BW4DgvJScn2UwNEb26nBJG4NNEvM8BW2MzgqeBVtjQ67",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+w+5lCg+J22tph2NQ7rRkk/AaxhkHGaZmgV9Cb5B+N9XXSc1pi2KevO+SZXGkJSiJ0SgtwLZ/h3eM7mQ7k3Xqj4AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+AwAAABZsM5msM1+/lKUfDq+jWegeEcIA/+EXSvEll64y0jZVB1ByrxP1ywXgpCXuSL6Rn+vTkDPLtnZkDw4uTM8pooWlB4oXriN97N1PRWL5+wlAzkdYfNrn5WAzlYCPRxAjTnLxBwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "expected": {
+    "createKey": "5EXyCdrSjFXc4cPHUdFAZQryoXLJ5RSj2X5uE1gQvNDS",
+    "configAuthority": "8rD163Y7hhf3cHTo7S9iqtctrsUj7QNH3ix6yNKkWkdD",
+    "threshold": 1,
+    "timeLock": 0,
+    "transactionIndex": "0",
+    "staleTransactionIndex": "0",
+    "rentCollector": null,
+    "bump": 254,
+    "members": [
+     {
+      "key": "2WXfUYukfMjtUWm3vfhdHXYFCuv6UNVsvSeXnuivUWCU",
+      "permissions": 7
+     },
+     {
+      "key": "6R33V7yjXv4k3eng2RRv6waw6VSgVvZHhPpKaSbd4NXn",
+      "permissions": 7
+     },
+     {
+      "key": "AJ4CuK6FsZyB2hZc12eCpkMFw5B8AbmX75idaDxZd6fa",
+      "permissions": 7
+     }
+    ]
+   },
+   "vaults": [
+    {
+     "index": 0,
+     "address": "DHbA6e1dZQVjLJ4343XfsBT4a3uPXhYsXL6PLHk2V8Si"
+    },
+    {
+     "index": 1,
+     "address": "B4d7b1kFEFFTNnJnNMVAZsqtXMXbRhk43eQLnNh8yk6p"
+    },
+    {
+     "index": 7,
+     "address": "952x1fjpfncUHTdksjVUxmt5bGPqYvbLmZtakHRR2kZ3"
+    }
+   ]
+  },
+  {
+   "label": "controlled, 2 of 3, a time lock, a rent collector, mixed permissions",
+   "address": "Agkf511hNpbYTW2nUvUL7JHzopHwR7kC9Bi8cbxJK15x",
+   "owner": "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+   "data": "4HR5ukShT+zpX1ol7vQk/DLLcdyztnaRt+HWEUQXjPP5SulQe3lEMHSc1pi2KevO+SZXGkJSiJ0SgtwLZ/h3eM7mQ7k3Xqj4AgAQDgAAAAAAAAAAAAAAAAAAAAAAAAHMvMAaGNAJVjn2D8+Vo7EOTj/f745BRlYoQxHmj/PLc/8DAAAAGyqeJo+3piw5Hv/XGt0vBUXf9d2LxUMzVp+ULD9uvaQFG7iPVyorh2QP3siarVnJ3r70qBgk9ig39d2PMsZru5gC/OB+ZvtYCB0NByNV+iLyL16K7CXGayMY1y838AYYx0cH",
+   "expected": {
+    "createKey": "GhzKmErrejwaZe7cJXJqAELQoXP6cp7R6Y8LyEYQZmc3",
+    "configAuthority": "8rD163Y7hhf3cHTo7S9iqtctrsUj7QNH3ix6yNKkWkdD",
+    "threshold": 2,
+    "timeLock": 3600,
+    "transactionIndex": "0",
+    "staleTransactionIndex": "0",
+    "rentCollector": "EnD6ve9HVb7yLvER1FSwiSwp1JVETs4AbRXjcfBwFjfY",
+    "bump": 255,
+    "members": [
+     {
+      "key": "2q3hZAYvM28AxL3Kr7Jnn3vgspU27k3hZXPsqMVwWpH1",
+      "permissions": 5
+     },
+     {
+      "key": "2sDEYjekH3DrDxULi9Va7uZW9w6MsfhT96JFeaEK5J3Z",
+      "permissions": 2
+     },
+     {
+      "key": "J28HRsJN3RBEwNCQQEsXNvyyngF9AMKZ1Gm1p9dK8UKp",
+      "permissions": 7
+     }
+    ]
+   },
+   "vaults": [
+    {
+     "index": 0,
+     "address": "7feK6cySAGZ3oBpV7bSGgBUF4zUELq9KbF5tNXgc3ib3"
+    },
+    {
+     "index": 1,
+     "address": "DVnQdHKzWTEHB7Fn8szvSZEMijtvysvoffWzfHo8kLzf"
+    },
+    {
+     "index": 7,
+     "address": "FLwyZG2ox7PLVF4nMWgMdi843dBPKitzhKnx6CUURVow"
+    }
+   ]
+  }
+ ]
+}

@@ -669,3 +669,40 @@ test('L14 set_launch_approver clears both stored records even with the same key 
   await w.launchFromBatch({ batch: b3, cityId: 2102n, founder: b });
   await w.finish();
 });
+
+test('R6-RT-3 (review round 6) a publication, a clear and a change of approver padded until the log is truncated still give their events: LaunchBatchPublished, LaunchBatchCleared and LaunchApproverChanged are event CPIs, decoded from the inner instructions', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const f = await w.signer(20n);
+  const MEMO = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+  const memos = (n) => Array.from({ length: n }, () => ({ programAddress: MEMO, accounts: [], data: new Uint8Array([0x7a]) }));
+  const truncated = (logs) => logs.some((l) => /log truncated/i.test(l));
+  const names = (r) => r.events.map((e) => e.name);
+  // a publication with 50 memos ahead of it: the log is truncated before vicinity_curve runs, the event survives
+  const b = S.buildLaunchBatch(w.batchEntries([{ cityId: 9501n, founder: f, symbol: 'PAD' }]), { programId: w.programId, batchSeq: 1n });
+  const win = S.defaultPublishWindow(w.now());
+  let r = await w.send([...memos(50), w.ix.publishLaunchBatch({ approver: approver.address, seq: 1n, root: b.root, leafCount: 1, ...win })], [approver], 'padded publish_launch_batch', { feePayer: approver });
+  assert.ok(truncated(r.logs), 'the log was truncated');
+  assert.ok(!r.logs.some((l) => l.startsWith(`Program ${w.programId} invoke`)), 'not even the invoke line of vicinity_curve is logged');
+  assert.deepEqual(names(r), ['LaunchBatchPublished']);
+  assert.equal(r.events[0].source ?? 'cpi', 'cpi');
+  assert.equal(Buffer.from(r.events[0].data.root).toString('hex'), Buffer.from(b.root).toString('hex'));
+  // a padded clear and a padded change of approver likewise
+  r = await w.send([...memos(50), w.ix.clearLaunchBatch({ authority: approver.address, halt: false })], [approver], 'padded clear_launch_batch', { feePayer: approver });
+  assert.ok(truncated(r.logs));
+  assert.deepEqual(names(r), ['LaunchBatchCleared']);
+  const next = await w.signer(5n);
+  r = await w.send([...memos(50), w.ix.setLaunchApprover({ admin: w.admin.address, approver: next.address })], [w.admin], 'padded set_launch_approver');
+  assert.ok(truncated(r.logs));
+  assert.deepEqual(names(r), ['LaunchApproverChanged']);
+  assert.equal(r.events[0].data.new, String(next.address));
+  // unpadded, the instructions carry the two event accounts and emit the same events (and no log event)
+  r = await w.send([w.ix.clearLaunchBatch({ authority: next.address, halt: true })], [next], 'clear_launch_batch (halt)', { feePayer: next });
+  assert.deepEqual(names(r), ['LaunchBatchCleared']);
+  assert.deepEqual(S.decodeEventLogs(r.logs, { programId: w.programId }), [], 'no settings event is logged by these three instructions');
+  for (const ix of [w.ix.clearLaunchBatch({ authority: next.address }), w.ix.setLaunchApprover({ admin: w.admin.address, approver: next.address }),
+    w.ix.publishLaunchBatch({ approver: next.address, seq: 2n, root: b.root, leafCount: 1, ...win })]) {
+    assert.deepEqual(ix.accounts.slice(-2).map((a) => [a.address, a.role]), [[w.P.eventAuthority(), S.Role.R], [w.programId, S.Role.R]]);
+  }
+  await w.finish();
+});
