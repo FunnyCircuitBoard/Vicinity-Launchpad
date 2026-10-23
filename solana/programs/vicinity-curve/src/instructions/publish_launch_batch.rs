@@ -19,7 +19,10 @@
 //!   it stays in force until the newer one's `valid_from` (8.6).
 //!
 //! No account is created, nothing is paid but the transaction fee, and the
-//! approver never writes `Launchpad`.
+//! approver never writes `Launchpad`. `LaunchBatchPublished` is an event CPI
+//! (`emit_cpi!`), not a log line: a publisher who pads the transaction until
+//! the log is truncated cannot hide it from an event-driven monitor or
+//! indexer (review R6-RT-3; the monitor reads `LaunchBatch` itself as well).
 
 use anchor_lang::prelude::*;
 
@@ -30,6 +33,7 @@ use crate::events::LaunchBatchPublished;
 use crate::instructions::now;
 use crate::state::{BatchRecord, LaunchBatch, Launchpad};
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct PublishLaunchBatch<'info> {
     pub approver: Signer<'info>,
@@ -90,7 +94,7 @@ pub fn handle_publish_launch_batch(
         cleared: false,
     };
     let (previous_seq, replaced_seq) = apply_publication(lb, record, now);
-    emit!(LaunchBatchPublished {
+    emit_cpi!(LaunchBatchPublished {
         seq,
         root,
         leaf_count,

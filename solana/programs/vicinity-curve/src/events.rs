@@ -3,7 +3,10 @@
 //! Every instruction that moves lamports or tokens emits with `emit_cpi!`: a
 //! self-CPI signed by the `["__event_authority"]` PDA, which cannot be
 //! truncated like a log; indexers accept it only from an inner instruction of
-//! this program signed by that PDA. Settings instructions emit with `emit!`.
+//! this program signed by that PDA. Settings instructions emit with `emit!`,
+//! except the three of the batch approval a monitor must never miss
+//! (`LaunchApproverChanged`, `LaunchBatchPublished`, `LaunchBatchCleared`),
+//! which are event CPIs too (review R6-RT-3).
 //! Every figure in every event is also a counter or a field of an account, so
 //! an indexer can reconcile from state.
 
@@ -315,7 +318,7 @@ pub struct LaunchBatchInitialized {
 }
 
 /// `set_launch_approver` (4.24): every change clears both stored batches and
-/// lifts a halt.
+/// lifts a halt. Event CPI (review R6-RT-3).
 #[event]
 pub struct LaunchApproverChanged {
     pub old: Pubkey,
@@ -325,7 +328,7 @@ pub struct LaunchApproverChanged {
     pub latest_seq: u64,
 }
 
-/// `publish_launch_batch` (4.25).
+/// `publish_launch_batch` (4.25). Event CPI (review R6-RT-3).
 #[event]
 pub struct LaunchBatchPublished {
     pub seq: u64,
@@ -342,7 +345,8 @@ pub struct LaunchBatchPublished {
     pub replaced_seq: u64,
 }
 
-/// `clear_launch_batch` (4.26), also when nothing changed.
+/// `clear_launch_batch` (4.26), also when nothing changed. Event CPI (review
+/// R6-RT-3).
 #[event]
 pub struct LaunchBatchCleared {
     pub by: Pubkey,

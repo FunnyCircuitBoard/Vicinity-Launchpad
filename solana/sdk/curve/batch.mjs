@@ -74,23 +74,51 @@ export function checkSymbol(symbol) {
 }
 
 // ---------------------------------------------------------------- leaves
-const bytes32Of = (h, what) => {
-  const b = typeof h === 'string' ? fromHex(h) : Uint8Array.from(h);
-  if (b.length !== 32) throw new BatchError('BadField', `${what} must be 32 bytes`);
-  return b;
-};
-const u64Of = (v, what) => {
-  const n = BigInt(v);
-  if (n < 0n || n > U64_MAX) throw new BatchError('BadField', `${what} out of range`);
+// Every leaf field is taken exactly as given or refused, never filled in or coerced (review MK-1): a missing, null or
+// misspelt field would otherwise build a valid leaf for the wrong name ("undefined") or the wrong config (#0), and the
+// owner's verifier, which runs this same code, could not tell.
+const DECIMAL = /^(0|[1-9][0-9]*)$/;
+const HEX64 = /^[0-9a-fA-F]{64}$/;
+const isByte = (x) => Number.isInteger(x) && x >= 0 && x <= 255;
+const shown = (v) => (v === null ? 'null' : Array.isArray(v) ? 'an array' : typeof v === 'string' ? JSON.stringify(v) : `${typeof v} ${String(v)}`);
+/** An integer field: a bigint, a safe integer or a string of decimal digits, from 0 to `max`; nothing else (no default, boolean, blank, spaced or fractional value). */
+function intField(v, what, max) {
+  let n = null;
+  if (typeof v === 'bigint') n = v;
+  else if (typeof v === 'number' && Number.isSafeInteger(v)) n = BigInt(v);
+  else if (typeof v === 'string' && DECIMAL.test(v)) n = BigInt(v);
+  if (n === null) throw new BatchError('BadField', `${what} must be an integer (a bigint, a safe integer or a string of decimal digits), not ${shown(v)}`);
+  if (n < 0n || n > max) throw new BatchError('BadField', `${what} ${n} out of range (0 to ${max})`);
   return n;
+}
+/** 32 bytes: 64 hex digits, a Uint8Array of 32 or an array of 32 bytes. */
+function bytes32Of(h, what) {
+  if (typeof h === 'string' && HEX64.test(h)) return fromHex(h);
+  if (h instanceof Uint8Array && h.length === 32) return Uint8Array.from(h);
+  if (Array.isArray(h) && h.length === 32 && h.every(isByte)) return Uint8Array.from(h);
+  throw new BatchError('BadField', `${what} must be 32 bytes (64 hex digits, a Uint8Array or an array of bytes), not ${shown(h)}`);
+}
+/** A key: base58 text, a PublicKey (or anything with `toBase58`) or 32 bytes. */
+function keyField(k, what) {
+  const bytes = k instanceof Uint8Array || Array.isArray(k);
+  const ok = typeof k === 'string' || (bytes && k.length === 32 && [...k].every(isByte)) || (!bytes && k !== null && typeof k === 'object' && typeof k.toBase58 === 'function');
+  if (!ok) throw new BatchError('BadField', `${what} must be a key (base58, a PublicKey or 32 bytes), not ${shown(k)}`);
+  try { return toKey(k).toBase58(); } catch { throw new BatchError('BadField', `${what} is not a key: ${shown(k)}`); }
+}
+const textField = (v, what) => {
+  if (typeof v !== 'string') throw new BatchError('BadField', `${what} must be a string, not ${shown(v)}`);
+  return v;
 };
-/** An entry in canonical form: `{ cityId: bigint, founder: base58, configId: number, metaHash: Uint8Array, name, symbol }`. */
+const u64Of = (v, what) => intField(v, what, U64_MAX);
+/**
+ * An entry in canonical form: `{ cityId: bigint, founder: base58, configId: number, metaHash: Uint8Array, name, symbol }`.
+ * Every field is required and taken exactly (review MK-1); a BatchError names the first one that is missing or malformed.
+ */
 export function normalizeEntry(e) {
-  const configId = Number(e.configId ?? 0);
-  if (!Number.isInteger(configId) || configId < 0 || configId > 0xffff) throw new BatchError('BadField', `config id ${e.configId}`);
+  if (e === null || typeof e !== 'object') throw new BatchError('BadField', `an entry must be an object, not ${shown(e)}`);
   return {
-    cityId: u64Of(e.cityId, 'city id'), founder: toKey(e.founder).toBase58(), configId, metaHash: bytes32Of(e.metaHash, 'meta_hash'),
-    name: String(e.name), symbol: String(e.symbol),
+    cityId: u64Of(e.cityId, 'city id'), founder: keyField(e.founder, 'founder'), configId: Number(intField(e.configId, 'config id', 0xffffn)),
+    metaHash: bytes32Of(e.metaHash, 'meta_hash'), name: textField(e.name, 'name'), symbol: textField(e.symbol, 'symbol'),
   };
 }
 /** The leaf preimage of 3.12 (146 to 186 bytes for entries the program accepts). */
@@ -241,16 +269,66 @@ export function launchBatchFile(batch) {
     entries: batch.entries.map((e) => ({ cityId: e.cityId.toString(), founder: e.founder, configId: e.configId, metaHash: toHex(e.metaHash), name: e.name, symbol: e.symbol })),
   };
 }
-/** A list file read back: the tree rebuilt from its entries, refused unless it gives the file's root (no chain checks; see `buildLaunchBatch`). */
+const FILE_KEYS = Object.freeze(['entries', 'leafCount', 'programId', 'root', 'seq', 'version']);
+const ENTRY_KEYS = Object.freeze(['cityId', 'configId', 'founder', 'metaHash', 'name', 'symbol']);
+const HEX64_LOWER = /^[0-9a-f]{64}$/;
+/** `o` is an object with exactly `keys` (none missing, none extra), else BadFile. */
+function exactKeys(o, keys, what) {
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) throw new BatchError('BadFile', `${what} is not an object`);
+  const have = Object.keys(o);
+  const missing = keys.filter((k) => !Object.hasOwn(o, k)); const extra = have.filter((k) => !keys.includes(k));
+  if (missing.length || extra.length) {
+    throw new BatchError('BadFile', `${what}: ${[missing.length ? `missing ${missing.join(', ')}` : '', extra.length ? `unexpected ${extra.join(', ')}` : ''].filter(Boolean).join('; ')}`);
+  }
+}
+/**
+ * The schema of a list file (review MK-1): exactly the fields `launchBatchFile` writes, each of its type: `version` 1,
+ * `programId` text, `seq` decimal text, `leafCount` an integer, `root` 64 lower-case hex digits, `entries` an array of
+ * objects with exactly the six leaf fields (`cityId` decimal text, `founder` text, `configId` an integer, `metaHash` 64
+ * lower-case hex digits, `name` and `symbol` text). A missing, null, misspelt or extra field is refused, so a field lost
+ * before the root was computed cannot turn into a default.
+ */
+export function checkLaunchBatchFileSchema(f) {
+  exactKeys(f, FILE_KEYS, 'the list file');
+  if (f.version !== 1) throw new BatchError('BadFile', `version ${shown(f.version)} (1 expected)`);
+  if (typeof f.programId !== 'string') throw new BatchError('BadFile', `programId must be text, not ${shown(f.programId)}`);
+  if (typeof f.seq !== 'string' || !DECIMAL.test(f.seq)) throw new BatchError('BadFile', `seq must be decimal text, not ${shown(f.seq)}`);
+  if (!Number.isSafeInteger(f.leafCount)) throw new BatchError('BadFile', `leafCount must be an integer, not ${shown(f.leafCount)}`);
+  if (typeof f.root !== 'string' || !HEX64_LOWER.test(f.root)) throw new BatchError('BadFile', `root must be 64 lower-case hex digits, not ${shown(f.root)}`);
+  if (!Array.isArray(f.entries)) throw new BatchError('BadFile', `entries must be an array, not ${shown(f.entries)}`);
+  f.entries.forEach((e, i) => {
+    exactKeys(e, ENTRY_KEYS, `entry ${i}`);
+    const bad = (field, want) => { throw new BatchError('BadFile', `entry ${i}: ${field} must be ${want}, not ${shown(e[field])}`); };
+    if (typeof e.cityId !== 'string' || !DECIMAL.test(e.cityId)) bad('cityId', 'decimal text');
+    if (typeof e.founder !== 'string') bad('founder', 'base58 text');
+    if (!Number.isSafeInteger(e.configId)) bad('configId', 'an integer');
+    if (typeof e.metaHash !== 'string' || !HEX64_LOWER.test(e.metaHash)) bad('metaHash', '64 lower-case hex digits');
+    if (typeof e.name !== 'string') bad('name', 'text');
+    if (typeof e.symbol !== 'string') bad('symbol', 'text');
+  });
+}
+/**
+ * A list file read back: its schema checked (`checkLaunchBatchFileSchema`), the tree rebuilt from its entries, refused
+ * unless it gives the file's root and leaf count (no chain checks; see `buildLaunchBatch`).
+ */
 export function parseLaunchBatchFile(file) {
-  const f = typeof file === 'string' ? JSON.parse(file) : file;
-  if (f.version !== 1) throw new BatchError('BadFile', `version ${f.version}`);
-  const batch = buildLaunchBatch(f.entries, { programId: f.programId, batchSeq: BigInt(f.seq) });
+  let f = file;
+  if (typeof file === 'string') {
+    try { f = JSON.parse(file); } catch (e) { throw new BatchError('BadFile', `not JSON: ${e.message}`); }
+  }
+  checkLaunchBatchFileSchema(f);
+  const batch = buildLaunchBatch(f.entries, { programId: f.programId, batchSeq: f.seq });
   if (toHex(batch.root) !== f.root) throw new BatchError('BadFile', `root ${f.root} is not the entries' ${toHex(batch.root)}`);
-  if (Number(f.leafCount) !== batch.leafCount) throw new BatchError('BadFile', 'leaf count');
+  if (f.leafCount !== batch.leafCount) throw new BatchError('BadFile', `leaf count ${f.leafCount} is not the entries' ${batch.leafCount}`);
   return batch;
 }
-/** The day's changes from batch `prev` (a built batch, a list file, or null) to `next`, by city: added, removed and changed entries. */
+/** The leaf fields other than the city, in the order the day's changes name them. */
+export const LEAF_FIELDS = Object.freeze(['founder', 'configId', 'name', 'symbol', 'metaHash']);
+/**
+ * The day's changes from batch `prev` (a built batch, a list file, or null) to `next`, by city: added, removed and changed
+ * entries; each changed row `{ before, after, fields }` names the leaf fields that differ (review R6-DIFF-2: a change of
+ * the metadata hash alone is a change the owner must see).
+ */
 export function diffLaunchBatches(prev, next) {
   const rows = (b) => {
     if (!b) return new Map();
@@ -258,9 +336,13 @@ export function diffLaunchBatches(prev, next) {
     return new Map(list.map((e) => [e.cityId, e]));
   };
   const a = rows(prev); const b = rows(next);
-  const same = (x, y) => x.founder === y.founder && x.configId === y.configId && x.name === y.name && x.symbol === y.symbol && bytesEqual(x.metaHash, y.metaHash);
+  const differ = (x, y) => LEAF_FIELDS.filter((k) => (k === 'metaHash' ? !bytesEqual(x.metaHash, y.metaHash) : x[k] !== y[k]));
   const added = []; const removed = []; const changed = [];
-  for (const [k, e] of b) { if (!a.has(k)) added.push(e); else if (!same(a.get(k), e)) changed.push({ before: a.get(k), after: e }); }
+  for (const [k, e] of b) {
+    if (!a.has(k)) { added.push(e); continue; }
+    const fields = differ(a.get(k), e);
+    if (fields.length) changed.push({ before: a.get(k), after: e, fields });
+  }
   for (const [k, e] of a) if (!b.has(k)) removed.push(e);
   const byCity = (x, y) => ((x.cityId ?? x.after.cityId) < (y.cityId ?? y.after.cityId) ? -1 : 1);
   return { added: added.sort(byCity), removed: removed.sort(byCity), changed: changed.sort(byCity) };

@@ -3,9 +3,12 @@
 // Money movements are emitted by event CPI (`emit_cpi!`): an inner instruction
 // to vicinity_curve whose only account is the event authority PDA
 // `["__event_authority"]` (signed by the program) and whose data is
-// EVENT_IX_TAG, the event discriminator and the Borsh fields. Settings changes
-// are emitted with `emit!`, a "Program data: <base64>" log line holding the
-// discriminator and the fields.
+// EVENT_IX_TAG, the event discriminator and the Borsh fields; so are the batch
+// approval's change of approver, publication and clear (`CPI_EVENTS`; review
+// R6-RT-3: a log line can be pushed out of a truncated log by padding the
+// transaction, an event CPI cannot). The other settings changes are emitted
+// with `emit!`, a "Program data: <base64>" log line holding the discriminator
+// and the fields.
 //
 // Indexers decode a whole confirmed transaction with `decodeTransactionEvents`
 // (4.21, T56; CLI-2), which accepts events only:
@@ -13,10 +16,10 @@
 //     the inner instructions and logs of FAILED transactions too, and a failed
 //     transaction reverts everything: a genuine Trade event CPI from a buy that
 //     was then made to fail costs its sender only the fee and changed nothing;
-//   * for money events, from an inner instruction (stack height 2 or more) of
+//   * for the events of CPI_EVENTS, from an inner instruction (stack height 2 or more) of
 //     vicinity_curve, called by vicinity_curve itself (the enclosing call), with
 //     the event authority PDA as its only account;
-//   * for settings events, from "Program data:" lines logged while
+//   * for the other settings events, from "Program data:" lines logged while
 //     vicinity_curve was the running program.
 // `decodeEventCpi` and `decodeEventLogs` check one instruction or one log list
 // only, never the transaction's status: never feed them a failed transaction.
@@ -79,9 +82,14 @@ export const EVENT_FIELDS = Object.freeze({
   LaunchBatchCleared: [['by', 'pubkey'], ['latest_seq', 'u64'], ['previous_seq', 'u64'], ['halted', 'bool']],
 });
 
-/** Events emitted by event CPI (money movements and launches); the other seventeen are `emit!` logs. */
+/**
+ * Events emitted by event CPI (money movements and launches, and the batch approval's change of approver, publication
+ * and clear, review R6-RT-3); the other fourteen are `emit!` logs. An event of this list is accepted only from an event
+ * CPI, never from a log.
+ */
 export const CPI_EVENTS = Object.freeze(['CoinLaunched', 'Trade', 'Graduated', 'BuybackBurned', 'PlatformFeesWithdrawn',
-  'HoldersFeesForwarded', 'FounderFeesClaimed', 'FounderPaidOut', 'LaunchedFromBatch']);
+  'HoldersFeesForwarded', 'FounderFeesClaimed', 'FounderPaidOut', 'LaunchedFromBatch', 'LaunchApproverChanged', 'LaunchBatchPublished',
+  'LaunchBatchCleared']);
 
 const sameBytes = (a, b, at = 0) => b.every((x, i) => a[at + i] === x);
 

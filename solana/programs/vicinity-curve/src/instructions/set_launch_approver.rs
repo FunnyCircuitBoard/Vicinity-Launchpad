@@ -17,7 +17,8 @@
 //! takes force a review window after it is published). Calling with the
 //! current key is how the admin lifts a halt after a false alarm. Under the
 //! time lock (O11) this takes 48 hours; the fast stops are the clear and the
-//! guardian's pause.
+//! guardian's pause. `LaunchApproverChanged` is an event CPI, like the
+//! publication and the clear (review R6-RT-3).
 
 use anchor_lang::prelude::*;
 
@@ -27,6 +28,7 @@ use crate::events::LaunchApproverChanged;
 use crate::helpers::check_approver_separate;
 use crate::state::{LaunchBatch, Launchpad};
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct SetLaunchApprover<'info> {
     pub admin: Signer<'info>,
@@ -52,7 +54,7 @@ pub fn handle_set_launch_approver(ctx: Context<SetLaunchApprover>, approver: Pub
     lb.latest.cleared = true;
     lb.previous.cleared = true;
     lb.halted = false;
-    emit!(LaunchApproverChanged {
+    emit_cpi!(LaunchApproverChanged {
         old,
         new: approver,
         latest_seq: lb.latest.seq,

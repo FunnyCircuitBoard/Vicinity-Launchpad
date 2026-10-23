@@ -10,7 +10,8 @@
 //! the admin sets `launches_paused` (4.4). The guardian and the approver may
 //! halt as well as clear: a thief of either key could only stop batch
 //! launches, which he can do anyway (8.1). The event is emitted also when
-//! nothing changed (a repeated clear).
+//! nothing changed (a repeated clear), by event CPI so that padding the
+//! transaction until its log is truncated cannot hide it (review R6-RT-3).
 
 use anchor_lang::prelude::*;
 
@@ -20,6 +21,7 @@ use crate::events::LaunchBatchCleared;
 use crate::helpers::may_clear_batches;
 use crate::state::{LaunchBatch, Launchpad};
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct ClearLaunchBatch<'info> {
     pub authority: Signer<'info>,
@@ -44,7 +46,7 @@ pub fn handle_clear_launch_batch(ctx: Context<ClearLaunchBatch>, halt: bool) -> 
     if halt {
         lb.halted = true;
     }
-    emit!(LaunchBatchCleared {
+    emit_cpi!(LaunchBatchCleared {
         by,
         latest_seq: lb.latest.seq,
         previous_seq: lb.previous.seq,

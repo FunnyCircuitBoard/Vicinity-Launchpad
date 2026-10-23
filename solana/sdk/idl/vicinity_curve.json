@@ -741,6 +741,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -2040,6 +2072,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -2499,6 +2563,38 @@
               }
             ]
           }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -4947,7 +5043,7 @@
       "name": "LaunchApproverChanged",
       "docs": [
         "`set_launch_approver` (4.24): every change clears both stored batches and",
-        "lifts a halt."
+        "lifts a halt. Event CPI (review R6-RT-3)."
       ],
       "type": {
         "kind": "struct",
@@ -5042,7 +5138,8 @@
     {
       "name": "LaunchBatchCleared",
       "docs": [
-        "`clear_launch_batch` (4.26), also when nothing changed."
+        "`clear_launch_batch` (4.26), also when nothing changed. Event CPI (review",
+        "R6-RT-3)."
       ],
       "type": {
         "kind": "struct",
@@ -5087,7 +5184,7 @@
     {
       "name": "LaunchBatchPublished",
       "docs": [
-        "`publish_launch_batch` (4.25)."
+        "`publish_launch_batch` (4.25). Event CPI (review R6-RT-3)."
       ],
       "type": {
         "kind": "struct",

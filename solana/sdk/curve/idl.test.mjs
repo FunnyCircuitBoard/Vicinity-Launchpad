@@ -402,7 +402,9 @@ test('event decoders equal Anchor encoding for all 26 events; event CPIs need th
     assert.equal(S.decodeEventCpi({ programId: S.CLUSTERS.mainnet.legacyProgram, accounts: [ea], data: cpiData }), null);
     assert.equal(S.decodeEventCpi({ programId: S.CURVE_PROGRAM_ID, accounts: [ea], data: bytes }), null);
   }
-  assert.equal(S.CPI_EVENTS.length, 9);
+  // the nine money and launch events, and the batch approval's change of approver, publication and clear (review R6-RT-3)
+  assert.equal(S.CPI_EVENTS.length, 12);
+  for (const n of ['LaunchApproverChanged', 'LaunchBatchPublished', 'LaunchBatchCleared']) assert.ok(S.CPI_EVENTS.includes(n), n);
   // emit! logs: only from vicinity_curve's own frames
   const pc = Buffer.concat([Buffer.from(S.EVENT_DISCRIMINATORS.ApprovalRevoked), coder.types.encode('ApprovalRevoked', { city_id: new BN(9), by: key() })]).toString('base64');
   const logs = [`Program ${S.CURVE_PROGRAM_ID} invoke [1]`, `Program data: ${pc}`, `Program ${S.ADDRESSES.token} invoke [2]`, `Program data: ${pc}`,

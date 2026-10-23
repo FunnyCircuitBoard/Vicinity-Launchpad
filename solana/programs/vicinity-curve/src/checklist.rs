@@ -254,14 +254,24 @@ fn single_debit_helper_and_the_rule_of_4_0() {
     }
 }
 
+/// 4.21, review R6-RT-3: the settings instructions of the batch approval
+/// whose events a monitor must never miss (a publication, a clear, a change of
+/// the approver) also emit by event CPI, which padding cannot truncate.
+const BATCH_CPI_SETTINGS: [&str; 3] = [
+    "publish_launch_batch",
+    "clear_launch_batch",
+    "set_launch_approver",
+];
+
 /// 4.0, 4.21, M20: instructions that move money or tokens emit by event CPI
-/// (`#[event_cpi]` accounts, `emit_cpi!`); settings instructions by `emit!`.
+/// (`#[event_cpi]` accounts, `emit_cpi!`), and so do the three batch settings
+/// of `BATCH_CPI_SETTINGS`; the other settings instructions by `emit!`.
 /// Every instruction emits.
 #[test]
 fn money_events_by_cpi_settings_by_emit() {
     for (name, src) in SOURCES {
         let body = handler_body(name, src);
-        if OUTFLOWS.contains(&name) {
+        if OUTFLOWS.contains(&name) || BATCH_CPI_SETTINGS.contains(&name) {
             assert!(src.contains("#[event_cpi]"), "{name}");
             assert!(body.contains("emit_cpi!("), "{name}");
             assert!(!body.contains("emit!("), "{name}");
@@ -779,15 +789,19 @@ fn spec_accounts() -> Vec<(&'static str, Vec<(&'static str, u8)>)> {
         ),
         (
             "set_launch_approver",
-            vec![("admin", S), ("launchpad", W), ("launch_batch", W)],
+            with_events(vec![("admin", S), ("launchpad", W), ("launch_batch", W)]),
         ),
         (
             "publish_launch_batch",
-            vec![("approver", S), ("launchpad", 0), ("launch_batch", W)],
+            with_events(vec![("approver", S), ("launchpad", 0), ("launch_batch", W)]),
         ),
         (
             "clear_launch_batch",
-            vec![("authority", S), ("launchpad", 0), ("launch_batch", W)],
+            with_events(vec![
+                ("authority", S),
+                ("launchpad", 0),
+                ("launch_batch", W),
+            ]),
         ),
         (
             "launch_from_batch",
@@ -1076,7 +1090,9 @@ fn idl_discriminators() {
     }
 }
 
-/// 4.21: the nine event-CPI events and the seventeen settings events.
+/// 4.21: the 26 events: twelve emitted by event CPI (the nine money and launch
+/// events, and since review R6-RT-3 the three of `BATCH_CPI_SETTINGS`) and
+/// fourteen settings events emitted by `emit!`.
 #[test]
 fn idl_events() {
     let idl = idl();

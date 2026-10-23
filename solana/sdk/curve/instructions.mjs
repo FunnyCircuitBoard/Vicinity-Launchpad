@@ -60,9 +60,10 @@ export const ACCOUNT_TABLES = Object.freeze({
     ['destination_wallet', Role.W], ['event_authority', Role.R], ['program', Role.R]],
   // the batch launch approval (4.23 to 4.27)
   init_launch_batch: [['admin', Role.RS], ['payer', Role.WS], ['launchpad', Role.R], ['launch_batch', Role.W], ['system_program', Role.R]],
-  set_launch_approver: [['admin', Role.RS], ['launchpad', Role.W], ['launch_batch', Role.W]],
-  publish_launch_batch: [['approver', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W]],
-  clear_launch_batch: [['authority', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W]],
+  // the three batch settings emit by event CPI (review R6-RT-3), so they end with the two event accounts
+  set_launch_approver: [['admin', Role.RS], ['launchpad', Role.W], ['launch_batch', Role.W], ['event_authority', Role.R], ['program', Role.R]],
+  publish_launch_batch: [['approver', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W], ['event_authority', Role.R], ['program', Role.R]],
+  clear_launch_batch: [['authority', Role.RS], ['launchpad', Role.R], ['launch_batch', Role.W], ['event_authority', Role.R], ['program', Role.R]],
   launch_from_batch: [['founder', Role.RS], ['payer', Role.WS], ['launchpad', Role.R], ['launch_batch', Role.R], ['approval', Role.R],
     ['config', Role.R], ['coin', Role.W], ['mint', Role.W], ['coin_vault', Role.W], ['ticker_lock', Role.W], ['metadata', Role.W],
     ['fee_recipient', Role.W], ['legacy_coin', Role.R], ['legacy_approval', Role.R], ['legacy_launchpad', Role.R], ['rewards_registry', Role.R],
@@ -307,24 +308,24 @@ export function curveInstructions({ programId = CURVE_PROGRAM_ID, cluster = 'mai
       }, W('payout_founder_fees').done(), overrides);
     },
 
-    // ------------------------------------------------ 4.23 to 4.27: the batch launch approval (emit!, and emit_cpi! for the launch)
+    // ------------------------------------------------ 4.23 to 4.27: the batch launch approval (emit! for the init; emit_cpi! for the rest, review R6-RT-3)
     /** 4.23: one time, by the admin; the batch path stays off until `setLaunchApprover`. */
     initLaunchBatch: ({ admin, payer = admin, overrides }) =>
       make('init_launch_batch', { admin, payer, launchpad: P.launchpad(), launch_batch: P.launchBatch(), system_program: ADDRESSES.system },
         W('init_launch_batch').done(), overrides),
     /** 4.24: the admin; zero turns the batch path off. Every call clears both stored batches and lifts a halt. */
     setLaunchApprover: ({ admin, approver, overrides }) =>
-      make('set_launch_approver', { admin, launchpad: P.launchpad(), launch_batch: P.launchBatch() }, W('set_launch_approver').pubkey(approver).done(), overrides),
+      make('set_launch_approver', { admin, launchpad: P.launchpad(), launch_batch: P.launchBatch(), ...evt }, W('set_launch_approver').pubkey(approver).done(), overrides),
     /**
      * 4.25: the raw builder; the owner's unsigned publication with the checks of the program is
      * `preparePublishLaunchBatch` (batch.mjs), which takes `seq` from the account and the window from the clock.
      */
     publishLaunchBatch: ({ approver, seq, root, leafCount, validFrom, validUntil, overrides }) =>
-      make('publish_launch_batch', { approver, launchpad: P.launchpad(), launch_batch: P.launchBatch() },
+      make('publish_launch_batch', { approver, launchpad: P.launchpad(), launch_batch: P.launchBatch(), ...evt },
         W('publish_launch_batch').u64(seq).bytes32(root).u32(leafCount).i64(validFrom).i64(validUntil).done(), overrides),
     /** 4.26: the admin, the launch approver or the guardian; a pure stop, `halt` refuses publications until the admin's `setLaunchApprover`. */
     clearLaunchBatch: ({ authority, halt = false, overrides }) =>
-      make('clear_launch_batch', { authority, launchpad: P.launchpad(), launch_batch: P.launchBatch() }, W('clear_launch_batch').bool(halt).done(), overrides),
+      make('clear_launch_batch', { authority, launchpad: P.launchpad(), launch_batch: P.launchBatch(), ...evt }, W('clear_launch_batch').bool(halt).done(), overrides),
     /**
      * 4.27: the founder named in the batch in force launches with his entry's fields and proof (`launchBatchArgs` of
      * batch.mjs gives them). `symbol` seeds the ticker lock and `configId` the config, as in `launch`. The founder may

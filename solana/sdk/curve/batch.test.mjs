@@ -193,7 +193,9 @@ test('the owner\'s unsigned publish_launch_batch: seq from the account, the defa
   assert.equal(p.validUntil, p.validFrom + 36n * 3_600n, '36 hours (O31)');
   assert.ok(S.publishWindowOk(now, p.validFrom, p.validUntil));
   assert.deepEqual(p.instruction, S.ix.publishLaunchBatch({ approver, seq: 7n, root: b.root, leafCount: 3, validFrom: p.validFrom, validUntil: p.validUntil }));
-  assert.deepEqual(p.instruction.accounts.map((a) => a.role), [S.Role.RS, S.Role.R, S.Role.W]);
+  // the approver, the Launchpad, LaunchBatch, and the two event accounts (an event CPI since review R6-RT-3)
+  assert.deepEqual(p.instruction.accounts.map((a) => a.role), [S.Role.RS, S.Role.R, S.Role.W, S.Role.R, S.Role.R]);
+  assert.deepEqual(p.instruction.accounts.slice(3).map((a) => a.address), [S.curvePdas().eventAuthority(), S.CURVE_PROGRAM_ID]);
   assert.throws(() => S.preparePublishLaunchBatch({ batch: b, launchBatch: { ...lbAcc, latest: { seq: 7n } }, launchpad: lp, approver, now }), /WrongSeq/);
   assert.throws(() => S.preparePublishLaunchBatch({ batch: b, launchBatch: lbAcc, launchpad: lp, approver: key(), now }), /NotApprover/);
   assert.throws(() => S.preparePublishLaunchBatch({ batch: b, launchBatch: lbAcc, launchpad: { launchApprover: ZERO }, approver, now }), /NoApprover/);
@@ -213,4 +215,66 @@ test('the owner\'s unsigned publish_launch_batch: seq from the account, the defa
   assert.equal(ix.accounts[0].address, args.founder);
   assert.equal(ix.accounts.length, 22);
   assert.throws(() => S.launchBatchArgs(b, 1n), /NotInBatch/);
+});
+
+test('MK-1 (review round 6) every leaf field is taken exactly or refused: a missing, null or misspelt name or config id is never coerced into "undefined" or config #0, and the list file has exactly the leaf fields', () => {
+  const good = worked()[0];
+  const drop = (o, ...keys) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
+  const refuse = (e, re, o = {}) => assert.throws(() => S.buildLaunchBatch([e], { batchSeq: 1n, ...o }), re, JSON.stringify(e, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v)));
+  // the name: missing, undefined, null, a number, an array
+  refuse(drop(good, 'name'), /name must be a string, not undefined/);
+  for (const bad of [undefined, null, 42, ['London']]) refuse({ ...good, name: bad }, /name must be a string/);
+  // the ticker likewise
+  refuse(drop(good, 'symbol'), /symbol must be a string/);
+  for (const bad of [null, 7]) refuse({ ...good, symbol: bad }, /symbol must be a string/);
+  // the config id: missing, misspelt (the site's config_id column), null, a fraction, negative, blank, spaced, a boolean, too large
+  refuse(drop(good, 'configId'), /config id must be an integer/);
+  refuse({ ...drop(good, 'configId'), config_id: 3 }, /config id must be an integer/);
+  for (const bad of [undefined, null, 1.5, -1, '', ' 1', '1e2', '01', true, 70_000]) refuse({ ...good, configId: bad }, /config id/);
+  // the city id: a boolean, blank or spaced text, hex text, a fraction, negative, beyond 2^53 as a number, beyond u64
+  for (const bad of [undefined, null, true, '', ' 12', '12 ', '0x10', 1.5, -3, 2 ** 53, 1n << 64n]) refuse({ ...good, cityId: bad }, /city id/);
+  // the founder: missing, a number, 31 bytes, an array with a non-byte
+  for (const bad of [undefined, null, 12345, new Uint8Array(31), Array(32).fill(256)]) refuse({ ...good, founder: bad }, /founder/);
+  // the metadata hash: missing, short hex, 0x-prefixed, bytes out of range, a number
+  for (const bad of [undefined, '00'.repeat(31), `0x${'11'.repeat(32)}`, Array(32).fill(-1), Array(32).fill('a'), 5]) refuse({ ...good, metaHash: bad }, /meta_hash must be 32 bytes/);
+  // the batch number likewise
+  for (const bad of [true, '', ' 1', 1.5, null]) assert.throws(() => S.buildLaunchBatch([good], { batchSeq: bad }), /batch_seq/);
+  // the exact forms still accepted: a bigint, a safe integer or decimal text for the ids, base58 or 32 bytes for the founder, hex or bytes for the hash
+  const ref = toHex(S.buildLaunchBatch([good], { batchSeq: 1n }).root);
+  const forms = { ...good, cityId: '2643743', configId: '0', founder: new web3.PublicKey(good.founder).toBase58(), metaHash: toHex(good.metaHash) };
+  assert.equal(toHex(S.buildLaunchBatch([forms], { batchSeq: '1' }).root), ref);
+  assert.equal(toHex(S.buildLaunchBatch([{ ...good, cityId: 2_643_743, configId: 0n, founder: [...good.founder] }], { batchSeq: 1 }).root), ref);
+  // entryProblems reports what buildLaunchBatch refuses
+  assert.match(S.entryProblems({ ...good, name: null }).join(), /name must be a string/);
+
+  // the list file: a field lost before the root was computed (the root recomputed by the old coercion: name "undefined",
+  // config 0) is refused, as is a misspelt or extra field, and each field of the wrong type
+  const file = S.launchBatchFile(S.buildLaunchBatch(worked(), { batchSeq: 4n }));
+  const coerced = S.launchBatchFile(S.buildLaunchBatch(worked().map((e, i) => (i ? e : { ...e, name: 'undefined', configId: 0 })), { batchSeq: 4n }));
+  const editEntry = (f, fn) => ({ ...f, entries: f.entries.map((e, i) => (i ? e : fn(e))) });
+  assert.throws(() => S.parseLaunchBatchFile(editEntry(coerced, (e) => drop(e, 'name', 'configId'))), /BadFile: entry 0: missing configId, name/);
+  assert.throws(() => S.parseLaunchBatchFile(editEntry(coerced, (e) => ({ ...e, name: null }))), /BadFile: entry 0: name must be text, not null/);
+  assert.throws(() => S.parseLaunchBatchFile(editEntry(file, (e) => ({ ...drop(e, 'configId'), config_id: 0 }))), /missing configId; unexpected config_id/);
+  assert.throws(() => S.parseLaunchBatchFile(editEntry(file, (e) => ({ ...e, extra: 1 }))), /unexpected extra/);
+  for (const [k, v, re] of [['cityId', 2_643_743, /cityId must be decimal text/], ['configId', '0', /configId must be an integer/], ['metaHash', file.entries[0].metaHash.toUpperCase(), /metaHash must be 64 lower-case/],
+    ['founder', [1, 2], /founder must be base58 text/], ['symbol', 1, /symbol must be text/]]) {
+    assert.throws(() => S.parseLaunchBatchFile(editEntry(file, (e) => ({ ...e, [k]: v }))), re, k);
+  }
+  for (const [edit, re] of [[{ seq: 4 }, /seq must be decimal text/], [{ leafCount: '3' }, /leafCount must be an integer/], [{ version: '1' }, /version/],
+    [{ root: file.root.toUpperCase() }, /root must be 64 lower-case/], [{ about: 'x' }, /unexpected about/], [{ entries: {} }, /entries must be an array/]]) {
+    assert.throws(() => S.parseLaunchBatchFile({ ...file, ...edit }), re, JSON.stringify(edit));
+  }
+  assert.throws(() => S.parseLaunchBatchFile(drop(file, 'leafCount')), /missing leafCount/);
+  assert.throws(() => S.parseLaunchBatchFile('{not json'), /BadFile: not JSON/);
+  // the canonical file still reads back, from text or object
+  assert.equal(toHex(S.parseLaunchBatchFile(JSON.stringify(file)).root), file.root);
+  assert.equal(toHex(S.parseLaunchBatchFile(coerced).root), coerced.root, 'a deliberate "undefined" name is the site\'s choice, written in full');
+});
+
+test('R6-DIFF-2 (review round 6) the day\'s changes name the fields that differ: a change of the metadata hash alone is a changed entry naming metaHash', () => {
+  const b1 = S.buildLaunchBatch(worked(), { batchSeq: 1n });
+  const b2 = S.buildLaunchBatch(worked().map((e, i) => (i === 1 ? { ...e, metaHash: new Uint8Array(32).fill(0xab) } : i === 2 ? { ...e, founder: new Uint8Array(32).fill(0x44), name: 'NYC' } : e)), { batchSeq: 2n });
+  const d = S.diffLaunchBatches(S.launchBatchFile(b1), b2);
+  assert.deepEqual(d.changed.map((c) => [c.after.cityId, c.fields]), [[2_988_507n, ['metaHash']], [5_128_581n, ['founder', 'name']]]);
+  assert.deepEqual(S.LEAF_FIELDS, ['founder', 'configId', 'name', 'symbol', 'metaHash']);
 });
