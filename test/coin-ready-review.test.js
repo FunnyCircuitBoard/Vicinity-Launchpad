@@ -45,7 +45,7 @@ const use = (who, contentHash, city = UTICA) => who.post("/api/coins/ready/use",
 const row = (sql, ...p) => env.DB.prepare(sql).bind(...p).first();
 const count = async (sql, ...p) => (await env.DB.prepare(sql).bind(...p).first()).n;
 
-test("a waiting LaunchLab contract, switch on and the launchpad set up: an admin rejects it (reason, second person), never records it", async () => {
+test("a waiting LaunchLab contract, switch on and the launchpad set up: an admin rejects it (in fixed words, src/coins.js settleLegacyContract), never records it", async () => {
   const { LP_ON } = await import("./helpers/lpchain.js");
   env = world({ COIN_V2_READY: "on", ...LP_ON });
   const f = await founder();
@@ -57,11 +57,13 @@ test("a waiting LaunchLab contract, switch on and the launchpad set up: an admin
   const accept = await send(adm, { city: UTICA, mint: WAITING, approve: true, note: "Checked" });
   assert.deepEqual([accept.status, accept.error], [409, "launchpad_only"]);
   assert.match(accept.message, /can only be rejected, not recorded/);
-  assert.equal((await send(adm, { city: UTICA, approve: false, note: "" })).error, "reason_required");
   assert.equal((await row("SELECT pending_mint FROM city_coins WHERE city_id = ?", UTICA)).pending_mint, WAITING);
-  const reject = await send(adm, { city: UTICA, mint: WAITING, approve: false, note: "One city, one coin: it launches on the Vicinity launchpad." });
+  // with the launchpad set up a rejection only settles the city, in fixed neutral words whatever note is sent (stage 0's rule)
+  const reject = await send(adm, { city: UTICA, mint: WAITING, approve: false, note: "" });
   assert.equal(reject.ok, true, JSON.stringify(reject));
   assert.equal((await row("SELECT pending_mint FROM city_coins WHERE city_id = ?", UTICA)).pending_mint, null);
+  const { LEGACY_REJECTED } = await import("../src/coins.js");
+  assert.equal((await row("SELECT note FROM mod_actions WHERE action = 'coin_contract_rejected'")).note, `Utica: ${LEGACY_REJECTED}`);
   assert.equal(await count("SELECT COUNT(*) AS n FROM mod_actions WHERE action = 'coin_contract_rejected'"), 1);
   // a founder still can't send one
   const m = await f.send("/api/coins/mint", { method: "POST", body: { mint: WAITING } });

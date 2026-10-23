@@ -236,6 +236,21 @@
   }
 
   /* ---------------------------------------------------------------- cities */
+  // the public log's and the founder's words when a waiting Raydium LaunchLab contract is rejected (src/coins.js LEGACY_REJECTED)
+  const LEGACY_REJECTED = "City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded.";
+  /**
+   * "Reject the old contract": a contract sent for this city through the old Raydium LaunchLab path still waits (c.legacyContract), so
+   * nothing is approved or launched for it. Rejecting it settles the city (src/coins.js settleLegacyContract): nothing on chain, no
+   * wallet signature, a fresh wallet proof like every POST here. Here because the dashboard's queue needs a home community.
+   */
+  function legacyReject(card, cityId) {
+    const box = el("div", "lp-step__box");
+    card.append(btn("Reject the old contract", async () => {
+      if (!window.confirm(`Reject the contract sent for this city through the old Raydium LaunchLab path? It is never recorded. The public log and the founder get these words: “${LEGACY_REJECTED}”`)) return;
+      const r = await D.post("/api/admin/lp/legacy/reject", { cityId, cluster });
+      if (r && r.ok) { D.toast("Rejected: the city is settled"); await rerender(); } else box.replaceChildren(el("p", "lp-error", words(r)));
+    }), box);
+  }
   async function citiesSection(s) {
     const body = el("div"); body.append(loading()); s.append(body);
     const r = await D.api(q("/api/admin/lp/candidates"));
@@ -291,6 +306,7 @@
         if (hold) { const why = el("p", "lp-warn lp-hold", hold); why.id = `lp-hold-${c.cityId}`; card.append(why); }
         card.append(el("p", "muted small", "Your wallet pays the approval's rent (about 0.0016 SOL); it comes back when the founder launches or you revoke. From the moment you prepare it, the founder can no longer change this design."));
       } else card.append(el("p", "lp-strong", "Not yet:"), reasonList(c.reasons));
+      if (c.legacyContract) legacyReject(card, c.cityId);
       card.append(box);
       body.append(card);
     }
@@ -307,6 +323,7 @@
       for (const wmsg of a.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
       card.append(btn("Revoke", () => signFlow(box, { path: "/api/admin/lp/revoke/tx", body: { cityId: a.cityId }, after: rerender })), box);
+      if (a.legacyContract) legacyReject(card, a.cityId);
       body.append(card);
     }
   }

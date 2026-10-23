@@ -184,9 +184,29 @@ test("status tag: Live / Contract being checked / Designed, and the countdown on
   assert.equal(P.notLiveWhy({ status: "waiting" }), "Trades once an admin records the contract.");
   assert.equal(P.notLiveWhy({ status: "designed" }), "Trades once the founder launches it on Raydium LaunchLab.");
   // the ready-made city coin on (/api/official coinV2Ready, COIN_V2_READY): a city coin launches on the Vicinity launchpad, never LaunchLab
-  assert.equal(P.notLiveWhy({ status: "designed" }, true), "Trades once its founder launches it on the Vicinity launchpad.");
-  assert.equal(P.notLiveWhy({ status: "waiting" }, true), "Trades once an admin records the contract.");
+  // (its own third argument; the launchpad set up, the second, is the next test)
+  assert.equal(P.notLiveWhy({ status: "designed" }, false, true), "Trades once its founder launches it on the Vicinity launchpad.");
+  assert.equal(P.notLiveWhy({ status: "waiting" }, false, true), "A contract from the old Raydium LaunchLab path is waiting; nothing launches until an admin settles it.", "with the switch on a waiting contract is never recorded (src/coins.js)");
+  assert.equal(P.notLiveWhy({ status: "designed" }, true, true), "Trades once an admin approves it on chain and the founder launches it on the Vicinity launchpad.");
   assert.equal(P.notLiveWhy({ kind: "vicinity", status: "upcoming" }), "Trades once $VICINITY launches on Raydium LaunchLab.");
+});
+
+test("launchpad set up (/api/official cityCoins: the old LaunchLab path is closed): a card never says an admin records a contract or that the founder launches on Raydium LaunchLab", () => {
+  // the words of a card while the city-coin launch is on: the true path now (an on-chain approval, then the founder's launch here)
+  assert.equal(P.notLiveWhy({ status: "designed" }, true), "Trades once an admin approves it on chain and the founder launches it on the Vicinity launchpad.");
+  assert.equal(P.notLiveWhy({ status: "waiting" }, true), "A contract from the old Raydium LaunchLab path is waiting; nothing launches until an admin settles it.");
+  assert.deepEqual(plain(P.statusLabel({ status: "waiting" }, { lp: true })), ["Old contract waiting", "tag--warn"]);
+  assert.deepEqual(plain(P.statusLabel({ status: "designed" }, { lp: true })), ["Designed", ""]);
+  assert.equal(P.TAB_NOTE_LP.upcoming, "Upcoming: designed, not launched yet.");
+  assert.equal(P.notLiveWhy({ kind: "vicinity", status: "upcoming" }, true), "Trades once $VICINITY launches on Raydium LaunchLab.", "$VICINITY's own words are not the city coins'");
+  for (const c of [{ status: "designed" }, { status: "waiting" }]) assert.doesNotMatch(P.notLiveWhy(c, true), /records|founder launches it on Raydium LaunchLab/);
+  // a card with a contract waiting (the coin may be minted already, only not traded here) never says nothing is minted; its own
+  // signature, so a card that turns from designed to waiting gets the new words at the next refresh
+  assert.match(part, /const sent = c && c\.status === "waiting";\n\s+box\.classList\.add\("is-empty"\); box\.dataset\.sig = sent \? "wait:sent" : "wait";\n\s+box\.append\(el\("span", "lp-spark__dash"\), el\("span", "lp-spark__msg", sent \? "Not trading here yet\." : "Not trading yet\. Nothing is minted\."\)\);/);
+  // the page: the switch is read from /api/official before any card is drawn, the tab note and the status filter follow it
+  assert.match(part, /official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); lpOn = Boolean\(o && o\.cityCoins\);/);
+  assert.match(part, /\$\("#lp-tabnote"\)\.textContent = \(lpOn && TAB_NOTE_LP\[state\.tab\]\) \|\| TAB_NOTE\[state\.tab\];/);
+  assert.match(part, /if \(lpOn\) for \(const o of \$\$\("#lp-status option"\)\) if \(o\.value === "waiting"\) o\.textContent = WAITING_LP\[0\];/);
 });
 test("founder line: the handle or the masked wallet, the role, never a full address", () => {
   assert.equal(P.founderText({ handle: "UticaMayor", wallet: null, status: "active" }), "Founder ✓ @UticaMayor");
@@ -294,9 +314,9 @@ test("design v4: the hero is the tagline and one button; below the coins only th
   assert.ok(before.includes("// Founding Supporter snapshot: status, and any wallet's amount + Merkle proof."));
   assert.doesNotMatch(before, /setInterval|lp-cal|text\/calendar|countdown/, "no countdown, no calendar file: the opening is past");
   // the swap switch is read in the same breath (swapOn decides what the card's Buy does), but the only way IN is still launchpadV2 === true
-  // (and /api/official's cityCoins only swaps the sources fold's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy, and
-  // shows the Fees card from GET /api/fees: paintFees, test/fees-ui.test.js)
-  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); readyOn = Boolean\(o && o\.coinV2Ready === true\); if \(o && o\.cityCoins\) \{ lpCopy\(true\); paintFees\(\); \} if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true; \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true; otherwise the section goes");
+  // (and /api/official's cityCoins only swaps the sources fold's "recorded by Vicinity" for "on the Vicinity launchpad": lpCopy, shows
+  // the Fees card from GET /api/fees: paintFees, test/fees-ui.test.js, and gives the cards the launchpad's words: lpOn)
+  assert.match(part, /let swapOn = false;\s*(\/\/[^\n]*\n\s*)*const lpCopy = \(on\) => \{ for \(const e of \$\$\("\[data-launchlab-copy\]"\)\) e\.hidden = on; for \(const e of \$\$\("\[data-lp-only\]"\)\) e\.hidden = !on; \};\s*official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); lpOn = Boolean\(o && o\.cityCoins\); readyOn = Boolean\(o && o\.coinV2Ready === true\); if \(lpOn\) \{ lpCopy\(true\); paintFees\(\); \} if \(o && o\.launchpadV2 === true\) start\(\); else sec\.hidden = true; \}\);\s*\}\)\(\);\s*$/, "the only way in is launchpadV2 === true; otherwise the section goes");
   assert.match(part, /if \(typeof document === "undefined" \|\| !window\.V\) return;/);
   assert.deepEqual([...part.matchAll(/\bapi\(([^)]*)\)/g)].map((m) => m[1]).sort(), ['"/api/fees"', '"/api/launchpad"', "`/api/coin/chart?mint=${encodeURIComponent(mint", "`/api/coin/chart?mint=${encodeURIComponent(mint"],
     "the fee schedule (only with the city-coin setting), the list, and each live coin's chart (its sparkline, 24 h then 7 d): nothing else");

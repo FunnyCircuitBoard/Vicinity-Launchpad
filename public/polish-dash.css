@@ -437,6 +437,10 @@ body.is-dv2 .account-btn .hdr-n { display: inline-grid; place-items: center; min
 .dv2 .coin-check__mint { font-size: .82rem; color: var(--text); overflow-wrap: anywhere; word-break: break-all; } /* the whole address, wrapping */
 .dv2 .coin-check__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .dv2 .coin-check__actions .btn { min-height: 44px; }
+/* the old LaunchLab path closed: Reject alone, sized to its words (not stretched over half the row); its confirm's sentence on a line of its own */
+.dv2 .coin-check__actions--one { grid-template-columns: auto; justify-content: start; }
+.dv2 .coin-check__actions--one .btn { min-width: 120px; }
+.dv2 .reason-form--settle > p { flex: 1 1 100%; margin: 0; }
 
 /* Community: the who-sees-this note on its own line, three equal kinds, a short sort, a locked composer */
 .dv2 .feed { padding: var(--dd-pad) !important; }
