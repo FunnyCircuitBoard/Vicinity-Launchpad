@@ -106,6 +106,9 @@
   // view ({ mode: "founder", coin, inUse, gate, ... }) or a preview; null until it is known
   let readyCoin = null, readyKnown = false;
   const readyFounder = () => (readyCoin && readyCoin.mode === "founder" ? readyCoin : null);
+  // the owner's approval rounds (COIN_V2_BATCH=on: the founder's coin answer carries approvalRound): the launch opens after the owner's
+  // next round, never with a time
+  const inRounds = () => { const rf = readyFounder(); return Boolean(rf && rf.approvalRound === true); };
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
   // (with the ready-made coin on, nobody designs a coin: the founder chooses it, then it is chosen and not launched yet; a city with
   // no founder has nobody to choose it)
@@ -730,9 +733,9 @@
       const s = lp.on ? lp.state : null;
       note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."
         : s === "launched" ? "Your coin is live on the Vicinity launchpad."
-          : s === "expired" ? "Your approval expired. Ask an admin to approve your coin again."
+          : s === "expired" ? (inRounds() ? "Your approval ran out before you launched. It is renewed at the owner's next approval round." : "Your approval expired. Ask an admin to approve your coin again.")
             : s === "paused" ? "Launches are paused for now. Your approval stays."
-              : s === "not_approved" ? "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here." : LP_PENDING;
+              : s === "not_approved" ? (inRounds() ? "Your launch opens after the owner's next approval round. Then you launch it here." : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.") : LP_PENDING;
       if (s) button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
       else { go.hidden = true; fcardAction = null; }
     }

@@ -32,7 +32,7 @@ import { access } from "./access.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
-import { coinV2ReadyOn } from "./flags.js";
+import { coinV2BatchOn, coinV2ReadyOn } from "./flags.js";
 import { launchHold } from "./coinreview.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
@@ -221,6 +221,16 @@ function launchProblem(st, s, wallet, nowS, { slack = 0 } = {}) {
 }
 
 /**
+ * COIN_V2_BATCH=on (src/lpbatch.js): approvals come in the owner's rounds, so "not approved" and "expired" are said as that, and never with
+ * a time (the owner signs each round himself). Off: the words are the ones above, unchanged.
+ */
+const ROUND_WORDS = Object.freeze({
+  not_approved: "Your launch opens after the owner's next approval round, once your coin is chosen and passes every check.",
+  approval_expired: "Your approval ran out before you launched. It is renewed at the owner's next approval round.",
+});
+const inRounds = (env, p) => (p && coinV2BatchOn(env) && ROUND_WORDS[p.error] ? { ...p, message: ROUND_WORDS[p.error] } : p);
+
+/**
  * One city, one coin, whatever the switches say: a contract sent for this city through the old Raydium LaunchLab path (src/coins.js
  * city_coins.pending_mint) that still waits for a check may be a coin already, so nothing launches here until an admin settles it.
  * It is the first thing the founder is told (before "not approved" and the rest: no approval is given while it waits), after only a
@@ -283,7 +293,7 @@ async function launchStatus(request, env, fetchImpl, now) {
     out.yours = st.coin.founder === who.wallet;
     return json(out, 200, { "Cache-Control": "no-store" });
   }
-  let p = launchProblem(st, s, who.wallet, nowS);
+  let p = inRounds(env, launchProblem(st, s, who.wallet, nowS));
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
   if (await legacyContractWaiting(env, cityId)) p = { state: "paused", error: "legacy_contract", message: LEGACY_CONTRACT_WAITING };
   // COIN_V2_REVIEW: a change request or a description waiting for review pauses the launch; the approved coin must still be launchable
@@ -327,7 +337,7 @@ async function launchTx(request, env, fetchImpl, now) {
 
   let st;
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
-  const p = launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S });
+  const p = inRounds(env, launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S }));
   // the same order as the status: a coin already on chain, an approval for another wallet, then a contract still waiting from the
   // old LaunchLab path (before anything is built), then the rest
   if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });

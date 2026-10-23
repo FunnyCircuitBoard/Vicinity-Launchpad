@@ -411,6 +411,20 @@
 .lp-next { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: var(--fs-sm, .875rem); }
 .lp-link { color: var(--pin-2); }
 .lp-status { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+/* the owner's daily approval round (COIN_V2_BATCH, public/admin-lp.js batchSection) */
+.lp-round { display: grid; gap: var(--sp-3, 12px); min-width: 0; }
+.lp-round__counts { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lp-round__group { margin: 0; border: 1px solid var(--line); border-radius: var(--r-card, 18px); padding: var(--sp-3, 12px) var(--sp-4, 16px); display: grid; gap: var(--sp-2, 8px); min-width: 0; }
+.lp-round__group legend { font: 700 var(--fs-base, 1rem)/1.3 var(--display); padding: 0 6px; }
+.lp-round__group > p { margin: 0; }
+.lp-round__rows { gap: 0; }
+.lp-round__row { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+.lp-round__row:first-child { border-top: 0; }
+.lp-round__row > p { margin: 0; }
+.lp-round__head { min-width: 0; overflow-wrap: anywhere; }
+.lp-round__name { font-weight: 400; }
+.lp-round__txs { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+.lp-round__tx { display: grid; gap: 6px; min-width: 0; }
 .lp-status:empty { display: none; }
 .lp-sum { border: 1px solid var(--line-2); border-radius: var(--r-chip, 12px); padding: var(--sp-3, 12px) var(--sp-4, 16px); display: grid; gap: var(--sp-2, 8px); background: var(--surface-inset, rgba(255,255,255,.04)); min-width: 0; font-size: var(--fs-sm, .875rem); line-height: var(--lh-snug, 1.3); }
 .lp-sum p { margin: 0; }

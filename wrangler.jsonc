@@ -101,8 +101,11 @@
     // "Coin reviews". Needs COIN_V2_READY on as well. OFF: built and tested dark on 23 Oct 2026. "on" only after the owner's go; anything
     // else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
     "COIN_V2_REVIEW": "off",
-    // The owner's daily launch-approval batch (src/flags.js coinV2BatchOn; DESIGN 6.5 and 9.4): reserved, NOT built yet, so it changes
-    // nothing today whatever it says. Needs COIN_V2_READY on as well. Keep "off" (change the value, do not delete the line: keep_vars).
+    // The owner's daily launch-approval round (src/flags.js coinV2BatchOn, src/lpbatch.js; DESIGN 6.5 and 9.4): in the admin's City coins
+    // tab, "Launch approvals to sign" lists every founder whose chosen coin passes every check (Approve), approvals to renew or revoke,
+    // and what is blocked and why; the Worker builds UNSIGNED transactions (up to 5 cities each) and the owner's own wallet signs them
+    // (the website never holds a key). Needs COIN_V2_READY on as well. OFF: built and tested dark on 23 Oct 2026. "on" only after the
+    // owner's go; anything else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
     "COIN_V2_BATCH": "off",
     // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
     // national post, one confirmation before the first national post. ON since 17 Oct 2026, by the owner ("switch on all the

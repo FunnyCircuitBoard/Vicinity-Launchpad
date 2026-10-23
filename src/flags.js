@@ -101,8 +101,15 @@ export const coinV2ReadyOn = (env) => String((env && env.COIN_V2_READY) ?? "").t
 export const coinV2ReviewOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_REVIEW) ?? "").trim().toLowerCase() === "on";
 
 /**
- * COIN_V2_BATCH=on is reserved for the owner's daily launch-approval batch (DESIGN 6.5 / 9.4: one signing round a day for every eligible
- * founder's coin, the owner's own wallet signing each transaction; no key on the website). It is NOT built yet: today this switch changes
- * nothing, whatever it says. Exactly "on" (trimmed, any letter case) AND COIN_V2_READY on, once it is built.
+ * COIN_V2_BATCH=on turns on the owner's daily launch-approval round for the live launchpad program (src/lpbatch.js; DESIGN 6.5 / 9.4; it
+ * does nothing unless COIN_V2_READY is on too): in the admin's City coins tab a card "Launch approvals to sign" lists every city in four
+ * groups (Approve: a founder whose chosen coin passes every check; Renew: an approval with under 48 hours left, or one whose wallet lost
+ * the seat to a new eligible founder; Revoke: an approval whose wallet lost the seat, whose founder is banned or whose coin may not launch
+ * now; Blocked, with the reasons), and "Sign today's approvals" builds UNSIGNED transactions (up to 5 cities each, within Solana's size
+ * limit) that the owner's own wallet signs: the website never signs and never holds a key. A pre-approved founder then launches with no
+ * per-launch step, and every founder-facing line says the launch opens after the owner's next approval round (never a time). The routes
+ * GET /api/admin/lp/batch and POST /api/admin/lp/batch/tx, the record step "batch", the key batch on GET /api/admin/lp and
+ * approvalRound on GET /api/coins/ready exist only then; no table or column is added. Exactly "on" (trimmed, any letter case) AND
+ * COIN_V2_READY on; anything else is the site exactly as before.
  */
 export const coinV2BatchOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_BATCH) ?? "").trim().toLowerCase() === "on";
