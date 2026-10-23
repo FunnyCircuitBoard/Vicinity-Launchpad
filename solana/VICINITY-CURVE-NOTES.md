@@ -7,8 +7,8 @@ review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 recor
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
 entries 83 to 90 review round 7, entries 91 to 96 review round 8, entries 97 and 98 the
-verification of round 8, entries 99 to 102 review round 9, entry 103 its verification and entry 104 review
-round 10). The
+verification of round 8, entries 99 to 102 review round 9, entry 103 its verification and entries 104 and 105
+review round 10). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -3379,3 +3379,59 @@ and counts 17 bytes after them), and with one 0 byte (the review's case). Before
 `lib.rs` and `instructions/*.rs`: the four account structs, and only they, carry `#[instruction(..)]`, each the start of
 its handler's parameters; the same check refuses `launch_from_batch`'s attribute with `city_id` and `batch_seq` swapped
 and `approve_launch`'s with `config_id` retyped as `u64`.
+
+### 105. One RPC is never silent: `confirm` and `check` warn `ONE_RPC`, and `confirm` keeps nothing on one RPC's word without `--one-rpc-ok` (8.4 step 3, T89, 14.1; review round 10, R10-RPC-1, rejected as a defect and hardened)
+
+**Spec.** 8.4: every RPC the owner's tools read must be one the website does not operate or relay; two are required
+on a first use (`verify` with `--previous` / `--in-force`, review R7-4), and whenever two are given they must be of
+different providers and agree on everything read (reviews R8-DIFF-1 to R8-DIFF-4). One RPC is otherwise allowed.
+`verify` warned (`warning ONE_RPC`) when it read one RPC once a batch was stored; `confirm` and `check` said nothing.
+
+**Issue.** One RPC alone serves every account, the clock and the block `confirm` and `check` judge. A lying one can
+make a refused list look confirmed: the owner verifies list X and refuses it; a thief with the approver key publishes X
+with the verified window from his own transaction (another message); the RPC serves the block of the record's
+`published_slot` with the owner's verified message, which he never signed, in place of the thief's. `confirm 2 <root of
+X> --rpc <that RPC>` found the stored record equal to the pending list and the transaction equal to the verified one,
+said "confirmed" and kept X in `signed/` as the next day's baseline, so the stolen-key alarm (R8-DIFF-2,
+`NOT_YOUR_TRANSACTION`) never sounded and the attacker's entry vanished from the following days' changes. It can also
+hide a bad batch from the monitor: serving the root and leaf count of the list `check` expects, `check` said "the
+stored batch is the list". Reported as R10-RPC-1. **Rejected as a defect**: the design allows one RPC, the owner
+chooses it, and a second RPC of another provider defeats both cases (`RPC_DISAGREE`). Info.
+
+**Choice.** Hardened anyway, being cheap, with no program change (the binary and the IDL are unchanged), in
+`scripts/vcurve/batch.mjs` only:
+* `confirm` and `check` print, whenever only one `--rpc` is given, `warning ONE_RPC: only one --rpc was given: a
+  single RPC can make a refused list look confirmed or hide a bad batch (it alone serves every account, the clock and
+  the block this run judges); two RPCs from different providers that the website does not operate (--rpc twice) are
+  required for the stolen-key alarm and the monitor to mean anything`, and for `confirm` `; on one RPC's word confirm
+  keeps nothing in signed/ unless you pass --one-rpc-ok` (`oneRpcWarning`). `confirm` prints it right after the lines
+  that name the archive, `check` before it reads the chain, so it is printed whatever the outcome.
+* `confirm` on one RPC runs every check as before and reports every problem as before (`NOT_YOUR_TRANSACTION`, `ROOT`,
+  `WINDOW` and the rest, with the same tails); but when every check passes it keeps nothing: `PROBLEM ONE_RPC: batch N
+  ... matches the list you verified, written by the transaction you verified (message hash ...), on the one RPC read
+  only, which alone could have served that block and that record: it is not kept in signed/ and stays in pending/`,
+  then `1 problem(s): run confirm again with --rpc twice, two providers the website does not operate; or, accepting one
+  RPC's word knowingly, add --one-rpc-ok`, exit 1. The pending list stays where it is and no other list is moved to
+  `refused/`. A record already confirmed (`already confirmed`) is unaffected: nothing is written.
+* `--one-rpc-ok` (confirm only; `verify` and `check` refuse it, and `confirm` refuses it with two RPCs, so it cannot be
+  left on as a habit that does nothing until the day one RPC is given) keeps the list on one RPC's word; the
+  confirmation line then ends `(on one RPC's word: --one-rpc-ok)`. The archive entry is the same as before (no new
+  field).
+* `check` keeps its verdicts and exit codes; a success on one RPC reads `the stored batch is the list on one RPC's word
+  (see warning ONE_RPC)`.
+* `verify`'s last line now suggests `confirm <seq> <root> --rpc <url> --rpc <url of another provider>`. `verify`'s own
+  one-RPC rules are unchanged.
+
+Tests. `33-batch-verifier` R10-RPC-1 (the real CLI, two honest RPC stubs of different hosts and a liar, the production
+build): batch 1 verified through two RPCs and signed as printed; `confirm` through one honest RPC gives the warning and
+`PROBLEM ONE_RPC`, exit 1, `signed/` empty and the list still pending (with the gate removed: "confirmed", exit 0);
+through two RPCs it is confirmed with no warning. Batch 2: the owner verifies X (with the attacker's city) and refuses
+it; the thief publishes X with the verified window; the liar serves the publication's block with the verified,
+unsigned message: on the liar alone every check passes and `PROBLEM ONE_RPC` keeps X out of `signed/` (before:
+confirmed); the liar with an honest RPC is `RPC_DISAGREE`; two honest RPCs give `NOT_YOUR_TRANSACTION` and the paging
+tail; one honest RPC gives the same alarm under the warning. `check` of the expected list G: one honest RPC `ROOT` and
+`LEAF_COUNT` with the warning (no `--one-rpc-ok` offered); the liar alone serving G's root and leaf count exit 0 "on one
+RPC's word" with the warning; the liar with an honest RPC `RPC_DISAGREE`. `--one-rpc-ok` on the liar alone keeps X:
+the residual the option accepts, knowingly. `parseArgs`: `--one-rpc-ok` with two RPCs, or for `check` or `verify`, is a
+usage error (`confirm` with two RPCs and the option exits 2 through the CLI). The existing tests that confirm through one RPC (rounds 6 to 8) pass
+`--one-rpc-ok`; their subjects are unchanged.

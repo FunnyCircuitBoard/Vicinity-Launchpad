@@ -141,7 +141,12 @@ before the proposal that sets it is signed.
 he signs the day's `publish_launch_batch`), his confirmation (`confirm <seq>
 <root>`, within minutes of its landing) and the monitor's comparison (`check
 <list or archive file>`, after a publication), 8.4 steps 2, 3 and 5. Every
-`--rpc` must be a provider the website does not operate or relay; with `--rpc`
+`--rpc` must be a provider the website does not operate or relay; one is
+allowed, but `confirm` and `check` then print `warning ONE_RPC` (a single RPC can
+make a refused list look confirmed or hide a bad batch; the stolen-key alarm and
+the monitor mean something only with two), and `confirm` keeps nothing in
+`signed/` on one RPC's word unless `--one-rpc-ok` is passed explicitly (review
+R10-RPC-1); with `--rpc`
 twice the two must be different providers (by IP address, or by the last two
 labels of the host name), and every account, the Clock sysvar (within a
 minute; the earlier is used) and the pending approvals must agree on both, for

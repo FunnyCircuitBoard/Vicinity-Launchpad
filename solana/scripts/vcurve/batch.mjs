@@ -39,11 +39,13 @@
 //     is another message hash, the stolen-key alarm (review R9-CHECK-1). A block with no publication of the record at
 //     all (or one an RPC cannot serve) is a reason to retry or read through a third provider, never a theft.
 //     Several pending lists for that number (one he refused) are refused unless `--discard-others` moves them to
-//     `refused/`. Any other difference: page the guardian.
+//     `refused/`. Any other difference: page the guardian. With one `--rpc` it prints `warning ONE_RPC` and, even when
+//     every check passes, keeps nothing in `signed/` (the list stays in `pending/`, exit 1) unless `--one-rpc-ok` is
+//     passed explicitly: one RPC alone serves the record and the block it judges (review R10-RPC-1).
 //   check <list or archive file>: the monitor, after a publication. The stored `latest` record must be the file's batch:
 //     its number, root and leaf count (and, for an archive entry the owner exported, its window and approver), a window
 //     the program would have accepted, published by the current approver; with `--rpc` twice both RPCs must agree
-//     (review R8-DIFF-4).
+//     (review R8-DIFF-4); with one it prints `warning ONE_RPC` (review R10-RPC-1).
 // The archive (`--archive <dir>`, default $VICINITY_BATCH_ARCHIVE or ~/.vicinity-curve/launch-batches; `--no-archive` for
 // none) keeps `<program id>/pending/`, `signed/` and `refused/`; each entry carries an HMAC under this computer's key,
 // `~/.vicinity-curve/archive.key` (32 random bytes created on first use, never inside an archive folder, so a folder
@@ -54,12 +56,14 @@
 //   node scripts/vcurve/batch.mjs verify <list file> --rpc <url> [--rpc <url of another provider>] --approver <key>
 //     [--tx <base64 of the page's unsigned transaction>] [--correct] [--previous <list file>] [--in-force <list file>]
 //     [--archive <dir> | --no-archive] [--cluster mainnet|devnet] [--program-id <id>] [--valid-from <unix> --valid-until <unix>]
-//   node scripts/vcurve/batch.mjs confirm <seq> <root> --rpc <url> [--rpc <url>] [--archive <dir>] [--discard-others]
-//     [--cluster mainnet|devnet] [--program-id <id>]
-//   node scripts/vcurve/batch.mjs check <list or archive file> --rpc <url> [--rpc <url>] [--cluster mainnet|devnet] [--program-id <id>]
+//   node scripts/vcurve/batch.mjs confirm <seq> <root> --rpc <url> [--rpc <url of another provider> | --one-rpc-ok]
+//     [--archive <dir>] [--discard-others] [--cluster mainnet|devnet] [--program-id <id>]
+//   node scripts/vcurve/batch.mjs check <list or archive file> --rpc <url> [--rpc <url of another provider>] [--cluster mainnet|devnet] [--program-id <id>]
 // Every --rpc must be a provider the website does not operate or relay (8.4); two must be of different providers (by
-// host: their IP addresses, or the last two labels of their host names, differ). Exit status 1 when a problem is
-// found, 2 on a usage error.
+// host: their IP addresses, or the last two labels of their host names, differ). One --rpc is allowed, but a single
+// RPC can make a refused list look confirmed or hide a bad batch: `confirm` and `check` then print `warning ONE_RPC`,
+// and the stolen-key alarm and the monitor mean something only with two (review R10-RPC-1). Exit status 1 when a
+// problem is found, 2 on a usage error.
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -113,6 +117,19 @@ export function rpcUrlsProblem(urls, { min = 1, max = 2 } = {}) {
   try { providers = urls.map(rpcProvider); } catch (e) { return `--rpc: ${e.message}`; }
   if (new Set(providers).size !== providers.length) return `--rpc twice must name two different providers: ${urls.join(' and ')} are both ${providers[0]} (review R8-DIFF-4)`;
   return null;
+}
+/**
+ * The warning `confirm` and `check` print whenever only one `--rpc` is given (review R10-RPC-1): one RPC is allowed,
+ * but it alone serves every account, the clock and the block the run judges, so it can make a refused list look
+ * confirmed (a block holding the transaction the owner verified, around a thief's republication) or hide a bad batch
+ * (the root of the owner's list in place of the stored one). `confirm` then keeps nothing in `signed/` unless
+ * `--one-rpc-ok` is passed.
+ */
+export function oneRpcWarning(mode) {
+  const head = 'only one --rpc was given: a single RPC can make a refused list look confirmed or hide a bad batch (it alone serves every account, the clock and the block this run judges); '
+    + 'two RPCs from different providers that the website does not operate (--rpc twice) are required for the stolen-key alarm and the monitor to mean anything';
+  const tail = mode === 'confirm' ? '; on one RPC\'s word confirm keeps nothing in signed/ unless you pass --one-rpc-ok' : '';
+  return { code: 'ONE_RPC', message: `${head}${tail} (8.4; review R10-RPC-1)` };
 }
 
 /** Every address `verify` reads for a list of entries: the Launchpad, LaunchBatch, the configs, and per city its accounts. */
@@ -878,14 +895,14 @@ async function readLanded(urls, args) {
 // ---------------------------------------------------------------- the command line
 const USAGE = 'usage: node scripts/vcurve/batch.mjs verify <list file> --rpc <url> [--rpc <url of another provider>] --approver <key> [--tx <base64>] [--correct] '
   + '[--previous <list file>] [--in-force <list file>] [--archive <dir> | --no-archive] [--cluster mainnet|devnet] [--program-id <id>] [--valid-from <unix> --valid-until <unix>]\n'
-  + '       node scripts/vcurve/batch.mjs confirm <seq> <root> --rpc <url> [--rpc <url>] [--archive <dir>] [--discard-others] [--cluster mainnet|devnet] [--program-id <id>]\n'
-  + '       node scripts/vcurve/batch.mjs check <list or archive file> --rpc <url> [--rpc <url>] [--cluster mainnet|devnet] [--program-id <id>]';
+  + '       node scripts/vcurve/batch.mjs confirm <seq> <root> --rpc <url> [--rpc <url of another provider> | --one-rpc-ok] [--archive <dir>] [--discard-others] [--cluster mainnet|devnet] [--program-id <id>]\n'
+  + '       node scripts/vcurve/batch.mjs check <list or archive file> --rpc <url> [--rpc <url of another provider>] [--cluster mainnet|devnet] [--program-id <id>]';
 const FLAGS = new Map([['--rpc', 'rpc'], ['--approver', 'approver'], ['--previous', 'previous'], ['--in-force', 'inForce'], ['--archive', 'archive'], ['--cluster', 'cluster'],
   ['--program-id', 'programId'], ['--valid-from', 'validFrom'], ['--valid-until', 'validUntil'], ['--tx', 'tx']]);
-const BOOL_FLAGS = new Map([['--no-archive', 'noArchive'], ['--discard-others', 'discardOthers'], ['--correct', 'correct']]);
+const BOOL_FLAGS = new Map([['--no-archive', 'noArchive'], ['--discard-others', 'discardOthers'], ['--correct', 'correct'], ['--one-rpc-ok', 'oneRpcOk']]);
 const ALLOWED = {
   verify: new Set(['rpc', 'approver', 'previous', 'inForce', 'archive', 'noArchive', 'cluster', 'programId', 'validFrom', 'validUntil', 'tx', 'correct']),
-  confirm: new Set(['rpc', 'archive', 'discardOthers', 'cluster', 'programId']),
+  confirm: new Set(['rpc', 'archive', 'discardOthers', 'cluster', 'programId', 'oneRpcOk']),
   check: new Set(['rpc', 'cluster', 'programId']),
 };
 
@@ -911,6 +928,8 @@ export function parseArgs(argv) {
   if (!o.rpc) return { error: '--rpc is required' };
   const rpcProblem = rpcUrlsProblem(o.rpc);
   if (rpcProblem) return { error: rpcProblem };
+  // review R10-RPC-1: the explicit acceptance of one RPC's word, never a standing flag that stays on with two
+  if (o.oneRpcOk && o.rpc.length !== 1) return { error: '--one-rpc-ok goes only with a single --rpc: with two RPCs of different providers it is not needed' };
   if (mode === 'verify' && !o.approver) return { error: 'verify needs --approver (the key that will sign)' };
   if ((o.validFrom === undefined) !== (o.validUntil === undefined)) return { error: '--valid-from and --valid-until go together' };
   if (o.tx !== undefined && o.validFrom !== undefined) return { error: '--tx carries its own window: no --valid-from or --valid-until' };
@@ -954,9 +973,14 @@ async function main(argv) {
     }
   };
 
+  // review R10-RPC-1: one RPC is allowed, never silently
+  const oneRpc = o.rpc.length === 1;
+  const warnOneRpc = () => { if (oneRpc) { const x = oneRpcWarning(o.mode); console.log(`warning ${x.code}: ${x.message}`); } };
+
   if (o.mode === 'confirm') {
     const dir = archiveDir(o);
     const arch = open(dir);
+    warnOneRpc();
     if (!arch) { page(1); return 1; }
     const heads = await readChainView(connections, [P.launchpad(), P.launchBatch()]);
     if (heads.problems.length) return report(heads.problems, retry);
@@ -972,10 +996,18 @@ async function main(argv) {
       r = confirmPublication({ ...args, landed: landedView.hashes });
     }
     if (r.problems.length) return report(r.problems, tailOf(r.problems, page));
+    if (!r.already && oneRpc && !o.oneRpcOk) {
+      // review R10-RPC-1: every check passed, but on one RPC's word, which proves nothing: the list stays in pending/
+      console.log(`PROBLEM ONE_RPC: ${recordDetail(L)} matches the list you verified, written by the transaction you verified (message hash ${r.entry.raw.messageHash}), on the one RPC read only, `
+        + 'which alone could have served that block and that record: it is not kept in signed/ and stays in pending/ (review R10-RPC-1)');
+      console.log('1 problem(s): run confirm again with --rpc twice, two providers the website does not operate; or, accepting one RPC\'s word knowingly, add --one-rpc-ok');
+      return 1;
+    }
     if (!r.already) {
       const path = writeArchiveEntry(dir, 'signed', `${L.seq}-${toHex(L.root)}.json`, archiveEntry({ kind: 'signed', file: r.entry.raw.list, record: { ...r.entry.record },
         extra: { preparedAt: r.entry.raw.preparedAt, messageHash: r.entry.raw.messageHash, publishedAt: L.publishedAt, confirmedAt: BigInt(Math.floor(Date.now() / 1000)) } }));
-      console.log(`confirmed: ${recordDetail(L)} is the list you verified, written by the transaction you verified (message hash ${r.entry.raw.messageHash}); kept as the next baseline: ${path}`);
+      console.log(`confirmed: ${recordDetail(L)} is the list you verified, written by the transaction you verified (message hash ${r.entry.raw.messageHash}); kept as the next baseline: ${path}`
+        + `${oneRpc ? ' (on one RPC\'s word: --one-rpc-ok)' : ''}`);
     } else console.log(`already confirmed: ${recordDetail(L)}`);
     for (const e of arch.pending.filter((x) => x.list.batchSeq === L.seq)) {
       if (toHex(e.list.root) === toHex(L.root)) unlinkSync(e.path);
@@ -988,12 +1020,13 @@ async function main(argv) {
   if (o.mode === 'check') {
     let entries = [];
     try { const x = JSON.parse(file); entries = (x.kind !== undefined ? parseArchiveEntry(x).list : parseLaunchBatchFile(x)).entries; } catch { /* reported by checkStoredBatch */ }
-    // review R8-DIFF-4: with two RPCs, both are read and must agree
+    // review R8-DIFF-4: with two RPCs, both are read and must agree; review R10-RPC-1: one is never silent
+    warnOneRpc();
     const view = await readCityView(connections, entries, { programId, cluster });
     if (view.problems.length) return report(view.problems, retry);
     const { problems } = checkStoredBatch({ file, accounts: view.accounts, programId, cluster });
     for (const p of problems) console.log(`PROBLEM ${p.code}: ${p.message}`);
-    if (problems.length) page(problems.length); else console.log(`the stored batch is the list${connections.length > 1 ? ' (both RPCs agree)' : ''}`);
+    if (problems.length) page(problems.length); else console.log(`the stored batch is the list${connections.length > 1 ? ' (both RPCs agree)' : ' on one RPC\'s word (see warning ONE_RPC)'}`);
     return problems.length ? 1 : 0;
   }
 
@@ -1077,7 +1110,7 @@ async function main(argv) {
   console.log(`message hash ${hash}: sign only on a hardware wallet that shows this message hash (blind signing); any other hash is another transaction`);
   if (text) console.log(`unsigned ${p.clear ? 'clear_launch_batch and ' : ''}publish_launch_batch for ${o.approver} (base64; valid for about a minute, until its blockhash expires):\n${text}`);
   else console.log('the website\'s transaction is exactly this publication');
-  console.log(`within minutes of its landing, run: node scripts/vcurve/batch.mjs confirm ${p.seq} ${toHex(p.root)} --rpc <url> [--rpc <url of another provider>]`);
+  console.log(`within minutes of its landing, run: node scripts/vcurve/batch.mjs confirm ${p.seq} ${toHex(p.root)} --rpc <url> --rpc <url of another provider>`);
   return 0;
 }
 

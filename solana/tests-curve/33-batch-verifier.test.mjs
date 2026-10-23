@@ -22,6 +22,8 @@
 // transactions naming LaunchBatch no longer hides it, and a transaction not found is never called a theft (R9-TOOLS-2).
 // The verification of round 9: the writer is any publish_launch_batch of the record, whatever bytes follow its
 // arguments (the program ignores them), so a thief's republication with a byte appended is the stolen-key alarm (R9-CHECK-1).
+// Review round 10, hardened though rejected as a defect (one RPC is allowed by design): confirm and check print warning
+// ONE_RPC whenever one --rpc is given, and confirm keeps nothing in signed/ on one RPC's word unless --one-rpc-ok (R10-RPC-1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -35,7 +37,7 @@ import { World, S, SOL, rpcStub, expectFail } from './helpers.mjs';
 import {
   verifyListFile, checkStoredBatch, batchAddresses, allAddresses, parseArgs, changeLines, recordLive, archiveEntry, confirmPublication,
   decodePageTransaction, checkPageTransaction, messageHash, holderCandidateEntries, rpcProvider, rpcUrlsProblem, writeArchiveEntry, readArchive,
-  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses, landedPublicationHashes, landedPublications, PUBLISH_DATA_LEN,
+  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses, landedPublicationHashes, landedPublications, PUBLISH_DATA_LEN, oneRpcWarning,
 } from '../scripts/vcurve/batch.mjs';
 
 const snapshot = (w, entries) => Object.fromEntries(allAddresses(batchAddresses(entries, { programId: w.programId })).map((k) => [k, w.accountInfo(k)]));
@@ -265,7 +267,7 @@ test('R6-DIFF-1, R6-DIFF-2, MK-1 (review rounds 6 and 7) the real CLI: a forged 
     const pdir = join(sc.archive, String(w.programId));
     assert.deepEqual([readdirSync(pdir).sort(), readdirSync(join(pdir, 'pending')).length], [['pending'], 1], 'the verified list waits in pending/, never a baseline');
     await signPrinted(w, approver, c.out, 'batch 1, the transaction the CLI printed');
-    c = await cli(['confirm', '1', F1.root, '--rpc', rpc.url, '--archive', sc.archive, '--program-id', String(w.programId)], env);
+    c = await cli(['confirm', '1', F1.root, '--rpc', rpc.url, '--one-rpc-ok', '--archive', sc.archive, '--program-id', String(w.programId)], env);
     assert.equal(c.code, 0, c.out);
     assert.match(c.out, /^confirmed: batch 1 /m);
     assert.deepEqual([readdirSync(join(pdir, 'signed')), readdirSync(join(pdir, 'pending'))], [[`1-${F1.root}.json`], []]);
@@ -334,7 +336,7 @@ test('R7-BA-1, R7-3 (review round 7) a list the owner verified and refused never
     },
   });
   const args = (rpc) => ['--rpc', rpc.url, '--approver', String(approver.address), '--program-id', String(w.programId), '--archive', sc.archive];
-  const confirm = (seq, root, more = []) => cli(['confirm', String(seq), root, '--rpc', honest.url, '--archive', sc.archive, '--program-id', String(w.programId), ...more], sc.env);
+  const confirm = (seq, root, more = []) => cli(['confirm', String(seq), root, '--rpc', honest.url, '--one-rpc-ok', '--archive', sc.archive, '--program-id', String(w.programId), ...more], sc.env);
   try {
     const A = { cityId: 9101n, founder: fs[0], symbol: 'RA' }; const B = { cityId: 9102n, founder: fs[1], symbol: 'RB' };
     const C = { cityId: 9103n, founder: fs[2], symbol: 'RC' }; const D = { cityId: 9104n, founder: fs[3], symbol: 'RD' };
@@ -634,7 +636,9 @@ async function publishConfirmed(w, approver, sc, rpcArgs, name, file) {
   let c = await cli(['verify', sc.put(name, file), ...rpcArgs, '--approver', String(approver.address), '--program-id', String(w.programId), '--archive', sc.archive], sc.env);
   assert.equal(c.code, 0, c.out);
   await signPrinted(w, approver, c.out, `${name}: the printed publication`);
-  c = await cli(['confirm', file.seq, file.root, ...rpcArgs, '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
+  // one RPC: the explicit --one-rpc-ok (review R10-RPC-1); these tests are about something else
+  const oneRpcOk = rpcArgs.filter((x) => x === '--rpc').length === 1 ? ['--one-rpc-ok'] : [];
+  c = await cli(['confirm', file.seq, file.root, ...rpcArgs, ...oneRpcOk, '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
   assert.equal(c.code, 0, c.out);
   assert.match(c.out, /^confirmed: /m);
   return c;
@@ -699,7 +703,7 @@ test('R8-OPS-1 (review round 8) the correction of a batch in force, [clear_launc
     assert.deepEqual([lb.halted, lb.previous.seq, lb.previous.cleared, lb.latest.seq, lb.latest.cleared], [false, 1n, true, 2n, false]);
     assert.equal(S.batchInForce(lb, w.launchpad(), w.now()), null, 'nothing is in force until L2 takes force');
     await expectFail(() => w.launchFromBatch({ batch: S.parseLaunchBatchFile(F1), cityId: BAD.cityId, founder: BAD.founder, label: 'BAD launches from batch 1 after the correction' }), 'BatchCleared', 'BatchSuperseded');
-    c = await cli(['confirm', '2', L2.root, '--rpc', rpc.url, '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
+    c = await cli(['confirm', '2', L2.root, '--rpc', rpc.url, '--one-rpc-ok', '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
     assert.equal(c.code, 0, c.out);
     w.warpTo(w.launchBatch().latest.validFrom);
     await w.launchFromBatch({ batch: S.parseLaunchBatchFile(L2), cityId: A.cityId, founder: A.founder, label: 'A launches from the corrected batch' });
@@ -1233,6 +1237,143 @@ test('R9-CHECK-1 (verification of round 9) the program takes a publish_launch_ba
     assert.ok(c.out.includes(`another one (message hash ${landed[0]})`), c.out);
   } finally {
     await rpc.close(); await rpc2.close();
+    sc.done();
+  }
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- review round 10
+test('R10-RPC-1 (review round 10, hardened; rejected as a defect, one RPC being allowed by design) confirm and check print warning ONE_RPC whenever one --rpc is given, and confirm keeps nothing in signed/ on one RPC\'s word unless --one-rpc-ok: a lying RPC alone makes a refused list, republished by a thief, look confirmed, and the root of the expected list hide a bad batch; two RPCs of different providers catch both', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const fs = []; for (let i = 0; i < 3; i++) fs.push(await w.signer(20n));
+  const mallory = await w.signer(20n);
+  const sc = scratch();
+  const lbAddr = String(w.P.launchBatch());
+  let forged = null; // when set: the liar serves the block of `slot` with `wire` as its one successful transaction
+  let rootLie = null; // when set: the liar serves LaunchBatch.latest with this root and leaf count
+  const honest = await rpcStub(w); const honest2 = await rpcStub(w, { host: '127.0.0.2' });
+  const liar = await rpcStub(w, {
+    host: '127.0.0.3',
+    lie: (addr, a) => {
+      if (!rootLie || addr !== lbAddr || !a) return a;
+      const d = Buffer.from(a.data); Buffer.from(rootLie.root, 'hex').copy(d, 18); d.writeUInt32LE(rootLie.leafCount, 50);
+      return { ...a, data: d };
+    },
+    rpc: (m) => (m.method === 'getBlock' && forged && Number(m.params[0]) === forged.slot ? {
+      blockHeight: forged.slot, blockTime: Number(w.now()), parentSlot: forged.slot - 1, blockhash: String(w.svm.latestBlockhash()), previousBlockhash: String(w.svm.latestBlockhash()),
+      transactions: [{ transaction: [forged.wire, 'base64'], meta: { err: null, fee: 5000, innerInstructions: [], loadedAddresses: { writable: [], readonly: [] }, logMessages: [] }, version: 'legacy' }],
+    } : undefined),
+  });
+  const two = ['--rpc', honest.url, '--rpc', honest2.url];
+  const at = ['--archive', sc.archive, '--program-id', String(w.programId)];
+  const verify = (name, file) => cli(['verify', sc.put(name, file), ...two, '--approver', String(approver.address), ...at], sc.env);
+  const confirm = (seq, root, rpcArgs) => cli(['confirm', String(seq), root, ...rpcArgs, ...at], sc.env);
+  const check = (name, file, rpcArgs) => cli(['check', sc.put(name, file), ...rpcArgs, '--program-id', String(w.programId)], sc.env);
+  const signedDir = join(sc.archive, String(w.programId), 'signed'); const pendingDir = join(sc.archive, String(w.programId), 'pending');
+  const signedNames = () => (existsSync(signedDir) ? readdirSync(signedDir).sort() : []);
+  const ONE_RPC = /^warning ONE_RPC: only one --rpc was given: a single RPC can make a refused list look confirmed or hide a bad batch \(.*\); two RPCs from different providers that the website does not operate \(--rpc twice\) are required for the stolen-key alarm and the monitor to mean anything/m;
+  try {
+    const A = { cityId: 9951n, founder: fs[0], symbol: 'HA' }; const B = { cityId: 9952n, founder: fs[1], symbol: 'HB' };
+    const C = { cityId: 9953n, founder: fs[2], symbol: 'HC' }; const EVIL = { cityId: 9959n, founder: mallory, symbol: 'HEVIL' };
+    // day 1: batch 1 verified through two RPCs, signed exactly as printed, landed; verify names two RPCs for confirm
+    const F1 = listFile(w, [A, B], 1n);
+    let c = await verify('h1.json', F1);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /^within minutes of its landing, run: node scripts\/vcurve\/batch\.mjs confirm 1 [0-9a-f]{64} --rpc <url> --rpc <url of another provider>$/m);
+    await signPrinted(w, approver, c.out, 'batch 1: the printed publication');
+    // confirm through one honest RPC: every check passes, and still nothing is kept (before: "confirmed", kept in signed/)
+    c = await confirm(1, F1.root, ['--rpc', honest.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.match(c.out, /; on one RPC's word confirm keeps nothing in signed\/ unless you pass --one-rpc-ok \(8\.4; review R10-RPC-1\)$/m);
+    assert.match(c.out, /^PROBLEM ONE_RPC: batch 1 \(root [0-9a-f]{64}, 2 entries\), .* matches the list you verified, written by the transaction you verified \(message hash \S+\), on the one RPC read only, .* it is not kept in signed\/ and stays in pending\//m);
+    assert.match(c.out, /^1 problem\(s\): run confirm again with --rpc twice, two providers the website does not operate; or, accepting one RPC's word knowingly, add --one-rpc-ok$/m);
+    assert.doesNotMatch(c.out, /^confirmed:/m);
+    assert.deepEqual([signedNames(), readdirSync(pendingDir).length], [[], 1], 'nothing in signed/, the list still pending');
+    // through two RPCs of different providers: confirmed, and no warning
+    c = await confirm(1, F1.root, two);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /^confirmed: batch 1 .*; kept as the next baseline: \S+$/m);
+    assert.doesNotMatch(c.out, /ONE_RPC|one RPC's word/);
+    assert.deepEqual(signedNames(), [`1-${F1.root}.json`]);
+    w.warpTo(w.launchBatch().latest.validFrom);
+
+    // day 2: the website hands X (A, B, C and EVIL); verify shows "+ EVIL" and prints its transaction; the owner refuses it
+    const X = listFile(w, [A, B, C, EVIL], 2n);
+    c = await verify('x.json', X);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /\+ city 9959 HEVIL/);
+    const verifiedHash = /message hash (\S+):/.exec(c.out)[1];
+    const verifiedWire = /unsigned publish_launch_batch for \S+ \(base64[^\n]*\n(\S+)/.exec(c.out)[1];
+    // minutes later the thief publishes X with the verified window in his own transaction (another blockhash, another message)
+    w.warpSecs(300);
+    await w.send([w.ix.publishLaunchBatch({ approver: approver.address, seq: 2n, root: Buffer.from(X.root, 'hex'), leafCount: X.leafCount, ...windowOf(c.out) })], [approver],
+      'the thief publishes the refused X with the verified window', { feePayer: approver });
+    // the liar serves the publication's block with the owner's verified message (which he never signed) as its transaction
+    forged = { slot: Number(w.launchBatch().latest.publishedSlot), wire: verifiedWire };
+    // the liar alone: every check passes on its word. Before: "confirmed", X the next day's baseline and EVIL hidden from then on
+    c = await confirm(2, X.root, ['--rpc', liar.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.match(c.out, new RegExp(`^PROBLEM ONE_RPC: batch 2 .* written by the transaction you verified \\(message hash ${verifiedHash}\\), on the one RPC read only`, 'm'));
+    assert.deepEqual(signedNames(), [`1-${F1.root}.json`], 'the refused X is no baseline');
+    // the liar and an honest RPC: they name different transactions
+    c = await confirm(2, X.root, ['--rpc', liar.url, '--rpc', honest.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM RPC_DISAGREE: the RPCs name different transactions as the one that wrote batch 2/);
+    assert.doesNotMatch(c.out, /ONE_RPC/);
+    // two honest RPCs: the stolen-key alarm
+    c = await confirm(2, X.root, two);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, new RegExp(`PROBLEM NOT_YOUR_TRANSACTION: batch 2 was written by the transaction with message hash \\S+, not the one you verified \\(${verifiedHash}\\)`));
+    assert.match(c.out, /page the guardian members/);
+    // one honest RPC still raises it, under the warning
+    c = await confirm(2, X.root, ['--rpc', honest.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.match(c.out, /PROBLEM NOT_YOUR_TRANSACTION/);
+    assert.doesNotMatch(c.out, /PROBLEM ONE_RPC/);
+
+    // the monitor checks the stored batch 2 (the thief's X) against the list it expected, G (A, B, C)
+    const G = listFile(w, [A, B, C], 2n);
+    c = await check('g.json', G, ['--rpc', honest.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.doesNotMatch(c.out, /one-rpc-ok/, 'check writes nothing, so it offers no --one-rpc-ok');
+    assert.match(c.out, /PROBLEM ROOT/); assert.match(c.out, /PROBLEM LEAF_COUNT/);
+    // the liar alone serves G's root and leaf count: the bad batch is hidden on its word, as before, but never silently
+    rootLie = { root: G.root, leafCount: G.leafCount };
+    c = await check('g.json', G, ['--rpc', liar.url]);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.match(c.out, /^the stored batch is the list on one RPC's word \(see warning ONE_RPC\)$/m);
+    // the liar and an honest RPC: caught
+    c = await check('g.json', G, ['--rpc', liar.url, '--rpc', honest.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM RPC_DISAGREE/);
+    assert.doesNotMatch(c.out, /ONE_RPC/);
+    rootLie = null;
+
+    // the residual that --one-rpc-ok accepts, explicitly: on the liar's word alone the refused X is kept as confirmed
+    c = await confirm(2, X.root, ['--rpc', liar.url, '--one-rpc-ok']);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, ONE_RPC);
+    assert.match(c.out, /^confirmed: batch 2 .* \(on one RPC's word: --one-rpc-ok\)$/m);
+    assert.deepEqual(signedNames(), [`1-${F1.root}.json`, `2-${X.root}.json`]);
+
+    // the options: --one-rpc-ok only with one --rpc, and only for confirm
+    const K = String(approver.address); const R = '00'.repeat(32);
+    assert.equal(parseArgs(['confirm', '2', R, '--rpc', 'https://a.example', '--one-rpc-ok']).oneRpcOk, true);
+    assert.match(parseArgs(['confirm', '2', R, '--rpc', 'https://a.example', '--rpc', 'https://b.example', '--one-rpc-ok']).error, /--one-rpc-ok goes only with a single --rpc/);
+    assert.match(parseArgs(['check', 'l.json', '--rpc', 'https://a.example', '--one-rpc-ok']).error, /check takes no oneRpcOk/);
+    assert.match(parseArgs(['verify', 'l.json', '--rpc', 'https://a.example', '--approver', K, '--one-rpc-ok']).error, /verify takes no oneRpcOk/);
+    c = await cli(['confirm', '2', R, '--rpc', honest.url, '--rpc', honest2.url, '--one-rpc-ok', ...at], sc.env);
+    assert.equal(c.code, 2, c.out);
+    assert.deepEqual([oneRpcWarning('confirm').code, oneRpcWarning('check').message.includes('--one-rpc-ok')], ['ONE_RPC', false]);
+    assert.ok(!existsSync(sc.env.VICINITY_BATCH_ARCHIVE), 'no run wrote to the default archive');
+  } finally {
+    await honest.close(); await honest2.close(); await liar.close();
     sc.done();
   }
   await w.finish();
