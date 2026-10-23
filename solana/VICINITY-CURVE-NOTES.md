@@ -5,7 +5,7 @@ revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C 
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
-tests of its rules). The
+tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2385,3 +2385,217 @@ constraints Anchor generates (seeds, `init`, owners), which X66 and F02 substitu
 
 Tests. `scripts/vcurve/batch-mutants.py` (about 1.5 minutes per mutant); the two tightened assertions are in
 `30-batch` (rotation and clears; the same-key re-set).
+
+### 78. Every leaf field is taken exactly or refused; the list file's schema (3.12, 14.1; review MK-1)
+
+**Spec.** 14.1: `buildLaunchBatch` "checks each entry as the program will (`check_name`, `check_symbol`, a nonzero
+metadata hash, a config id, ...)"; 3.12: the list file holds "every leaf field"; 8.4 step 2: the owner's verifier
+re-checks every entry and recomputes the root.
+
+**Issue.** `normalizeEntry` filled fields in: `String(e.name)` made a missing or null name the text "undefined" or
+"null", which `check_name` accepts, and `Number(e.configId ?? 0)` made a missing config id (for example a site
+query that spells it `config_id`) config #0. Such an entry built a valid leaf, and the owner's verifier runs the same
+normaliser, so it reported nothing and prepared the publication. Reproduced end to end: a coin launched through the
+batch with the permanent name "null" on config #0 instead of the admin-approved config #1, paying config #0's
+launch fee. A list file with the two fields removed also parsed to the same root. Low: it needs a bug in the site's
+list query (not built yet), and the day's changes did show `"null" ... config 0`.
+
+**Choice.** No field is ever defaulted or coerced:
+* `normalizeEntry` requires every field. The name and ticker must be strings; the city id a bigint, a safe integer
+  or decimal text (no boolean, no blank or spaced text, no hex, no fraction, nothing beyond u64); the config id the
+  same within u16; the founder base58 text, a PublicKey (anything with `toBase58`) or exactly 32 bytes; the metadata
+  hash 64 hex digits, a Uint8Array of 32 or an array of 32 integers from 0 to 255. The batch number of
+  `buildLaunchBatch` and `launchLeaf` likewise. A BatchError names the field. `entryProblems` reports the same
+  reason. A safe integer is accepted for the ids because it is exact; a larger number is refused, since it may
+  already have lost digits.
+* `checkLaunchBatchFileSchema` (exported; `parseLaunchBatchFile` runs it first): the file has exactly the fields
+  `launchBatchFile` writes (`version` 1, `programId` text, `seq` decimal text, `leafCount` an integer, `root` 64
+  lower-case hex digits, `entries` an array), each entry exactly `cityId` (decimal text), `founder` (text),
+  `configId` (an integer), `metaHash` (64 lower-case hex digits), `name` and `symbol` (text). A missing, null,
+  misspelt or extra field is `BadFile`, and so is text that is not JSON. The leaf count is compared exactly.
+* The verifier's CLI parses the list file before it reads the chain, so a malformed file is reported as
+  `BAD_FILE` (exit status 1) instead of failing while the addresses are derived.
+
+Tests. `batch.test.mjs` MK-1: a name or ticker missing, undefined, null, a number or an array; a config id missing,
+spelt `config_id`, null, 1.5, -1, blank, spaced, `1e2`, `01`, true or 70,000; a city id true, blank, spaced, hex,
+fractional, negative, 2^53 as a number or 2^64; a founder missing, a number, 31 bytes or non-bytes; a metadata hash
+missing, short, `0x`-prefixed, out of byte range or a number; a batch number true, blank or fractional: each refused.
+The exact forms still give the reference root. The list file: the coerced root with the name and config id removed
+(`missing configId, name`), a null name, `config_id` for `configId`, an extra field, each field of the wrong type, a
+missing `leafCount`, an extra top-level field, text that is not JSON: each `BadFile`. `33-batch-verifier`: the same
+lost-field file through the exported verifier and through the real CLI (`verify` and `check`) gives `BAD_FILE` and
+no transaction. Against the previous SDK the SDK test fails at its first refusal and the verifier tests prepared the
+publication.
+
+### 79. The day's changes are computed only against lists the chain holds; the owner's archive (8.1, 8.4, T89, 14.1; reviews R6-DIFF-1, R6-RT-1)
+
+**Spec.** 8.4 step 2: the owner's verifier "prints the changes", which the owner reads before he signs; 8.1 "Wrong
+list" and T89 name a compromised website and rely on this verifier, the monitor (which rebuilds the list from the
+site's database) and a second person (who checks the new entries the monitor sends).
+
+**Issue.** `verifyListFile` diffed today's list against whatever `--previous` file it was given, which
+`parseLaunchBatchFile` checked only against its own root. It had the decoded `LaunchBatch` at hand and used it only
+for the number. A compromised website could hand the owner a self-consistent "previous" list that already held its
+own city, or a founder swapped on a carried-over city, even under a number that never existed: the attacker's
+entries then never appeared among the day's changes, the monitor and the second person (fed by the same site data)
+agreed, and the attacker launched (reproduced against the real program, through the function and the real CLI).
+Without `--previous` every entry showed as added. And after a publication nobody prepared had begun, the next verify
+prepared `latest + 1` without a word. Medium.
+
+**Choice.** The safer fix the reviewers proposed, with the archive the second one suggested:
+* A stored record is *live* when it can still let a founder launch: `seq > 0`, not cleared, published by the current
+  approver (a rotation clears both records anyway) and not past its `valid_until` (`recordLive`, exported).
+* While `latest` is live, the changes are computed against its list, and that list must be anchored: from the
+  archive, or from `--previous` with `latest`'s number, root and leaf count. A `--previous` that does not match is
+  `PREVIOUS_NOT_ON_CHAIN` (also when nothing was ever published); no list at all is `NO_PREVIOUS`.
+* While `latest` is pending and `previous` is in force (the case of a correction published within the review
+  window, 8.6), the changes against the batch in force are shown as well (`changesInForce`): from the archive or
+  `--in-force`, matched with `previous` (`IN_FORCE_NOT_ON_CHAIN`, `NO_IN_FORCE`). An `--in-force` when no other
+  batch is in force is refused too, so nothing the owner passes is ever used unless the chain holds it.
+* When `latest` has ended (cleared, expired, a former approver's), no stored entry can launch, so every entry of the
+  new list is a new approval and is listed as added (warning `LATEST_ENDED`); a matching `--previous` adds the
+  changes against the ended list for reference (`ended`).
+* The archive: the CLI keeps every list it verified (when it prints a transaction) as
+  `<archive>/<program id>/<seq>-<root>.json` (`--archive <dir>`, default `$VICINITY_BATCH_ARCHIVE` or
+  `~/.vicinity-curve/launch-batches`; `--no-archive`). It is the owner's own copy, independent of the website, so in
+  routine use no file from the website is needed for the baseline. Once the archive holds any list, a live stored
+  batch it does not hold is `LATEST_NOT_ARCHIVED` (a problem: a publication nobody prepared on this computer; clear
+  it, or put its list in the archive if it was prepared elsewhere); an ended one is only a warning. An empty archive
+  (the first use) checks nothing.
+* Any problem means no transaction, as before. The printout names the baseline of each set of changes and where its
+  list came from (`changeLines`, exported; entry 80 for the entries themselves).
+* `check` takes none of `verify`'s options (an error now, so a baseline option is never silently ignored).
+The `--first-batch` flag the review suggested is not needed: the chain says whether anything was published, and a
+`--previous` then is refused. What stays: a compromised website can still add believable new entries; the owner and
+the second person read those (8.1).
+
+Tests. `33-batch-verifier` R6-DIFF-1, R6-RT-1: before any publication a `--previous` is refused; after batch 1
+takes force, the review's forged previous (the attacker's city already in it), a founder swap under number 41, and
+no previous at all are each refused with no transaction; the real list of batch 1, from `--previous` or from the
+archive, shows the attacker's city as added; an archive without the live batch is refused even with a matching
+`--previous`; with batch 2 pending, a correction needs the list of batch 1 in force and shows both sets of changes,
+and a forged or wrong `--in-force` is refused; a publication nobody prepared is refused at the next verify (with
+the owner's own last list, or from the archive); after the guardian clears it, every entry is new and the cleared
+list gives the reference changes. The real CLI against a JSON-RPC stub serving the World: a forged `--previous`
+gives `PREVIOUS_NOT_ON_CHAIN`, exit 1 and no transaction; without a baseline `NO_PREVIOUS`; the archive keeps the
+verified list and is the next day's baseline. Against the previous verifier (run on the build before review round 6)
+the first test fails at the forged previous (no problem, a transaction prepared) and the CLI test at its first run
+(the old CLI has no archive and prints the day's changes without a baseline).
+
+### 80. The day's changes show every entry's metadata hash and name the fields that changed (8.4, 14.1; review R6-DIFF-2)
+
+**Spec.** 8.4 step 2: the owner reads the day's changes before he signs; 3.12: the leaf commits to the metadata
+hash, which `launch_from_batch` stores in `Coin.meta_hash` for good; T89 names "another name, ticker or metadata"
+among the website's possible changes.
+
+**Issue.** The verifier printed each entry as its city, ticker, name, founder and config, without the metadata hash.
+`diffLaunchBatches` counted a change of the hash alone as a changed entry, but the owner then read a `~` line and a
+`->` line with the same text and could not see what had changed; the coin launched with a hash he never saw.
+Info: he could see that the city changed, not how, and only the second person's metadata check remained.
+
+**Choice.**
+* `diffLaunchBatches` returns, with each changed row, the leaf fields that differ (`fields`, in the order of
+  `LEAF_FIELDS`: `founder`, `configId`, `name`, `symbol`, `metaHash`).
+* The printout (`formatEntry`, `formatChanges`, exported from `scripts/vcurve/batch.mjs`) shows every entry, added,
+  removed or changed, with its full metadata hash in hex, and follows each changed entry with
+  `changed: <fields>`.
+
+Tests. `batch.test.mjs` R6-DIFF-2: a change of the hash alone names `metaHash`, a change of founder and name names
+both. `33-batch-verifier` (the real CLI): city 8102's metadata hash alone changes; the `~` and `->` lines differ,
+end with the old and the new hash, and are followed by `changed: metaHash`. Against the previous SDK the SDK test
+fails (no `fields`); the old CLI printed two identical lines.
+
+### 81. The deploy checklist reads the guardian's Squads multisig; the approver is no member key (8.1, 8.4, 8.6, O30, O32, O34, O35, T85; review R6-RT-2)
+
+**Spec.** 8.1: the guardian is "a separate Squads multisig without a time lock, suggested 1 of 3 of the same
+members", one of the stops of the 12-hour window ("the owner, the guardian or the admin" clears); O32's default
+puts the approver key in the owner's own wallet, "preferably a hardware wallet", while (b) notes the owner keeps
+the admin and guardian seats; the checklist said the guardian multisig's settings were "not checkable here".
+
+**Issue.** Nothing kept the approver key and the owner's guardian member key off the same device or seed, and in a
+Squads v4 autonomous multisig (no config authority) with threshold 1 one member alone can create, approve and
+execute a config transaction removing the other members. With one stolen device the thief publishes a batch for up
+to 512 cities and, within minutes, removes the other guardian members: their clears and pauses then fail (Squads
+`NotAMember`), the admin's are 48-hour proposals, and only the owner, restoring his approver key from the offline
+backup, can still stop the batch. Reproduced against the real Squads v4 program; with a config authority set,
+Squads refuses the member's config transaction (`NotSupportedForControlled`). Medium.
+
+**Choice.** The checklist and the operating rules (no program change; the program-level option is recorded as O34):
+* `decodeSquadsMultisig` reads a Squads v4 `Multisig` account (owner the Squads program, discriminator
+  `sha256("account:Multisig")[..8]`, then `create_key`, `config_authority`, `threshold` u16, `time_lock` u32, the two
+  transaction indexes, `rent_collector` as a Borsh option, `bump` and the members with their permission masks);
+  `squadsVaultPda` derives `["multisig", multisig, "vault", index]`; `encodeSquadsMultisig` writes the same layout
+  for tests. The layout and the vault derivation were checked against the Squads SDK's own decoder and PDA helper,
+  and against multisigs created by the real Squads program in litesvm (the mainnet dump the reviewers used, sha256
+  `dec8d3e0...`, with `@sqds/multisig` 2.1.4). Three of them are kept in `tests-curve/fixtures/squads-v4-multisigs.json`
+  with the values the SDK decodes and its vault PDAs: autonomous 1 of 3; controlled by the vault, 1 of 3; controlled,
+  2 of 3 with a time lock, a rent collector and mixed permissions. Squads allocates 33 bytes for `rent_collector`
+  whatever its value, so an account without one ends with 32 zero bytes after its members; the decoder ignores them
+  and `encodeSquadsMultisig` writes them, so the synthetic accounts of the tests are byte for byte what the program
+  creates.
+* `checkSquadsRoles`, run by `checkDeployPreconditions` with the proposal's keys applied: once a guardian is set,
+  `--guardian-multisig` is required (`GUARDIAN_MULTISIG_UNCHECKED`); the guardian must be one of its vaults
+  (`GUARDIAN_NOT_MULTISIG_VAULT`; any index from 0 to 255); it must have no time lock (`GUARDIAN_TIME_LOCK`, until now
+  confirmed by hand); its config authority must be the admin vault (`GUARDIAN_MULTISIG_NOT_CONTROLLED`, whose message
+  says whether it is autonomous, and that with threshold 1 one stolen member key removes the others); an account
+  that is not a Squads multisig is `GUARDIAN_MULTISIG_INVALID`; the launch approver, or a proposed one, must not be a
+  member key (`APPROVER_IS_GUARDIAN_MEMBER`); one member only is a warning. The optional `--vault-multisig` checks
+  that the vault is one of its vaults (`VAULT_NOT_MULTISIG_VAULT`) and that the approver is no member key
+  (`APPROVER_IS_VAULT_MEMBER`), and warns while it has no time lock (`VAULT_TIME_LOCK_UNSET`, O11).
+* A controlled multisig whose config authority is the vault was chosen over a 2-of-3 autonomous guardian: the brake
+  stays one signature (O9's reason for a guardian), and membership changes wait for the vault's time lock, as
+  `set_guardian` does. Recorded as owner decision O35 with this default built into the checklist.
+* The rules: the approver key sits on a hardware wallet or a seed that holds no member key of the vault's or the
+  guardian's multisig (8.4, O32; the checklist sees only identical keys, not a shared seed). 8.1's worst case, 8.6's
+  window and O30's reasoning say why: the team's stop must survive the theft it answers.
+* O34 records the program-level alternative (a few clear-only "batch stopper" keys set by the admin), not built.
+
+Tests. `32-batch-checklist` R6-RT-2: with the guardian set to the vault of a synthetic Squads multisig, an unnamed
+multisig, an autonomous 1-of-3 and 2-of-3, a config authority other than the vault, a time lock, another multisig,
+an account of another program, a missing account and an approver (or a proposed approver) among the members are
+each reported; a controlled multisig whose config authority is the vault passes; one member is a warning; a
+proposed guardian is checked against the multisig named; the vault's multisig: an approver member key, no time lock
+(a warning) and a vault that is not one of its vaults; the CLI options; `fetchChecklistSnapshot` fetches the two
+multisigs. The checklist tests that report ready (`28-governance` OPS-4 and R5-DIFF-3) now name a controlled
+guardian multisig. A second test reads the three accounts of the real Squads program: each decodes to the SDK's
+values, re-encodes byte for byte and has the SDK's vault PDAs, and the checklist refuses the autonomous one and the
+time-locked one, accepts the one controlled by the vault, and refuses an approver among its members. Against the
+previous checklist the first test fails at its first assertion (nothing was reported).
+
+### 82. The batch settings events are event CPIs; the monitor reads the account (M20, 4.0, 4.21, 4.24 to 4.26, 8.4, 11.1, 11.3, 14.1; review R6-RT-3)
+
+**Spec.** M20 and 4.21: settings events by `emit!`, which "indexers reconcile from state"; 4.21 says the batch
+monitor "reads `LaunchBatch` itself, not only the events", but 14.1 specified it as woken "after every
+`LaunchBatchPublished`".
+
+**Issue.** A thief of the approver key controls the publication's transaction. Fifty one-byte SPL Memo instructions
+ahead of `publish_launch_batch` fill the 10,000-byte log before vicinity_curve runs: neither its invoke line nor the
+`Program data:` line of `LaunchBatchPublished` is logged, `decodeTransactionEvents` returns nothing, and
+`LaunchBatch.latest` is written as normal. A monitor built as 14.1 described never runs for that publication. The
+same hides a clear. Low: the monitor is not built, and one that polls the account is unaffected.
+
+**Choice.** Both parts of the fix:
+* `set_launch_approver`, `publish_launch_batch` and `clear_launch_batch` take `#[event_cpi]` (the event authority and
+  the program as their last two accounts) and emit `LaunchApproverChanged`, `LaunchBatchPublished` and
+  `LaunchBatchCleared` with `emit_cpi!`, which is recorded as an inner instruction and cannot be truncated.
+  `init_launch_batch` keeps `emit!` (it runs once, by the admin). `checklist.rs` lists the three in
+  `BATCH_CPI_SETTINGS` and its account tables; the IDL, the SDK's `ACCOUNT_TABLES` and builders and `CPI_EVENTS`
+  (now 12; such an event is accepted only from an event CPI), the checker's log rule and 4.0, 4.21 and 4.24 to 4.26
+  follow. Cost: 5,700 to 6,300 CU more each (`set_launch_approver` 13,368, `publish_launch_batch` 13,420,
+  `clear_launch_batch` 12,486; budget 50,000), 34 bytes on the publication (380 bytes with the compute budget),
+  and 9,808 bytes of program: production 738,064 bytes (devnet 738,064, halt-all 736,840; no stack warning; 11.4).
+  The guardian's clear through a Squads vault transaction emits its event at stack height 3, within the
+  runtime's limit (checked with the review's harness of the real Squads v4 program against this build).
+* 8.4 step 3 and 14.1: the monitor polls `LaunchBatch` every minute or subscribes to the account and acts on every
+  change of `latest`, `previous` or `halted`; it never relies on events alone.
+* `batch-mutants.py` gains three mutants that put back `emit!` for each event (46 in all). Each was built and run:
+  all three killed, with the checker and without it (`MUTANT_CHECKS_OFF=1`), each by the R6-RT-3 test among others
+  (without the checker the SDK refuses a log of a `CPI_EVENTS` event, so the suite's own decoding fails too).
+
+Tests. `30-batch` R6-RT-3: a publication, a clear and a change of approver, each behind 50 memos with the log
+truncated before vicinity_curve's invoke line, still give their events (through the checker and
+`decodeTransactionEvents`, which `World.send` compares); unpadded, the three emit no log event and carry the two
+event accounts. `batch.test.mjs` and `idl.test.mjs` follow the new account lists and `CPI_EVENTS`. Against the
+previous binary (built from the commit before review round 6) the test fails at the padded publication: no
+`LaunchBatchPublished` is decoded.
+
