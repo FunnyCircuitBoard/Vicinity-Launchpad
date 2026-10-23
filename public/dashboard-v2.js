@@ -22,9 +22,11 @@
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
+//                                  (a phone, ICONS: every tab is its line icon, the chosen one's name under it, the pill behind the icon;
+//                                  no Profile tab in the strip: the header's avatar opens it, inStrip / keyStop)
 (() => {
   "use strict";
-  const { $, $$, el, fmt, mask, initials, copy } = window.V;
+  const { $, $$, el, fmt, mask, copy } = window.V;
   const byId = (id) => document.getElementById(id);
 
   const TABS = Object.freeze(["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"]);
@@ -43,8 +45,20 @@
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
   const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
-    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
-  const HEADER = 67; // the site header: 66px plus its 1px border
+    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home",
+    "profile-account": "profile" }; // (the header's account sheet: Account is the Profile tab's Wallet and sign-in rows, Settings the notification settings)
+  // a phone: the strip is icons (polish-dash.css, the same query): the glass pill sits behind the chosen tab's icon, the fit steps are not needed
+  const ICONS = "(max-width: 600px)";
+  const iconMode = () => Boolean(window.matchMedia && window.matchMedia(ICONS).matches);
+  // Where a jump may put something: under the site header and, for a card in a tab, under the strip where it sticks. Read from the page,
+  // never assumed: the header is 8 px down on a phone, or under a notched iPhone's status bar in a full-screen web view (style.css:
+  // env(safe-area-inset-top), --header-h follows), 12 px down on a computer; its place in the page is where it sticks, so its bottom edge
+  // is the same at any scroll. The strip sticks at its own top (polish-dash.css: 6 px under --header-h on a phone).
+  const headerBottom = () => { const h = document.querySelector(".site-header"); return h ? h.getBoundingClientRect().bottom : 68; };
+  const stripBottom = () => {
+    const strip = byId("dash-tabs"), cs = typeof window.getComputedStyle === "function" ? window.getComputedStyle(strip) : null, top = cs ? parseFloat(cs.top) : NaN;
+    return (Number.isFinite(top) ? top : headerBottom()) + strip.offsetHeight;
+  };
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
   // the coins' words while the old LaunchLab path is closed: nobody checks such a contract any more, it can only be rejected
@@ -110,10 +124,12 @@
     $("#community").classList.add("city-head");
     for (const id of ["studio-step-1", "studio-step-2", "studio-step-3"]) byId(id).hidden = false;
     window.V.openProfile = () => go("profile"); // the header button: dashboard.js's own opener runs when the tab is entered
+    // the header's account sheet (site.js): Profile opens the tab (the keyboard on its panel), Account and Settings the card in theirs
+    window.V.accountGo = (hash) => { if (TABS.includes(hash)) { go(hash); byId("panel-" + hash).focus({ preventScroll: true }); } else goTo("#" + hash); };
     try { history.scrollRestoration = "manual"; } catch {}
     $("#dash-main").addEventListener("click", onClick);
     $("#dash-tablist").addEventListener("keydown", onKey);
-    $("#dash-tablist").addEventListener("scroll", () => $("#dash-tabs").classList.toggle("is-scrolled", $("#dash-tablist").scrollLeft > 4), { passive: true });
+    $("#dash-tablist").addEventListener("scroll", edges, { passive: true });
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
     $("#wt-copy").addEventListener("click", copyAddress);
     $("#wt-refresh").addEventListener("click", () => { if (ctx && ctx.readWallet) ctx.readWallet(); });
@@ -144,7 +160,7 @@
     if (ALIAS[h]) return { tab: ALIAS[h], target: "#" + h, ok: false };
     return { tab: "home", target: null, ok: false };
   }
-  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - HEADER - 8;
+  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - headerBottom() - 8;
   function go(tab, { push = true, scroll = true, replace = false } = {}) {
     if (!TABS.includes(tab)) tab = "home";
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
@@ -173,7 +189,7 @@
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
   function centerTab(tab) {
     const list = $("#dash-tablist"), t = byId("tab-" + tab);
-    if (!list || !t || list.scrollWidth <= list.clientWidth + 1) return;
+    if (!list || !t || !inStrip(t) || list.scrollWidth <= list.clientWidth + 1) return;
     const lr = list.getBoundingClientRect(), tr = t.getBoundingClientRect(), pad = 28;
     const dx = tr.left < lr.left + pad ? tr.left - lr.left - pad : tr.right > lr.right - pad ? tr.right - lr.right + pad : 0;
     if (dx) list.scrollTo({ left: list.scrollLeft + dx, behavior: behavior() });
@@ -182,7 +198,9 @@
    * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
    * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
    * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
-   * strip scroll (.is-scrollable, with edge fades). Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
+   * strip scroll (.is-scrollable, with edge fades). A phone's icons (ICONS) have two steps: the row drops its inner padding and, below
+   * 375 px, the strip widens to 4 px from the screen's edges (.is-flush: only when needed, so the strip otherwise lines up with the
+   * header), then it scrolls. Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
    * person chose, "follow" while the tabs glide to new places (reflow), else it is set at once, or a slide on its way turns there in
    * the time it had left. While the tabs are measured the pill is parked at no size, so where it was a moment ago (a wider strip)
    * never counts as overflow.
@@ -190,12 +208,37 @@
   function measure(how) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
     if (!list || !strip) return;
-    const over = () => list.scrollWidth > list.clientWidth + 1;
+    // (a phone's icons: any whole pixel over counts, so a moderator's 8 tabs at 375 px, 1 px too wide as they are, go flush and fit;
+    // the words' strip keeps a pixel of slack for its sub-pixel word widths)
+    const icons = iconMode(), over = () => list.scrollWidth > list.clientWidth + (icons ? 0 : 1);
     const left = park();
     const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
-    strip.classList.remove(...steps);
-    for (const step of steps) { if (!over()) break; strip.classList.add(step); }
+    strip.classList.remove(...steps, "is-flush");
+    for (const step of icons ? ["is-flush", "is-scrollable"] : steps) { if (!over()) break; strip.classList.add(step); } // icons: tighter, then they scroll (with snap)
+    edges();
+    keyStop();
     place(how || (reflowing ? "follow" : ""), left);
+  }
+  /** A row that scrolls: a fade on each side that has more (.is-scrolled: some tabs are off to the left; .is-end: none to the right). */
+  function edges() {
+    const list = $("#dash-tablist"), strip = $("#dash-tabs");
+    if (!list || !strip) return;
+    strip.classList.toggle("is-scrolled", list.scrollLeft > 4);
+    strip.classList.toggle("is-end", list.scrollLeft >= list.scrollWidth - list.clientWidth - 4);
+  }
+  /**
+   * A phone: Profile has no tab in the strip (polish-dash.css D2c; owner, 17 Oct 2026: "remove one", "keep a single avatar in the
+   * top-right that opens Profile, Account and Settings"): the header's avatar opens it. While it is the chosen tab, the avatar wears the
+   * chosen ring (polish.css .hdr-avatar.is-current) and the sheet's Profile row says it is the current place, and the strip's one Tab
+   * stop is Home (the chosen tab is not there to take it), so the keyboard still reaches the strip. A computer: every tab is in it.
+   */
+  function inStrip(t) { return Boolean(t) && !t.hidden && !(t.dataset.tab === "profile" && iconMode()); }
+  function keyStop() {
+    const tabs = $$(".dtab", $("#dash-tablist")), chosen = byId("tab-" + active), stop = inStrip(chosen) ? chosen : byId("tab-home");
+    for (const t of tabs) t.setAttribute("tabindex", t === stop ? "0" : "-1");
+    const onProfile = active === "profile", av = $("[data-account-avatar]"), row = $('[data-acct-go="profile"]');
+    if (av) av.classList.toggle("is-current", onProfile && iconMode());
+    if (row) { if (onProfile) row.setAttribute("aria-current", "true"); else row.removeAttribute("aria-current"); }
   }
 
   /* ---------- the glass pill: one marker behind the chosen tab that slides (and stretches a little) to the next one ---------- */
@@ -256,9 +299,10 @@
     ind.style.width = "0px"; ind.style.transform = "none";
     return left;
   }
-  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide). */
+  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide): on a phone, its icon's. */
   function boxOf(tab) {
-    const r = tab.getBoundingClientRect();
+    const mark = iconMode() ? tab.querySelector(".dtab__ico") || tab : tab;
+    const r = mark.getBoundingClientRect();
     if (!tabGlides.has(tab)) return r;
     const m = /^matrix\(([^)]+)\)$/.exec(String(window.getComputedStyle(tab).transform || "").trim()), dx = m ? Number(m[1].split(",")[4]) || 0 : 0;
     return { left: r.left - dx, top: r.top, width: r.width, height: r.height };
@@ -268,8 +312,8 @@
   function place(how = "", left = 0) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs"), ind = pillEl(), tab = byId("tab-" + active);
     if (!list || !strip || !ind) return;
-    const tr = tab && !tab.hidden ? boxOf(tab) : null, lr = list.getBoundingClientRect();
-    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip) or no chosen tab: the tab's own look, no pill
+    const tr = inStrip(tab) ? boxOf(tab) : null, lr = list.getBoundingClientRect();
+    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip), or the chosen tab is not in the strip (a phone's Profile): no pill
       if (pillAnim) { pillAnim.cancel(); pillAnim = null; }
       pill = null; strip.classList.remove("has-ind");
       return;
@@ -319,19 +363,20 @@
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {
     let sel = selector;
+    if (sel === "#notice-prefs" && !notifyOn()) { go("profile", { push: started, replace: !started }); return; } // the account sheet's Settings with notices off: the Profile tab
     if (!noAlias && sel === "#coin" && !$("#studio-card").hidden) sel = "#coin-studio"; // the founder lands on the studio, everyone else on the coin
     if (sel === "#trade" && $("#trade").hidden && !$("#wallet-card").hidden) sel = "#wallet-card"; // a phone's Safari buys in the wallet app
     const target = $(sel);
     if (!target) return;
     const panel = target.closest(".dpanel");
-    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - HEADER - 12, behavior: behavior() }); return; }
+    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - headerBottom() - 12, behavior: behavior() }); return; }
     const tab = panel.id.slice("panel-".length);
     go(tab, { push: tab !== active, scroll: false });
     if (active !== tab) return; // the tab is gated (Moderate without rights): it opens when the rights arrive
     for (let d = target.closest("details"); d; d = d.parentElement ? d.parentElement.closest("details") : null) d.open = true;
     if (openRole) { const r = $("#roles").querySelector(`details[data-role="${openRole}"]`); if (r) r.open = true; }
     if (target.closest("[hidden]")) return; // a card that is not shown right now (no squad, no studio): the tab is enough
-    const top = target.getBoundingClientRect().top + window.scrollY - (HEADER + $("#dash-tabs").offsetHeight + 12);
+    const top = target.getBoundingClientRect().top + window.scrollY - (stripBottom() + 12);
     window.scrollTo({ top, behavior: behavior() });
     if (focus) {
       if (!target.matches("input, textarea, select, button, a[href], [tabindex]")) target.setAttribute("tabindex", "-1");
@@ -368,7 +413,7 @@
     if (ALIAS[h]) { e.preventDefault(); goTo(href); }
   }
   function onKey(e) {
-    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => !t.hidden && t.getClientRects().length); // (a tab stepped out of a tight strip is skipped)
+    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => inStrip(t) && t.getClientRects().length); // (a tab not in the strip is skipped: a phone's Profile)
     const cur = tabs.indexOf(document.activeElement);
     let next = -1;
     if (e.key === "ArrowRight") next = cur < 0 ? 0 : (cur + 1) % tabs.length;
@@ -821,7 +866,6 @@
   /* ---------- what dashboard.js calls ---------- */
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
-    $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
     reflow(() => { gate(); notifyGate(); unreadBadge(d.unread); }); // the roles (and the switch) can change on a refresh: a tab comes or goes as one glide
     placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess(); walletTab(d);
   }

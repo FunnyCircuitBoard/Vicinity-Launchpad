@@ -41,8 +41,8 @@ function themePage({ stored = {}, throws = false, deviceLight = true } = {}) {
     addEventListener: (t, f) => (listeners[t] ||= []).push(f),
   };
   class CustomEvent { constructor(type, o) { this.type = type; this.detail = o && o.detail; } }
-  const window = { dispatchEvent: (e) => events.push([e.type, e.detail]) };
-  vm.runInNewContext(theme, { document, window, localStorage, matchMedia, CustomEvent });
+  const window = { dispatchEvent: (e) => events.push([e.type, e.detail]), addEventListener() {} }; // (the dashboard's hold and its way out: test/layout-shift.test.js)
+  vm.runInNewContext(theme, { document, window, localStorage, matchMedia, CustomEvent, setTimeout: () => 0 });
   const ready = () => { parsed = true; (listeners.DOMContentLoaded || []).forEach((f) => f()); };
   return { root, metas, store, queries, events, toggle, footer, ready };
 }

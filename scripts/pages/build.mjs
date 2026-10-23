@@ -1,6 +1,6 @@
 // Builds the site's pages: public/<name>.html = the shared layout (head, floating header, phone tab bar, footer) + the page's own
 // content from scripts/pages/src/<name>.html. Design v4 (12 Oct 2026): a slim floating glass header (the brand, four links, Log in and
-// one orange "Sign up"), a five-tab bar on phones, and a minimal footer (the copyright line, Terms / Rules / Official addresses / Data / Check a link, the
+// one orange "Sign up"; signed in, one avatar that opens the account sheet), a five-tab bar on phones, and a minimal footer (the copyright line, Terms / Rules / Official addresses / Data / Check a link, the
 // official social accounts from src/official.js, and one security line: Vicinity never asks for a recovery phrase; not a risk line). Every page loads style.css and then polish.css. No page carries a
 // site-entry Terms of Use modal any more: the Terms are accepted at account creation and on /terms, and the footer links them everywhere.
 //   npm run pages
@@ -39,6 +39,35 @@ const TABS = [
   ["token", "/token", "Token", '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.5 9.5h3.75a1.75 1.75 0 0 1 0 3.5h-2.5a1.75 1.75 0 0 0 0 3.5h3.75"/>'],
   ["dashboard", "/dashboard", "Me", '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.8-3.8 3.9-6 7.5-6s6.7 2.2 7.5 6"/>'],
 ];
+// The account sheet (signed in): the header's one avatar opens it (site.js accountSheet), a bottom sheet on a phone and a small popover
+// on a computer. The member's username and home community at the top, then Profile, Account and Settings, each an existing place of the
+// dashboard (the Profile tab, its Wallet and sign-in rows, the notification settings), and Log out. Static markup filled with textContent.
+const SHEET_ICON = (paths) => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const ACCOUNT_LINKS = [
+  ["profile", "/dashboard#profile", "Profile", "Username, bio and how members see you", '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.9 16c.5-1.5 1.7-2.4 3.1-2.4s2.6.9 3.1 2.4M14.5 10h3.5M14.5 13.5h2.5"/>'],
+  ["account", "/dashboard#profile-account", "Account", "Wallet, sign-in, e-mail and phone", '<circle cx="8" cy="15.5" r="3.5"/><path d="M10.5 13 19 4.5M15.5 8l2.5 2.5M17.5 6l2 2"/>'],
+  ["settings", "/dashboard#notice-prefs", "Settings", "Notifications: what you get told about", '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>'],
+];
+const ACCOUNT_SHEET = `  <div class="acct" id="acct-sheet" data-acct hidden>
+    <div class="acct__scrim" data-acct-close></div>
+    <div class="acct__panel" id="acct-panel" role="dialog" aria-modal="true" aria-label="Your account" tabindex="-1">
+      <span class="acct__grab" aria-hidden="true"></span>
+      <div class="acct__who">
+        <span class="acct__av" data-acct-initial aria-hidden="true"></span>
+        <div class="acct__id">
+          <p class="acct__name" data-acct-name>Your account</p>
+          <p class="acct__home">${SHEET_ICON('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>')}<span data-acct-home></span></p>
+        </div>
+        <button class="acct__x" type="button" data-acct-close aria-label="Close">${SHEET_ICON('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>')}</button>
+      </div>
+      <nav class="acct__nav" aria-label="Account menu">
+        <ul class="acct__links">
+${ACCOUNT_LINKS.map(([k, href, label, hint, paths]) => `          <li><a class="acct__link" href="${href}" data-acct-go="${k}"><span class="acct__ico">${SHEET_ICON(paths)}</span><span class="acct__text"><strong>${label}</strong><span>${hint}</span></span><span class="acct__chev" aria-hidden="true">${SHEET_ICON('<path d="M9.5 6l6 6-6 6"/>')}</span></a></li>`).join("\n")}
+        </ul>
+      </nav>
+      <button class="acct__out" type="button" data-acct-logout>${SHEET_ICON('<path d="M14 4.5h3.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H14"/><path d="M10 8l-4 4 4 4M6 12h9.5"/>')}<span>Log out</span></button>
+    </div>
+  </div>`;
 const icon = (paths) => `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 const current = (page, p) => (page === p ? ' aria-current="page"' : "");
 // the theme switch: a moon in the dark theme, a sun in the light one (style.css shows one); in the header, and in the footer on phones
@@ -109,10 +138,12 @@ ${nav}
       <div class="site-header__actions">
         ${themeToggle("theme-toggle")}
         <a class="btn btn--ghost btn--sm account-btn" href="/connect?mode=login" data-account><span class="btn__dot" aria-hidden="true"></span><span data-account-label>Log in</span></a>
+        <button class="hdr-avatar" type="button" data-account-avatar aria-haspopup="dialog" aria-expanded="false" aria-controls="acct-panel" aria-label="Profile, account and settings" hidden><span class="hdr-avatar__face" data-account-initial aria-hidden="true"></span></button>
         <a class="btn btn--primary btn--sm hdr-signup has-ring" href="/connect" data-signup>Sign up</a>
       </div>
     </div>
   </header>
+${ACCOUNT_SHEET}
 
   <main id="main"${main ? ` class="${main}"` : ""}>
 ${body.trimEnd()}

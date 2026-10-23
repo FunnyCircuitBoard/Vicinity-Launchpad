@@ -4,6 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { openPage } from "./helpers/pagedom.js";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const css = read("public/style.css");
@@ -25,7 +27,7 @@ test("signed-out dashboard: a guest's page holds the signed-out room from the fi
   // 1280x900 signed out: #roles was at 67 px until /api/me answered, then 906 px (839 px down, under the taller example dashboard).
   // Holding the room from dashboard.js was too late (a deferred script runs after the first paint): theme.js, in <head>, marks a guest.
   const theme = read("public/theme.js");
-  assert.match(theme, /try \{ if \(localStorage\.getItem\("vicinity-account"\) !== "1" && localStorage\.getItem\("vicinity:dash-v2"\) !== "1"\) root\.dataset\.guest = ""; \} catch \{\}/,
+  assert.match(theme, /const member = localStorage\.getItem\("vicinity-account"\) === "1", tabbed = localStorage\.getItem\("vicinity:dash-v2"\) === "1";\n\s+if \(member \|\| tabbed\) root\.dataset\.returning = ""; else root\.dataset\.guest = "";/,
     "a guest: no sign-in remembered in this browser (site.js's key) and no tabbed dashboard last time (dashboard.js's key)");
   assert.match(read("public/site.js"), /localStorage\.setItem\("vicinity-account", "1"\)/, "the same key site.js sets for a signed-in visitor");
   assert.match(read("public/dashboard.js"), /const V2_KEY = "vicinity:dash-v2";/, "the same key dashboard.js sets");
@@ -40,12 +42,50 @@ test("signed-out dashboard: a guest's page holds the signed-out room from the fi
   assert.match(start, /unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;/, "signed out: shown in the place it held, in the same task (no frame in between)");
   // a member on a browser with no hint (the first visit after signing in): the room is held until something of theirs takes it, never
   // given back first (that made #roles jump up, then down again: CLS 0.97 at 1280x900 instead of one shift)
-  assert.match(start, /if \(tabbed\) \{ \$\("#dash-skel"\)\.hidden = false; unhold\(\); \}/, "the tabbed dashboard's placeholders take it");
+  assert.match(start, /if \(tabbed\) \{ if \(held\) \$\("#dash-skel"\)\.hidden = false; unhold\(\); \}/, "the tabbed dashboard's placeholders take it (unless theme.js gave up waiting: then the roles stay until the dashboard, test/dash-hold.test.js)");
   assert.match(start, /if \(!d\.user\.home\) \{ unhold\(\); onboard\(d\); return; \}/, "or the first steps");
   assert.match(start, /unhold\(\);\n\s+\$\("#dash-main"\)\.hidden = false;/, "or the dashboard itself");
-  assert.equal((start.match(/unhold\(\)/g) || []).length, 4, "and nowhere else");
+  assert.match(start, /if \(d\.pending \|\| d\.proof\) \{ window\.addEventListener\("pagehide", unhold\); location\.assign\("\/connect"\); return; \}/, "or the page left for /connect, once it has left (Back brings it back unheld: review EDGE-1, EDGE1-R)");
+  assert.equal((start.match(/unhold\(\)/g) || []).length, 4, "and nowhere else (a start that throws gives it back too: test/dash-hold.test.js)");
   assert.match(read("public/polish-dash.css"), /@media \(prefers-reduced-motion: no-preference\) \{ \.dash-out\.is-pending \.dpv__frame, \.dash-out\.is-pending \.dpv__frame > \* \{ animation: none; \} \}/,
     "the example rises in when it shows, not behind the curtain");
+});
+
+test("a returning member's dashboard: the first paint is never the public rules at the top, then a jump (review UX-1: CLS 0.93 at 390 px, 0.58 for a returning visitor at 1440)", async () => {
+  // dashboard.js is deferred: the browser paints the page before it runs (on a phone network, for a while), so whatever holds the room
+  // must be decided before the first paint, in <head>. theme.js marks the browser: a guest, a returning one, a tabbed-dashboard one.
+  const theme = read("public/theme.js");
+  const flags = (stored, throws = false) => {
+    const root = { dataset: {} };
+    const localStorage = { getItem: (k) => { if (throws) throw new Error("blocked"); return stored[k] ?? null; }, setItem() {}, removeItem() {} };
+    const document = { documentElement: root, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, getElementById: () => null };
+    vm.runInNewContext(theme, { document, window: { dispatchEvent() {}, addEventListener() {} }, localStorage, CustomEvent: class {}, setTimeout: () => 0 });
+    return Object.keys(root.dataset).sort().join(",");
+  };
+  assert.equal(flags({}), "guest,theme", "a first visit: the signed-out page's room is held (as before)");
+  assert.equal(flags({ "vicinity-account": "1" }), "returning,theme", "a returning browser (a member, or one signed out since)");
+  assert.equal(flags({ "vicinity-account": "1", "vicinity:dash-v2": "1" }), "dashV2,returning,theme", "last time the tabbed dashboard: its placeholders from the first paint");
+  assert.equal(flags({ "vicinity:dash-v2": "1" }), "dashV2,returning,theme");
+  assert.equal(flags({}, true), "theme", "storage blocked: nothing held, nothing shown early (today's page; review EDGE-2: what that draws, test/dash-hold.test.js)");
+  assert.match(theme, /if \(tabbed\) root\.dataset\.dashV2 = "";/);
+  // the rules: the placeholders show, the roles wait and the page is a screen tall while /api/me answers; all of it gives way with
+  // .is-pending (dashboard.js unhold, or theme.js's way out) and the placeholders' own hidden (dashboard.js, dashboard-v2.js)
+  assert.match(css, /\n:root\[data-dash-v2\] \.dash-out\.is-pending ~ #dash-skel\[hidden\] \{ display: block !important; \}\n/);
+  assert.match(css, /\n:root\[data-returning\] \.dash-out\.is-pending ~ #roles, #dash-skel:not\(\[hidden\]\) ~ #roles \{ display: none; \}\n/);
+  assert.match(css, /\n:root\[data-returning\] main:has\(> \.dash-out\.is-pending\), main:has\(> #dash-skel:not\(\[hidden\]\)\) \{ min-height: 100vh; \}\n/, "the footer waits below the fold");
+  // a guest's page is not touched by them (data-guest), and without JavaScript or storage (no data-returning) the roles show as before
+  assert.doesNotMatch(css, /:not\(\[data-guest\]\) (\.dash-out|main)/, "held only on a positive mark that storage was read");
+  // the sibling selectors hold: the signed-out page, then the placeholders, then the roles, side by side in <main>
+  const p = await openPage("dashboard.html", { agreed: "2026-10-01" });
+  const out = p.$("#dash-out"), skel = p.$("#dash-skel"), roles = p.$("#roles"), main = p.$("main");
+  assert.deepEqual([out.parentNode, skel.parentNode, roles.parentNode].map((n) => n === main), [true, true, true], "children of <main>");
+  const kids = main.children;
+  assert.ok(kids.indexOf(out) < kids.indexOf(skel) && kids.indexOf(skel) < kids.indexOf(roles), "in that order");
+  assert.ok(out.classList.contains("is-pending") && out.hidden && skel.hidden, "pending and hidden in the markup");
+  // and dashboard.js shows the same placeholders for the same key, then decides (nothing changed there)
+  const js = read("public/dashboard.js");
+  assert.match(js, /try \{ if \(localStorage\.getItem\(V2_KEY\) === "1" && out\.classList\.contains\("is-pending"\)\) \$\("#dash-skel"\)\.hidden = false; \} catch \{\}/, "(while the page is still held)");
+  assert.match(js, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true;/, "not the tabbed dashboard: the placeholders go, in the same task as unhold");
 });
 
 test("the toast: one line when it fits (it wrapped 'Contract address copied' onto two lines over the trade tiles), never wider than the screen", () => {
