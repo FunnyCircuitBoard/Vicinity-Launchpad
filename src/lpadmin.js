@@ -42,7 +42,8 @@ import { displayTicker, tickerOf } from "./tickers.js";
 import { iso } from "./policy.js";
 import { lpSetup } from "./cluster.js";
 import { ensureLogoSchema } from "./store.js";
-import { coinV2ReadyOn } from "./flags.js";
+import { coinV2ReadyOn, coinV2ReviewOn } from "./flags.js";
+import { candidateProblem, pendingRequest } from "./coinreview.js";
 import { BLANK_CHARS, FORMAT_CHARS } from "./text.js";
 import { chosenOf, clearApproved, ensureReadySchema, markApprovedStatement } from "./coinart-store.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, lpRpc, readAccounts, respond } from "./lpkit.js";
@@ -840,7 +841,11 @@ async function candidateList(env, ctx, fetchImpl, now) {
       const other = t && takenBy.has(t.ticker) ? [...takenBy.get(t.ticker)].filter((x) => x !== String(id)) : [];
       if (other.length) reasons.push(`The ticker ${t.ticker} is already launched or approved for another city (${other.join(", ")}). Nothing is approved twice: the city list must give this city another ticker first.`);
       const c = await chosenOf(db, r.city_id);
-      if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png` };
+      // COIN_V2_REVIEW: a change request or a description waiting for review, an approved ticker the city list does not carry yet, a
+      // description that no longer passes the checks... the review rules speak first (src/coinreview.js); nothing is approved meanwhile
+      const review = await candidateProblem(env, r.city_id, r.country);
+      if (review) reasons.push(review);
+      else if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png` };
       else reasons.push(c && c.current ? "The founder's chosen Vicinity coin no longer matches the city list (its ticker or name changed). The founder must use the coin again." : "The founder has not chosen the Vicinity coin yet (\"Use this coin\" in their Founder tab).");
     }
     const warnings = [];
@@ -890,6 +895,8 @@ async function approveTx(env, ctx, body, fetchImpl, now, route = null) {
     const row = await env.DB.prepare("SELECT updated_at, name FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
     const now2 = await chosenOf(env.DB, String(cityId), { fresh: true });
     if (!row || row.updated_at !== c.designAt || row.name !== c.name || !now2 || !now2.current || now2.content_hash !== c.ready.contentHash) return changed();
+    // COIN_V2_REVIEW: a request the founder submitted between the card's read and the hold pauses everything (src/coinreview.js)
+    if (coinV2ReviewOn(env) && (await pendingRequest(env.DB, String(cityId)))) return err("blocked", "The founder's change request now waits for review. Nothing was built. Decide it in Moderation → Coin reviews first.", 409, { cityId: String(cityId) });
   }
   const nowS = Math.floor(now / 1000);
   // the program refuses more than 30 days after ITS clock: ten minutes of slack at the longest choice

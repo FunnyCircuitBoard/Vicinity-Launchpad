@@ -142,7 +142,7 @@ export async function artBytes(db, sha) {
 /** A city's chosen version with its content (parsed), or null. `opts.fresh`: see read (every write path asks fresh). */
 export async function chosenOf(db, cityId, opts = {}) {
   const sql = (approved) => `SELECT r.city_id, r.version_id, r.content_hash, r.symbol, r.design_at, r.seat_id, r.user_id, r.chosen_at, r.mint, r.bound_at,
-      ${approved} AS approved_hash, v.content_json, v.name, v.description, v.art_sha256, v.template_version, c.updated_at AS design_now, c.mint AS city_mint
+      ${approved} AS approved_hash, v.content_json, v.name, v.description, v.art_sha256, v.template_version, v.origin, c.updated_at AS design_now, c.mint AS city_mint
     FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id LEFT JOIN city_coins c ON c.city_id = r.city_id WHERE r.city_id = ?`;
   const row = await read(db, async () => {
     try { return await db.prepare(sql("r.approved_hash")).bind(String(cityId)).first(); }
@@ -181,6 +181,9 @@ export async function bindVersion(env, { cityId, mint, name, symbol }, now = Dat
   if (c.mint === mint) return true;
   if (!coinV2ReadyOn(env) || !c.current || c.approved_hash !== c.content_hash) return false;
   if (c.name !== name || c.symbol !== symbol) return false;
+  // a version that is not Vicinity's defaults (COIN_V2_REVIEW: a founder's description, an approved change) only when it was approved:
+  // never an unapproved change, whatever else holds (src/coinreview.js)
+  if (!(await versionApproved(env.DB, c))) return false;
   if (!(await artBytes(env.DB, c.art_sha256))) return false;
   const r = await env.DB.prepare(`UPDATE coin_ready SET mint = ?, bound_at = ? WHERE city_id = ? AND mint IS NULL AND version_id = ? AND approved_hash = content_hash
       AND design_at = (SELECT updated_at FROM city_coins WHERE city_id = ?)`).bind(mint, iso(now), String(cityId), c.version_id, String(cityId)).run();
@@ -202,7 +205,7 @@ export async function clearApproved(db, cityId) {
  * coins (src/launchpad.js). No table: empty. (A coin_ready made before approved_hash existed reads as "not approved", as chosenOf.)
  */
 export async function readyChoices(db) {
-  const sql = (approved) => `SELECT r.city_id, r.mint, r.design_at, r.symbol, r.content_hash, ${approved} AS approved_hash, v.name
+  const sql = (approved) => `SELECT r.city_id, r.mint, r.design_at, r.symbol, r.content_hash, ${approved} AS approved_hash, v.name, v.art_sha256, v.origin
     FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id`;
   const rows = await read(db, async () => {
     try { return await db.prepare(sql("r.approved_hash")).all(); }
@@ -229,4 +232,54 @@ export async function madeByOf(env, coin, choice, holds) {
 export async function boundArtOf(db, mint) {
   const row = await read(db, () => db.prepare("SELECT v.art_sha256 FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id WHERE r.mint = ?").bind(mint).first());
   return row ? row.art_sha256 : null;
+}
+
+/* ---------------------------------------------------------------- reviewed versions (COIN_V2_REVIEW, src/coinreview.js) */
+// these read the review tables (coin_requests, coin_screenings), made only by a route of that switch: a missing table is "nothing approved"
+const noReviewTable = (e) => noTable(e);
+async function reviewRead(run) { try { return await run(); } catch (e) { if (noReviewTable(e)) return null; throw e; } }
+/** An approved request (a change or a description) whose reviewed version is exactly `contentHash`: its row, or null. */
+export const approvedRequest = (db, cityId, contentHash) => reviewRead(() => db.prepare(`SELECT id, kind, registry_state FROM coin_requests
+    WHERE city_id = ? AND status = 'approved' AND decided_hash = content_hash AND content_hash = ? ORDER BY id DESC LIMIT 1`).bind(String(cityId), contentHash).first());
+/**
+ * An approved CHANGE of this city whose version has exactly this name, ticker and picture: the reviewed basis of a version that only
+ * differs from it in its description (a description the founder wrote afterwards, screened on its own). Its row, or null.
+ */
+export const approvedBasis = (db, cityId, { name, symbol, art }) => reviewRead(() => db.prepare(`SELECT r.id, r.registry_state, r.content_hash FROM coin_requests r
+    JOIN coin_versions v ON v.id = r.version_id
+    WHERE r.city_id = ? AND r.kind = 'change' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.name = ? AND v.symbol = ? AND v.art_sha256 = ?
+    ORDER BY r.id DESC LIMIT 1`).bind(String(cityId), name, symbol, art).first());
+/** A passing screening of exactly this description for this city (any rules version: the routes screen again before a launch). */
+export const passedScreening = async (db, cityId, text) => reviewRead(async () => db.prepare(`SELECT id, rules_version FROM coin_screenings
+    WHERE city_id = ? AND target = 'description' AND result = 'pass' AND text_sha256 = ? ORDER BY id DESC LIMIT 1`).bind(String(cityId), await sha256Hex(String(text || ""))).first());
+/** Vicinity's own sentence for a version's city (the same words as src/coindefaults.js defaultDescription; test/coin-review.test.js checks both). */
+export function cityDescription(city) {
+  const c = city || {}, parts = [c.name];
+  for (const p of [c.region, c.countryName]) if (p && !parts.includes(p)) parts.push(p);
+  return `The city coin of ${parts.join(", ")}.`;
+}
+/**
+ * May this chosen version be published as a coin's metadata? Vicinity's defaults (origin "default") always. A version made by the review
+ * paths (origin "change" or "description", COIN_V2_REVIEW) only when a person approved exactly it, or when BOTH:
+ *   - its name, ticker and picture were reviewed: an approved change has exactly these, or they are a default version's of this city; and
+ *   - its description is that approved change's own, Vicinity's own sentence for the city, or a text that passed the screening.
+ * `c`: chosenOf's row. Reads only; a missing review table is "not approved".
+ */
+export async function versionApproved(db, c) {
+  if (!c || !c.origin || c.origin === "default") return true;
+  if (await approvedRequest(db, c.city_id, c.content_hash)) return true;
+  let content = c.content;
+  if (!content) { try { content = JSON.parse(c.content_json); } catch { return false; } }
+  const key = { name: c.name, symbol: c.symbol, art: c.art_sha256 };
+  const basis = await approvedBasis(db, c.city_id, key);
+  if (!basis) {
+    const base = await reviewRead(() => db.prepare("SELECT id FROM coin_versions WHERE city_id = ? AND origin = 'default' AND name = ? AND symbol = ? AND art_sha256 = ? LIMIT 1")
+      .bind(String(c.city_id), key.name, key.symbol, key.art).first());
+    if (!base) return false;
+  } else {
+    const own = await reviewRead(() => db.prepare("SELECT description FROM coin_versions WHERE city_id = ? AND content_hash = ?").bind(String(c.city_id), basis.content_hash).first());
+    if (own && own.description === c.description) return true;
+  }
+  if (content && content.city && c.description === cityDescription(content.city)) return true;
+  return Boolean(await passedScreening(db, c.city_id, c.description));
 }

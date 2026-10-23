@@ -27,6 +27,25 @@ const plain = (v) => (typeof v === "string" ? v : v[0]);
 
 /** The pins file's { cityId: "TICKER" } map. */
 export const loadPins = (file = PINS_FILE) => JSON.parse(readFileSync(file, "utf8")).pins || {};
+/**
+ * Approved ticker changes (scripts/cities/ticker-overrides.json, COIN_V2_REVIEW: a reviewer approved a founder's change request, decision
+ * D8): { cityId: "TICKER" }. They hold like pins (the city gets exactly that ticker, nobody else gets it), but a launched coin's pin always
+ * wins: an override for a pinned city must be its pin, and an override may not take another pinned or overridden ticker.
+ */
+export const OVERRIDES_FILE = fileURLToPath(new URL("./ticker-overrides.json", import.meta.url));
+export const loadOverrides = (file = OVERRIDES_FILE) => JSON.parse(readFileSync(file, "utf8")).overrides || {};
+/** pins + overrides as one pin map, or throws (nothing is written) when an override cannot hold next to the pins. */
+export function mergeOverrides(pins, overrides) {
+  const out = { ...pins }, owner = new Map(Object.entries(pins).map(([id, t]) => [t, id]));
+  for (const [id, t] of Object.entries(overrides || {})) {
+    if (!/^\d{1,19}$/.test(id) || typeof t !== "string" || !/^[A-Z0-9]{1,10}$/.test(t)) throw new Error(`ticker override ${id}: ${JSON.stringify(t)} is not a city id with a ticker`);
+    if (pins[id] !== undefined && pins[id] !== t) throw new Error(`ticker override ${id}: the city launched as $${pins[id]}, which is pinned; a launched ticker never changes`);
+    if (owner.has(t) && owner.get(t) !== id) throw new Error(`ticker override ${id}: $${t} is already pinned or overridden for city ${owner.get(t)}`);
+    owner.set(t, id);
+    out[id] = t;
+  }
+  return out;
+}
 
 /** Throws unless every pin holds in `out` (tickers.json's shape): the city is there with exactly its pinned ticker, which nobody else has. */
 export function verifyPins(out, pins) {
@@ -114,10 +133,11 @@ export const PUBLIC_PINS = pub("data/ticker-pins.json");
 export const publicPins = (pins = loadPins()) => JSON.stringify({ pins });
 
 /** tickers.json's content. `cities`, `parts` and `pins` default to the committed files (the tests hand in their own). */
-export function buildTickers({ cities = null, parts = null, pins = null } = {}) {
+export function buildTickers({ cities = null, parts = null, pins = null, overrides = null } = {}) {
   const list = cities || JSON.parse(readFileSync(pub("data/cities.json"), "utf8"));
   const partOf = parts || JSON.parse(readFileSync(pub("data/bounds/index.json"), "utf8")).parts || {};
-  const pinned = pins || loadPins();
+  // the approved ticker changes hold like pins (the launched pins win; mergeOverrides throws when one cannot hold)
+  const pinned = mergeOverrides(pins || loadPins(), overrides || (pins ? {} : loadOverrides()));
   const rows = [];
   for (const [cc, l] of Object.entries(list.byCountry))
     for (const [id, name, adm, , , pop] of l) if (!partOf[String(id)]) rows.push({ id: String(id), name, adm, cc, pop });
@@ -136,6 +156,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const out = buildTickers();
   verifyApprovalsKept(out, approvals); // throws: nothing is written
   writeFileSync(pub("data/tickers.json"), JSON.stringify(out));
-  writeFileSync(PUBLIC_PINS, publicPins());
+  writeFileSync(PUBLIC_PINS, publicPins(mergeOverrides(loadPins(), loadOverrides()))); // the approved changes too, for the Cities page's fallback
   console.log("tickers ready:", Object.keys(out).length, "communities;", official.coins.length, "launched coins, all pinned;", approvals.length, "approvals on chain, every live one kept");
 }

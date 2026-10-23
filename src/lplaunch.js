@@ -33,6 +33,7 @@ import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
 import { coinV2ReadyOn } from "./flags.js";
+import { launchHold } from "./coinreview.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
@@ -285,6 +286,9 @@ async function launchStatus(request, env, fetchImpl, now) {
   let p = launchProblem(st, s, who.wallet, nowS);
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
   if (await legacyContractWaiting(env, cityId)) p = { state: "paused", error: "legacy_contract", message: LEGACY_CONTRACT_WAITING };
+  // COIN_V2_REVIEW: a change request or a description waiting for review pauses the launch; the approved coin must still be launchable
+  // (src/coinreview.js launchHold; nothing with the switch off)
+  if (!p) { const h = await launchHold(env, String(cityId), st.approval); if (h) p = h; }
   // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
   if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
@@ -329,6 +333,9 @@ async function launchTx(request, env, fetchImpl, now) {
   if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  // COIN_V2_REVIEW=on: a request waiting for review pauses the launch, and the approved coin must still be launchable (src/coinreview.js)
+  const held = await launchHold(env, String(cityId), st.approval);
+  if (held) return err(held.error, `${held.message} Nothing was built.`, 409, { state: held.state });
   // COIN_V2_READY=on: a ticker launches once. The live program does not lock tickers, so a symbol another city already launched with
   // (lp_coins) is refused here before anything is built (scripts/cities/tickers.mjs pins every launched ticker in the city list too)
   if (coinV2ReadyOn(env) && st.approval) {
