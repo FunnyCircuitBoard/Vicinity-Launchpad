@@ -24,6 +24,7 @@ P = 'programs/vicinity-curve/src/'
 LFB = P + 'instructions/launch_from_batch.rs'
 PUB = P + 'instructions/publish_launch_batch.rs'
 SLA = P + 'instructions/set_launch_approver.rs'
+CLR = P + 'instructions/clear_launch_batch.rs'
 BATCH = P + 'batch.rs'
 HELP = P + 'helpers.rs'
 T30 = 'tests-curve/30-batch.test.mjs'
@@ -46,6 +47,10 @@ MUTANTS = [
     ('approver-no-separation', [(SLA, '    check_approver_separate(&approver, lp)?;\n', '')], [T30]),
     ('rotation-keeps-records', [(SLA, '    lb.latest.cleared = true;\n    lb.previous.cleared = true;\n    lb.halted = false;', '    lb.halted = false;')], [T30]),
     ('rotation-keeps-halt', [(SLA, '    lb.previous.cleared = true;\n    lb.halted = false;', '    lb.previous.cleared = true;')], [T30]),
+    # the batch settings events are event CPIs, which padding cannot truncate (review R6-RT-3)
+    ('publish-event-logged', [(PUB, 'emit_cpi!(LaunchBatchPublished {', 'emit!(LaunchBatchPublished {')], [T30]),
+    ('clear-event-logged', [(CLR, 'emit_cpi!(LaunchBatchCleared {', 'emit!(LaunchBatchCleared {')], [T30]),
+    ('approver-change-event-logged', [(SLA, 'emit_cpi!(LaunchApproverChanged {', 'emit!(LaunchApproverChanged {')], [T30]),
     # the approver kept apart both ways (4.4, 4.5, 4.2, 4.8, 4.17)
     ('guardian-may-be-approver', [(P + 'instructions/set_guardian.rs', '    check_not_approver(&guardian, &lp.launch_approver)?;\n', '')], [T30]),
     ('payout-key-may-be-approver', [(P + 'instructions/set_payout_config.rs', '        check_not_approver(&payout_authority, &lp.launch_approver)?;\n', '')], [T30]),

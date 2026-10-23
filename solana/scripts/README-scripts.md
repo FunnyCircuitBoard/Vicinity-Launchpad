@@ -110,3 +110,27 @@ feature and committed; CI diffs it against `anchor build`'s output.
 every cargo-build-sbf warning is printed, fails on any "Stack offset ...
 exceeded" warning and prints each binary's size and SHA-256. CI runs it after
 every push. Sizes and the toolchain are recorded in `VICINITY-CURVE-NOTES.md`.
+
+`vcurve/preflight.mjs` is the deploy checklist of 8.4 and 8.5: it reads each
+precondition from the chain and exits 1 while any is not met. It needs
+`--guardian-multisig`, the guardian's Squads multisig, and refuses one whose
+members can change it (an autonomous multisig; only a controlled multisig whose
+config authority is the admin vault passes), one with a time lock, one the
+guardian is not a vault of, and a launch approver that is one of its member keys
+(review R6-RT-2); `--vault-multisig` adds the same member check for the vault.
+`--proposed-guardian`, `--proposed-payout-authority`,
+`--proposed-payout-destination` and `--proposed-launch-approver` check a key
+before the proposal that sets it is signed.
+
+`vcurve/batch.mjs` is the owner's batch verifier (`verify <list file>`, before
+he signs the day's `publish_launch_batch`) and the monitor's comparison
+(`check <list file>`, after a publication), 8.4 steps 2 and 3. `verify` prints
+the day's changes only against lists the chain holds (reviews R6-DIFF-1,
+R6-RT-1): the list of a stored batch that can still let founders launch comes
+from the owner's archive of lists he verified (`--archive <dir>`, default
+`~/.vicinity-curve/launch-batches`) or from `--previous`, and must have the
+stored number, root and leaf count; while the stored batch is pending,
+`--in-force` gives the list of the batch in force. Each entry is printed with its
+metadata hash, and each changed entry names the fields that differ (review
+R6-DIFF-2). It prints the unsigned transaction only when nothing is wrong, and
+never holds or asks for a key.
