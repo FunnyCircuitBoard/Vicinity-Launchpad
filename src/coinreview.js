@@ -245,7 +245,7 @@ async function cityNames(env) {
     return out;
   } catch { return new Set(); }
 }
-export const _resetReview = () => { namesCache = null; screener = null; };
+export const _resetReview = () => { namesCache = null; screener = null; screenLoader = loadScreen; screenModule = null; };
 let screener = null;
 /** Tests hand in a stand-in screener (a list that fails, rules that changed); the routes and the launch checks use it. */
 export const _setScreener = (fn) => { screener = fn; };
@@ -255,16 +255,32 @@ export const _setScreener = (fn) => { screener = fn; };
  * that cannot load is a screening that cannot run: an error, never a pass.
  */
 let screenModule = null;
-const screening = () => (screenModule ||= import("./screen.js").catch((e) => { screenModule = null; throw e; }));
+const loadScreen = () => import("./screen.js");
+let screenLoader = loadScreen;
+/** Tests hand in a loader that fails (src/screen.js cannot load); null puts the real one back. */
+export const _setScreenLoader = (fn) => { screenLoader = fn || loadScreen; screenModule = null; };
+const screening = () => (screenModule ||= screenLoader().catch((e) => { screenModule = null; throw e; }));
 const unscreened = (text) => ({ result: "error", issues: [], rulesVersion: null, text: typeof text === "string" ? text : null });
 /** One screening by `fn` (screenDescription, screenName, screenTicker, screenReason) of src/screen.js; "error" if it cannot load. */
 async function screenBy(fn, text, ctx) {
   try { return (await screening())[fn](text, ctx); } catch { return unscreened(text); }
 }
 const screenText = async (text, ctx) => (screener ? screener(text, ctx) : screenBy("screenDescription", text, ctx));
-/** The issues in the founder's words (src/screen.js explained), and the rules version screenings are stored with. */
-const explained = async (issues, cityName) => (await screening()).explained(issues, cityName);
-const rulesVersion = async () => (await screening()).RULES_VERSION;
+/** What an issue says while src/screen.js cannot load: its code and place stay, its sentence is this one. */
+const UNEXPLAINED = "We couldn't explain this check just now. Nothing changed. Try again in a minute.";
+/**
+ * The issues in the founder's words (src/screen.js explained), and the rules version screenings are stored with. A screener that
+ * cannot load never breaks the founder's card or the queue (LAZY-ERR-1): the issues keep their codes with a plain sentence, and the
+ * rules version is null, which no stored screening has (rules_version is NOT NULL), so nothing is ever current or sendable.
+ */
+async function explained(issues, cityName) {
+  try { return (await screening()).explained(issues, cityName); } catch {
+    return (issues || []).map((x) => ({ code: x.code, severity: x.severity, start: x.start, end: x.end, message: UNEXPLAINED }));
+  }
+}
+async function rulesVersion() {
+  try { return (await screening()).RULES_VERSION; } catch { return null; }
+}
 
 /** The template picture of a coin with this ticker and name, if it was ever drawn: its sha256, or null. */
 async function templateArt(env, symbol, name) {
@@ -831,9 +847,13 @@ async function resetRoute(request, env, fetchImpl, now) {
   return answer(env, w, fetchImpl, now, { reset: true });
 }
 
-/** A screening row (every result, error included: what the reviewer and the audit see). */
+/**
+ * A screening row (every result, error included: what the reviewer and the audit see). An error from a screener that could not load
+ * has no rules version: its row says "unloaded" (never a version, so never current or sendable: LAZY-ERR-1), not a failed INSERT.
+ */
 const screeningStmt = async (db, { cityId, userId, target, r, at }) => db.prepare(`INSERT INTO coin_screenings (city_id, user_id, target, text, text_sha256, result, issues_json, rules_version, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(cityId, userId, target, r.text || "", await sha256Hex(r.text || ""), r.result, JSON.stringify(r.issues || []), r.rulesVersion, at);
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(cityId, userId, target, r.text || "", await sha256Hex(r.text || ""), r.result, JSON.stringify(r.issues || []),
+  r.rulesVersion ?? (r.result === "error" ? "unloaded" : null), at);
 
 /** A description "changes needed" card of this founder is put away (they wrote a new description, or went back to the default). */
 const dismissDescriptionCards = (db, w, at) => db.prepare(`UPDATE coin_requests SET dismissed_at = ?, updated_at = ? WHERE city_id = ? AND seat_id = ? AND kind = 'description'
@@ -1037,10 +1057,12 @@ async function reviewRow(env, r, now, fetchImpl) {
       const sc = await db.prepare("SELECT issues_json, text FROM coin_screenings WHERE id = ?").bind(r.screening_id).first();
       if (sc) {
         const issues = await explained(JSON.parse(sc.issues_json || "[]"), city && city.name);
-        // "review" alone: the checks found nothing, which proves nothing about ordinary words (src/screen.js): read it all
-        const text = issues.every((x) => x.code === "review") ? "The automatic checks found nothing to point out. Read every word: no check can tell an honest sentence from a threat, a scam or hate written in ordinary words."
+        // "review" alone: the checks found nothing, which proves nothing about ordinary words (src/screen.js): read it all. One
+        // sentence says so; the "review" issue's own sentence (written for the founder) would only say "found nothing" again (COPY-2)
+        const plain = issues.every((x) => x.code === "review");
+        const text = plain ? "The automatic checks found nothing to point out. Read every word: no check can tell an honest sentence from a threat, a scam or hate written in ordinary words."
           : "The checks flagged the description.";
-        checks.push({ check: "description_screening", ok: false, text, issues });
+        checks.push({ check: "description_screening", ok: false, text, issues: plain ? [] : issues });
       }
     }
     // words an admin took down from this city's coin before (src/cointakedown.js): approving them puts them back
