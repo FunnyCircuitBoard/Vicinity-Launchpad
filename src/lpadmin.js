@@ -786,7 +786,9 @@ async function candidateList(env, ctx, fetchImpl, now) {
     const r = rows[i], id = ids[i];
     if (!id) continue;
     const ap = decodeApproval(acc.get(await L.approval(id)) || null, s.programId);
-    const coin = acc.get(await L.coin(id)) || null;
+    // launched only when the program's own Coin record is there (owner, discriminator and size, as src/lplaunch.js launchState reads
+    // it): anyone can send lamports to a city's Coin address (a plain system account), which must not block that city's approval
+    const coin = decodeCoin(acc.get(await L.coin(id)) || null, s.programId);
     const t = await tickerOf(env, r.city_id); // the list's ticker: what an approval binds on chain (never a chain symbol read back)
     const shown = await displayTicker(env, { cityId: r.city_id, mint: r.mint || null, chainSymbol: r.mint ? undefined : null }); // a launched coin shows the chain's
     const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: shown ? shown.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null,
@@ -803,7 +805,7 @@ async function candidateList(env, ctx, fetchImpl, now) {
         else if (r.seat_wallet !== ap.founder) warnings.push(`The approved wallet no longer holds the founder seat (it is now ${r.seat_wallet}), but it can still launch this city's coin on chain until the approval expires. Revoke it.`);
         else if (!["active", "steward"].includes(r.seat_status)) warnings.push(`The founder's seat is ${r.seat_status === "grace" ? "in its grace period (their balance fell below the bar)" : r.seat_status === "provisional" ? "not final (still in its appeal window)" : r.seat_status}. This website will not let them launch, but the approval still works on chain until it expires. Revoke it unless they recover soon.`);
         // one city, one coin: a contract sent through the old Raydium LaunchLab path still waits for this city (it may be a coin already)
-        if (r.pending_mint) warnings.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then reject that contract with “Reject the old contract” on this card (or on your dashboard's Moderate tab, /dashboard#moderate).");
+        if (r.pending_mint) warnings.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then reject that contract with “Reject the old contract” on this card.");
       }
       approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired, rentPayer: ap.rentPayer },
         seat: { wallet: r.seat_wallet || null, status: r.live_seat ? r.seat_status : null }, warnings });
@@ -812,7 +814,7 @@ async function candidateList(env, ctx, fetchImpl, now) {
     const reasons = [...global];
     // a contract sent through the old Raydium LaunchLab path before the launchpad was set up (src/coins.js closes that path now):
     // the city may already have a coin there, and one city has one coin, so it is skipped until an admin rejects that contract
-    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card (or on your dashboard's Moderate tab, /dashboard#moderate), then approve this city.");
+    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card, then approve this city.");
     if (r.pair !== "SOL") reasons.push(`The coin is paired with ${r.pair}; only SOL-paired coins can launch on the Vicinity curve for now. The founder must pick SOL.`);
     const np = nameProblem(r.name);
     if (np) reasons.push(np);

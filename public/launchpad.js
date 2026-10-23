@@ -431,8 +431,10 @@
     const h = featured ? 120 : 56, box = field(el("div", `lp-spark${featured ? " lp-spark--lg" : ""}`), "spark"); // its height in CSS: the end dot stays round
     box.setAttribute("aria-hidden", "true");
     if (!isLive(c)) {
-      box.classList.add("is-empty"); box.dataset.sig = "wait";
-      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", "Not trading yet. Nothing is minted."));
+      // a contract sent for the city (waiting) may be a minted coin already, only not traded here; nothing is minted otherwise
+      const sent = c && c.status === "waiting";
+      box.classList.add("is-empty"); box.dataset.sig = sent ? "wait:sent" : "wait";
+      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", sent ? "Not trading here yet." : "Not trading yet. Nothing is minted."));
       return box;
     }
     const hit = sparks.get(c.mint);

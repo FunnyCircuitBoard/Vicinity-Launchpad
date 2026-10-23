@@ -695,7 +695,7 @@ test("approval candidates: a city whose Raydium LaunchLab contract is still wait
   assert.deepEqual([by(5128581).ok, by(5128581).reasons], [true, []]);
   const uti = by(5142056);
   assert.equal(uti.ok, false);
-  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card (or on your dashboard's Moderate tab, /dashboard#moderate), then approve this city."]);
+  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card, then approve this city."]);
   assert.ok(!JSON.stringify(r).includes(addr(105)), "the waiting address itself is not in the answer");
   const from = w.chain.S.log.length;
   const a = await w.call("/api/admin/lp/approve/tx", seenOf(uti));
@@ -709,6 +709,43 @@ test("approval candidates: a city whose Raydium LaunchLab contract is still wait
   assert.equal(rej.data.ok, true, JSON.stringify(rej.data));
   const r2 = (await w.call("/api/admin/lp/candidates")).data;
   assert.equal(r2.candidates.find((c) => c.cityId === "5142056").ok, true);
+});
+
+test("approval candidates: only a real Coin record at a city's Coin address makes the city launched; lamports anyone sent there (a plain system account) or Coin bytes another program owns leave it a candidate that can be approved", async () => {
+  const config = addr(101);
+  const w = await world({ env: { LAUNCHPAD_DBC_CONFIGS: config } });
+  const L = launchpadPdas(PROGRAM);
+  Object.assign(w.chain.S.accounts, {
+    [await L.launchpad()]: { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: w.wallet, rewards_program: REWARDS })) },
+    [await L.launchConfig(config)]: { owner: PROGRAM, data: b64(layoutAccount("LaunchConfig", { dbc_config: config, quote_mint: ADDRESSES.wsol, enabled: 1 })) },
+  });
+  const f = await Promise.all([1, 2].map(() => person(w.env)));
+  await seedCoin(w.env.DB, { city: 5128581, name: "New York City", coin: "Big Apple", seat: await seedSeat(w.env, f[0], { city: 5128581, name: "New York City" }) });
+  await seedCoin(w.env.DB, { city: 5140405, name: "Syracuse", coin: "Salt City", seat: await seedSeat(w.env, f[1], { city: 5140405, name: "Syracuse" }) });
+  const coinAt = await L.coin(5128581n);
+  const coinBytes = b64(layoutAccount("Coin", { city_id: 5128581, founder: f[0].w.address, mint: addr(103), quote_mint: ADDRESSES.wsol, dbc_config: config, dbc_pool: addr(104) }));
+  const list = async () => (await w.call("/api/admin/lp/candidates")).data;
+  const ids = (r) => [r.candidates.map((c) => c.cityId).sort(), r.launched.map((c) => [c.cityId, c.mint])];
+  // the griefing seen with the live settings: 0.00089088 SOL (rent-exempt for 0 bytes) sent to New York City's Coin address, which
+  // anyone can work out from the program id and the city id. A system account with no data is not a Coin record: still a candidate.
+  for (const [what, account] of [["lamports sent by anyone", { owner: "11111111111111111111111111111111", lamports: 890_880, data: "" }],
+    ["a Coin's bytes owned by another program", { owner: addr(120), data: coinBytes }]]) {
+    w.chain.S.accounts[coinAt] = account;
+    const r = await list();
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(ids(r), [["5128581", "5140405"], []], what);
+    const nyc = r.candidates.find((c) => c.cityId === "5128581");
+    assert.deepEqual([nyc.ok, nyc.reasons], [true, []], what);
+    const a = await w.call("/api/admin/lp/approve/tx", seenOf(nyc));
+    assert.equal(a.data.ok, true, `${what}: ${JSON.stringify(a.data)}`);
+    assert.ok(a.data.summary.some((x) => x.ix === "approve_launch"), what);
+  }
+  // the program's own Coin record there: launched, and approving it is refused as before
+  w.chain.S.accounts[coinAt] = { owner: PROGRAM, data: coinBytes };
+  const r = await list();
+  assert.deepEqual(ids(r), [["5140405"], [["5128581", null]]]);
+  const a = await w.call("/api/admin/lp/approve/tx", { cityId: "5128581" });
+  assert.deepEqual([a.status, a.data.error, a.data.message], [409, "already_launched", "This city's coin is launched already."]);
 });
 
 test("City coins tab: the owner rejects a waiting Raydium LaunchLab contract from the city's own card (no home community needed, his own design too), nothing on chain, the same fixed words as the dashboard", async () => {

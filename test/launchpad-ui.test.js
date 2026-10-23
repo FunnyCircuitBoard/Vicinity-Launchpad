@@ -195,6 +195,9 @@ test("launchpad set up (/api/official cityCoins: the old LaunchLab path is close
   assert.equal(P.TAB_NOTE_LP.upcoming, "Upcoming: designed, not launched yet.");
   assert.equal(P.notLiveWhy({ kind: "vicinity", status: "upcoming" }, true), "Trades once $VICINITY launches on Raydium LaunchLab.", "$VICINITY's own words are not the city coins'");
   for (const c of [{ status: "designed" }, { status: "waiting" }]) assert.doesNotMatch(P.notLiveWhy(c, true), /records|founder launches it on Raydium LaunchLab/);
+  // a card with a contract waiting (the coin may be minted already, only not traded here) never says nothing is minted; its own
+  // signature, so a card that turns from designed to waiting gets the new words at the next refresh
+  assert.match(part, /const sent = c && c\.status === "waiting";\n\s+box\.classList\.add\("is-empty"\); box\.dataset\.sig = sent \? "wait:sent" : "wait";\n\s+box\.append\(el\("span", "lp-spark__dash"\), el\("span", "lp-spark__msg", sent \? "Not trading here yet\." : "Not trading yet\. Nothing is minted\."\)\);/);
   // the page: the switch is read from /api/official before any card is drawn, the tab note and the status filter follow it
   assert.match(part, /official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); lpOn = Boolean\(o && o\.cityCoins\);/);
   assert.match(part, /\$\("#lp-tabnote"\)\.textContent = \(lpOn && TAB_NOTE_LP\[state\.tab\]\) \|\| TAB_NOTE\[state\.tab\];/);

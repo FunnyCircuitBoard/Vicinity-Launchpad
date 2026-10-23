@@ -96,7 +96,7 @@ test("a waiting LaunchLab contract: the owner's list of approvals tells him to r
   assert.equal(before.warnings.some((x) => /LaunchLab/.test(x)), false);
   await w.waiting();
   const after = await card();
-  assert.ok(after.warnings.includes("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then reject that contract with “Reject the old contract” on this card (or on your dashboard's Moderate tab, /dashboard#moderate)."), JSON.stringify(after.warnings));
+  assert.ok(after.warnings.includes("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then reject that contract with “Reject the old contract” on this card."), JSON.stringify(after.warnings));
   assert.ok(!JSON.stringify(after).includes(WAITING), "the waiting address itself is not in the answer");
 });
 
