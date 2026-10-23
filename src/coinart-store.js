@@ -136,7 +136,20 @@ export async function artBytes(db, sha) {
   const row = await artBySha(db, sha);
   if (!row) return null;
   const bytes = toBytes(row.bytes);
-  return (await sha256Hex(bytes)) === sha ? { type: row.type, bytes } : null;
+  return (await sha256Hex(bytes)) === sha ? { type: row.type, bytes, upload: row.template_version === "upload" } : null;
+}
+/** Does a launched coin carry this picture (its bound version's)? Then it is the coin's for ever. */
+export const artBound = async (db, sha) => Boolean(await read(db, () => db.prepare(`SELECT 1 AS one FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id
+    WHERE r.mint IS NOT NULL AND v.art_sha256 = ? LIMIT 1`).bind(sha).first(), { fresh: true }));
+/**
+ * The founders' own pictures of a city (COIN_V2_REVIEW: an upload a reviewer approved, copied to coin_art) that no launched coin carries:
+ * the ones an admin can still take down (src/coins.js handleTakedown "art"). [sha256], or [] (no table: none).
+ */
+export async function unboundUploads(db, cityId) {
+  const rows = await read(db, () => db.prepare(`SELECT DISTINCT a.sha256 FROM coin_versions v JOIN coin_art a ON a.sha256 = v.art_sha256
+      WHERE v.city_id = ? AND a.template_version = 'upload'
+        AND NOT EXISTS (SELECT 1 FROM coin_ready r JOIN coin_versions b ON b.id = r.version_id WHERE r.mint IS NOT NULL AND b.art_sha256 = a.sha256)`).bind(String(cityId)).all(), { fresh: true });
+  return ((rows && rows.results) || []).map((r) => r.sha256);
 }
 
 /** A city's chosen version with its content (parsed), or null. `opts.fresh`: see read (every write path asks fresh). */
@@ -249,6 +262,14 @@ export const approvedBasis = (db, cityId, { name, symbol, art }) => reviewRead((
     JOIN coin_versions v ON v.id = r.version_id
     WHERE r.city_id = ? AND r.kind = 'change' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.name = ? AND v.symbol = ? AND v.art_sha256 = ?
     ORDER BY r.id DESC LIMIT 1`).bind(String(cityId), name, symbol, art).first());
+/**
+ * A description a person approved for this city: a DESCRIPTION request (the reviewer read exactly that text, flagged spans and all)
+ * approved with exactly that text. Its row, or null. A change request's approval never counts for its description: the reviewer was
+ * asked about the picture, ticker and name, and the description only came along from the coin it started from.
+ */
+export const approvedDescription = (db, cityId, text) => reviewRead(() => db.prepare(`SELECT r.id FROM coin_requests r JOIN coin_versions v ON v.id = r.version_id
+    WHERE r.city_id = ? AND r.kind = 'description' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.description = ? ORDER BY r.id DESC LIMIT 1`)
+  .bind(String(cityId), String(text || "")).first());
 /** A passing screening of exactly this description for this city (any rules version: the routes screen again before a launch). */
 export const passedScreening = async (db, cityId, text) => reviewRead(async () => db.prepare(`SELECT id, rules_version FROM coin_screenings
     WHERE city_id = ? AND target = 'description' AND result = 'pass' AND text_sha256 = ? ORDER BY id DESC LIMIT 1`).bind(String(cityId), await sha256Hex(String(text || ""))).first());
@@ -260,26 +281,27 @@ export function cityDescription(city) {
 }
 /**
  * May this chosen version be published as a coin's metadata? Vicinity's defaults (origin "default") always. A version made by the review
- * paths (origin "change" or "description", COIN_V2_REVIEW) only when a person approved exactly it, or when BOTH:
- *   - its name, ticker and picture were reviewed: an approved change has exactly these, or they are a default version's of this city; and
- *   - its description is that approved change's own, Vicinity's own sentence for the city, or a text that passed the screening.
+ * paths (origin "change" or "description", COIN_V2_REVIEW) only when BOTH:
+ *   - its name, ticker and picture were reviewed: an approved request has exactly this version, an approved change has exactly these, or
+ *     they are a default version's of this city; and
+ *   - its description is Vicinity's own sentence for the city, a text a person approved as this city's description (a description
+ *     request), or a text that passed the screening. An approved CHANGE request never vouches for its description: the reviewer was asked
+ *     about the picture, ticker and name, and the description only came along.
  * `c`: chosenOf's row. Reads only; a missing review table is "not approved".
  */
 export async function versionApproved(db, c) {
   if (!c || !c.origin || c.origin === "default") return true;
-  if (await approvedRequest(db, c.city_id, c.content_hash)) return true;
+  const exact = await approvedRequest(db, c.city_id, c.content_hash);
+  if (exact && exact.kind === "description") return true;
   let content = c.content;
   if (!content) { try { content = JSON.parse(c.content_json); } catch { return false; } }
   const key = { name: c.name, symbol: c.symbol, art: c.art_sha256 };
-  const basis = await approvedBasis(db, c.city_id, key);
-  if (!basis) {
+  if (!exact && !(await approvedBasis(db, c.city_id, key))) {
     const base = await reviewRead(() => db.prepare("SELECT id FROM coin_versions WHERE city_id = ? AND origin = 'default' AND name = ? AND symbol = ? AND art_sha256 = ? LIMIT 1")
       .bind(String(c.city_id), key.name, key.symbol, key.art).first());
     if (!base) return false;
-  } else {
-    const own = await reviewRead(() => db.prepare("SELECT description FROM coin_versions WHERE city_id = ? AND content_hash = ?").bind(String(c.city_id), basis.content_hash).first());
-    if (own && own.description === c.description) return true;
   }
   if (content && content.city && c.description === cityDescription(content.city)) return true;
+  if (await approvedDescription(db, c.city_id, c.description)) return true;
   return Boolean(await passedScreening(db, c.city_id, c.description));
 }

@@ -27,7 +27,7 @@
 #crv-req-tag:focus-visible { outline: 3px solid var(--focus, #F25C24); outline-offset: 2px; }
 .crv-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-sm, .9rem); }
 .crv-diff th, .crv-diff td { text-align: left; vertical-align: top; padding: 6px 4px; border-bottom: 1px solid var(--line, rgba(128, 128, 128, .16)); overflow-wrap: anywhere; }
-.crv-diff thead th { font-size: var(--fs-xs, .75rem); color: var(--muted, #93A0B6); font-weight: 600; }
+.crv-diff thead th { font-size: var(--fs-xs, .75rem); color: var(--muted, #93A0B6); font-weight: 600; overflow-wrap: normal; }
 .crv-diff tbody th { width: 30%; font-weight: 600; color: var(--muted, #93A0B6); }
 .crv-pic { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--card-2, rgba(128, 128, 128, .08)); }
 .crv-pic--lg { width: 120px; height: 120px; display: block; margin: 6px 0; }

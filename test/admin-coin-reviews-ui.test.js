@@ -127,3 +127,51 @@ test("phone width: the card's one column never grows past the card (the table, t
   const added = css.slice(css.indexOf("/* City-coin reviews"));
   for (const sel of added.match(/^[^\s/@}][^{]*\{/gm) || []) assert.match(sel, /adm-coinrev/, sel);
 });
+
+test("the reason is picked on purpose, from the reasons that fit the request, and the question names it; the card shows the whole version; an approved upload can be taken down", async () => {
+  const kinds = { ticker_taken: ["change"], name_misleading: ["change"], financial_claim: ["description"], offensive: ["change", "description"], other: ["change", "description"] };
+  const text = { ticker_taken: "That ticker already belongs to another city or is reserved.", name_misleading: "The name could be mistaken for another city, a company, a public body or Vicinity.",
+    financial_claim: "It promises returns or price moves. City coins can't promise money.", offensive: "It contains hateful, sexual, violent or abusive content.", other: "It doesn't meet the coin rules. See the reviewer's note." };
+  const SHA = "d".repeat(64);
+  REVIEWS.reasons = Object.keys(kinds).map((code) => ({ code, text: text[code], kinds: kinds[code] }));
+  REVIEWS.reviews = [
+    { id: 9, kind: "description", status: "pending", label: "Pending", city: { id: "5142056", name: "Utica", country: "US" }, founder: { handle: "uticafounder", wallet: "7Np41*****4K2" },
+      submittedAt: ago(30), decidedAt: null, version: HASH.slice(0, 8), contentHash: HASH,
+      current: { name: "Utica", symbol: "UTICA", description: "The city coin of Utica, New York, United States.", art: "/coin-meta/art/" + "b".repeat(64) + ".png" },
+      proposed: { name: "Utica", symbol: "UTICA", description: "Guaranteed profit, 100x soon.", art: "/coin-meta/art/" + "b".repeat(64) + ".png", upload: false },
+      diff: [{ field: "description", from: "The city coin of Utica, New York, United States.", to: "Guaranteed profit, 100x soon." }],
+      checks: [{ check: "description_screening", ok: false, text: "The checks flagged the description.", issues: [{ code: "financial", message: "This sounds like a promise about price or profit. City coins can't promise returns." }, { code: "financial", message: "This sounds like a promise about price or profit. City coins can't promise returns." }] }],
+      why: null, decision: null, registryState: null, registryPatch: null },
+    { id: 4, kind: "change", status: "approved", label: "Approved", city: { id: "5140405", name: "Syracuse", country: "US" }, founder: { handle: null, wallet: "Abcde*****xyz" }, submittedAt: ago(3000), decidedAt: ago(60),
+      version: "11aa22bb", contentHash: "11aa22bb" + "c".repeat(56), current: { name: "Syracuse", symbol: "SYRACUSE", description: "The Salt City.", art: "/coin-meta/art/" + "e".repeat(64) + ".png" },
+      proposed: { name: "Syracuse", symbol: "SYRACUSE", description: "The Salt City.", art: `/coin-meta/art/${SHA}.png`, upload: true },
+      diff: [{ field: "picture", from: "/coin-meta/art/" + "e".repeat(64) + ".png", to: `/coin-meta/art/${SHA}.png` }], checks: [], why: null, decision: { reasonCode: null, reason: null, note: null }, registryState: null, registryPatch: null },
+  ];
+  const t = await open("admin");
+  const [desc, appr] = t.doc.querySelectorAll(".adm-coinrev__item");
+  // the whole version: every field, the unchanged ones marked "same"
+  const rows = desc.querySelectorAll("tbody tr").map((tr) => tr.querySelector("th").textContent);
+  assert.deepEqual(rows, ["Picture", "Ticker", "Coin name", "Description"]);
+  assert.match(desc.querySelectorAll("tbody tr")[3].textContent, /The city coin of Utica, New York, United States\.Guaranteed profit, 100x soon\./);
+  assert.match(desc.querySelectorAll("tbody tr")[1].textContent, /\$UTICAsame/);
+  // one sentence per kind of issue
+  assert.equal(desc.querySelectorAll(".adm-coinrev__issue").length, 1);
+  // the reasons: a placeholder first, then only those that fit a description
+  const sel = desc.querySelector("select");
+  assert.deepEqual(sel.querySelectorAll("option").map((o) => o.value), ["", "financial_claim", "offensive", "other"]);
+  assert.equal(sel.value, "");
+  const before = t.posts.length;
+  desc.querySelectorAll("button").find((b) => b.textContent === "Ask for changes").click(); await tick();
+  assert.equal(t.posts.length, before, "no reason picked: nothing is sent");
+  sel.value = "financial_claim";
+  desc.querySelectorAll("button").find((b) => b.textContent === "Ask for changes").click(); await tick();
+  assert.match(t.asked.at(-1), /They read: “It promises returns or price moves\. City coins can't promise money\.”/);
+  assert.deepEqual(t.posts.at(-1), ["/api/admin/coins/reviews/decide", { id: 9, action: "changes_needed", contentHash: HASH, reasonCode: "financial_claim" }]);
+  // decided: before and approved; an approved upload of the founder's own can be taken down (a public note is required)
+  assert.deepEqual(appr.querySelectorAll("thead th").map((h) => h.textContent), ["", "Before", "Approved"]);
+  const down = appr.querySelectorAll("button").find((b) => b.textContent === "Take the picture down");
+  assert.ok(down);
+  appr.querySelector(".adm-coinrev__takedown input").value = "A logo they don't own.";
+  down.click(); await tick();
+  assert.deepEqual(t.posts.at(-1), ["/api/coins/takedown", { city: "5140405", what: "art", sha: SHA, reason: "abuse", note: "A logo they don't own." }]);
+});

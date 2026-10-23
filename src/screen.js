@@ -82,8 +82,14 @@ export function sha256Sync(str) {
   return Array.from(H, (x) => x.toString(16).padStart(8, "0")).join("");
 }
 const LIST_NAMES = ["SLURS", "ABUSE", "BRANDS", "PUBLIC_BODIES", "FINANCIAL", "STREET_WORDS", "TIE_WORDS", "BODY_TIE_WORDS", "STAFF_WORDS", "STAFF_ALONE", "TLDS", "LINK_HOSTS", "OK_TICKERS"];
+/**
+ * The matching engine's own version: raised whenever the folding or a rule's code changes what is caught (2: Latin small capitals and
+ * other look-alike letters, words split by separators or a space, slur stems, more ways of writing a link or a handle). It is part of
+ * the rules version, so a text that passed under the older engine is screened again, like one that passed under older lists.
+ */
+const ENGINE = 2;
 /** The serialized lists the rules version is the hash of (with the rule severities: changing what blocks changes the version too). */
-export const listsText = (lists = WORDS) => JSON.stringify({ lists: Object.fromEntries(LIST_NAMES.map((k) => [k, lists[k]])), severity: SEVERITY });
+export const listsText = (lists = WORDS) => JSON.stringify({ lists: Object.fromEntries(LIST_NAMES.map((k) => [k, lists[k]])), severity: SEVERITY, engine: ENGINE });
 /** "s1-" and the first 12 hex characters of the SHA-256 of the lists: stored with every screening; test/screen.test.js pins it. */
 export const RULES_VERSION = `s1-${sha256Sync(listsText()).slice(0, 12)}`;
 
@@ -96,9 +102,23 @@ const CONFUSABLE = {
   "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ω": "w", "Α": "a", "Β": "b", "Ε": "e", "Ζ": "z", "Η": "h", "Ι": "i", "Κ": "k", "Μ": "m", "Ν": "n", "Ο": "o",
   "Ρ": "p", "Τ": "t", "Υ": "y", "Χ": "x", "ɑ": "a", "ɡ": "g", "ı": "i", "ȷ": "j", "ʟ": "l", "ꞵ": "b", "ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d",
   "ð": "d", "ł": "l", "þ": "th",
+  // Latin letters that no normalization reduces to a-z: small capitals ("ɴɪɢɢᴇʀ", "ꜰᴜᴄᴋ"), letters with a hook, stroke, tail or bar,
+  // and phonetic and medieval forms (each pair: the letter, then the a-z letter it reads as; from the Unicode names)
+  ...pairs("ØoøoĐdđdĦhħhıiĿlŀlŁlłlŦtŧtƀbƁbƂbƃbƇcƈcƊdƋdƌdƑfƒfƓgƗiƘkƙkƚlƝnƞnƟoƤpƥpƫtƬtƭtƮtƲvƳyƴyƵzƶzǤgǥgǾoǿoȠnȡdȤzȥzȴlȵnȶtȷjȺaȻcȼcȽlȾtȿsɀzɃbɆeɇeɈjɉjɋqɌrɍrɎyɏyɓbɕcɖdɗdɟjɠgɡgɢgɦhɨiɪiɫlɬlɭlɱmɲnɳnɴnɵoɼrɽrɾrʀrʂsʄjʈtʋvʏyʐzʑzʙbʛgʜhʝjʟlʠqᴀaᴄcᴅdᴇeᴊjᴋkᴌlᴍmᴏoᴘpᴛtᴜuᴠvᴡwᴢzᵬbᵭdᵮfᵯmᵰnᵱpᵲrᵳrᵴsᵵtᵶzᵹgᵽpᶀbᶁdᶂfᶃgᶄkᶅlᶆmᶇnᶈpᶉrᶊsᶌvᶍxᶎzᶏaᶑdᶒeᶖiᶙuẚaẜsẝsỾyỿyⱠlⱡlⱢlⱣpⱤrⱥaⱦtⱧhⱨhⱩkⱪkⱫzⱬzⱮmⱱvⱲwⱳwⱴvⱸeⱺoⱾsⱿzꜰfꜱsꝀkꝁkꝂkꝃkꝄkꝅkꝆlꝇlꝈlꝉlꝊoꝋoꝌoꝍoꝐpꝑpꝒpꝓpꝔpꝕpꝖqꝗqꝘqꝙqꝞvꝟvꝹdꝺdꝻfꝼfꝽgꞂrꞃrꞄsꞅsꞆtꞇtꞎlꞐnꞑnꞒcꞓcꞔcꞕhꞖbꞗbꞘfꞙfꞠgꞡgꞢkꞣkꞤnꞥnꞦrꞧrꞨsꞩsꞪhꞬgꞭlꞮiꞯqꞲjꞸuꞹuꟄcꟅsꟆzꟇdꟈdꟉsꟊsꬳeꬴeꬶgꬸlꬹlꬺmꬻnꭆrꭉrꭋrꭌrꭎuꭒuꭖxꭗxꭘxꭙxꭚy"),
+  // a few more small capitals and phonetic letters that read as one Latin letter, and the Lisu letters (drawn as Latin capitals)
+  ...pairs("ᴁeᴂeᴃbᴆdᴈeᴉiᴎnᴐoᴑoᴒoᴓoᴖoᴗoᴙrᴚrᴝuᴞuᴟmᴣzᴤsᴦrᴨnᴩpᴫnɶeʁrᵻiᵾuᵿuꟺmɐaɒaɔoəeɘeɚeɛeɜeɝeɞeɣyɩiʉuʊuǝeŋnĸkſs"),
+  ...pairs("ꓐbꓑpꓒdꓓdꓔtꓖgꓗkꓙjꓚcꓜzꓝfꓟmꓠnꓡlꓢsꓣrꓦvꓧhꓪwꓫxꓬyꓮaꓰeꓲiꓳoꓴu"),
 };
+function pairs(s) { const a = [...s], o = {}; for (let i = 0; i + 1 < a.length; i += 2) o[a[i]] = a[i + 1]; return o; }
+// a letter's other case reads as the same letter (a look-alike written in capitals, or in small letters)
+for (const [k, v] of Object.entries(CONFUSABLE)) for (const o of [k.toLowerCase(), k.toUpperCase()]) if ([...o].length === 1 && !(o in CONFUSABLE) && !/[a-z]/i.test(o)) CONFUSABLE[o] = v;
 const LEET = { 0: "o", 1: "i", 3: "e", 4: "a", 5: "s", 7: "t", "@": "a", $: "s", "!": "i", "|": "l" };
 const confuse = (s) => { let o = ""; for (const ch of s) o += CONFUSABLE[ch] ?? ch; return o; };
+/** Letters drawn as symbols with no decomposition: negative circled and squared capitals, regional indicators (a letter each). */
+function symbolLetter(cp) {
+  for (const base of [0x1f150, 0x1f170, 0x1f1e6]) if (cp >= base && cp < base + 26) return String.fromCharCode(97 + cp - base);
+  return null;
+}
 
 /**
  * The text folded for matching: one unit per output character, each with the span [s, e) of the original it came from.
@@ -108,10 +128,14 @@ function fold(text) {
   const units = [];
   for (const m of text.matchAll(/[\s\S]/gu)) {
     const ch = m[0], s = m.index, e = s + ch.length;
-    let f = confuse(ch.normalize("NFKC"));
+    // a parenthesized letter ("⒩", NFKC "(n)") is the letter; a negative squared or circled one, or a regional indicator, too
+    let n = symbolLetter(ch.codePointAt(0)) || ch.normalize("NFKC");
+    if (/^\(\p{L}\)$/u.test(n)) n = n.slice(1, -1);
+    let f = confuse(n);
     f = confuse(f.toLowerCase()).normalize("NFD").replace(/\p{M}/gu, "");
     if (!f) { if (units.length && /\p{M}/u.test(ch)) units[units.length - 1].e = e; continue; } // a mark belongs to its letter
-    for (const c of f) units.push({ c, s, e });
+    // one UTF-16 unit per unit (a character outside the BMP, an emoji, stands as U+FFFC), so a position in the joined string is a unit
+    for (const c of f) units.push({ c: c.length > 1 ? "\uFFFC" : c, s, e });
   }
   return units;
 }
@@ -142,49 +166,79 @@ function words(units, { leet = true, tickers = [] } = {}) {
   return out;
 }
 /**
- * The joined words: a word broken by dots, dashes, underscores or stars ("s.c.a.m", "f-u-c-k", "s_c_a_m", "sc*m") and a run of three or
- * more single letters with spaces between them ("s c a m"), each as one more word (the parts stay words too).
+ * More readings of each word, as single words: the word with its trailing "@" or "$" read as letters ("n!gg@" is "nigga"), and without
+ * the digits it starts or ends with ("niggers123", "123kikes"). Never inside a $TICKER.
+ */
+function variants(units, { tickers = [] } = {}) {
+  const out = [];
+  const inTicker = (u) => tickers.some((t) => u.s >= t.start && u.s < t.end);
+  const W = /[a-z0-9@$!|]/;
+  for (let i = 0; i < units.length; i++) {
+    if (!W.test(units[i].c) || (i > 0 && W.test(units[i - 1].c))) continue;
+    let j = i;
+    while (j + 1 < units.length && W.test(units[j + 1].c)) j++;
+    let a = i;
+    while (a <= j && /[@$!|]/.test(units[a].c)) a++; // a handle or a ticker starts with its symbol: never a letter
+    if (a <= j && !inTicker(units[i])) {
+      const run = units.slice(a, j + 1), raw = str(run);
+      const read = (r) => r.replace(/[013457@$!|]/g, (c) => LEET[c]).replace(/[@$!|]/g, "");
+      if (/[a-z]/.test(raw)) {
+        if (/[@$]$/.test(raw)) out.push({ w: read(raw), s: run[0].s, e: run[run.length - 1].e });
+        for (const r of [raw.replace(/[0-9@$!|]+$/, ""), raw.replace(/^[0-9]+/, "")]) if (r && r !== raw && /[a-z]/.test(r)) out.push({ w: read(r), s: run[0].s, e: run[run.length - 1].e });
+      }
+    }
+    i = j;
+  }
+  return out.filter((x) => x.w);
+}
+
+const JOIN_MAX = 24; // the longest list entry is shorter: a longer join can match nothing
+const TIGHT = /^[.\-_*·•'’‐‑‒–—]{1,3}$/u; // separators inside a word, with no space: "nig-ger", "f.u.c.k", "fuc'k"
+const LOOSE = /^(?=.* )[ .\-_*·•'’‐‑‒–—]{1,3}$/u; // a space, maybe with separators: "ni gger", "fu - ck"
+/**
+ * The joined words, each as one more word (the parts stay words too), whatever the length of the pieces:
+ *   - pieces joined by separators with no space ("s.c.a.m", "nig-ger", "fuc.k", "s_c_a_m", "sc*m"): every stretch of two or more;
+ *   - single letters with spaces between them ("s c a m", "n i g g e r"): every stretch of three or more;
+ *   - two to four pieces with a space between them ("ni gger", "fu ck"): `spaced`, a weaker sign (two real words can make a list
+ *     word: "go ok"), so a slur found only this way is flagged for a person rather than blocked.
+ * `parts`: the pieces, so a join of the city's own words never counts against it.
  */
 function joined(units) {
   const out = [];
-  // separators inside a word
-  const seps = units.map((u) => u.c);
-  for (let i = 0; i < units.length; i++) {
-    if (!/[a-z0-9@$!|]/.test(seps[i]) || /[a-z0-9@$!|]/.test(seps[i - 1] || " ")) continue; // from the start of a word only
-    let j = i, parts = 1, hadSep = false;
-    while (j + 2 <= units.length && /[.\-_*·•]/.test(seps[j + 1] || "") && /[a-z0-9@$!|]/.test(seps[j + 2] || "")) { j += 2; parts++; hadSep = true; while (j + 1 < units.length && /[a-z0-9@$!|]/.test(seps[j + 1])) j++; }
-    if (!hadSep) continue;
-    const run = units.slice(i, j + 1).filter((u) => /[a-z0-9@$!|]/.test(u.c));
-    out.push({ units: run, s: units[i].s, e: units[j].e });
-    i = j;
-  }
-  // spaced single letters
-  const singles = [];
-  for (let i = 0; i < units.length; i++) {
-    const c = seps[i];
-    if (/[a-z0-9@$!|]/.test(c) && !/[a-z0-9@$!|]/.test(seps[i - 1] || " ") && !/[a-z0-9@$!|]/.test(seps[i + 1] || " ")) singles.push(i);
-  }
-  let run = [];
-  // every stretch of three or more of them is a word ("a n i g g e r": "anigger", "nigger", ...), the first 40 letters of a run at most
-  const flush = () => {
-    const r = run.slice(0, 40);
-    for (let a = 0; a + 3 <= r.length; a++) for (let b = a + 3; b <= r.length; b++) out.push({ units: r.slice(a, b).map((k) => units[k]), s: units[r[a]].s, e: units[r[b - 1]].e });
-    run = [];
+  const seps = units.map((u) => u.c), n = units.length;
+  const isW = (k) => k >= 0 && k < n && /[a-z0-9@$!|]/.test(seps[k]);
+  const pieces = [];
+  for (let k = 0; k < n; k++) { if (!isW(k)) continue; let t = k; while (isW(t + 1)) t++; pieces.push([k, t]); k = t; }
+  const gap = (p) => seps.slice(pieces[p - 1][1] + 1, pieces[p][0]).join(""); // between piece p-1 and piece p
+  const len = (p) => pieces[p][1] - pieces[p][0] + 1;
+  const push = (from, to, spaced) => {
+    const us = [];
+    for (let p = from; p <= to; p++) for (let k = pieces[p][0]; k <= pieces[p][1]; k++) us.push(units[k]);
+    if (us.length > JOIN_MAX) return false;
+    const parts = [];
+    for (let p = from; p <= to; p++) parts.push(str(units.slice(pieces[p][0], pieces[p][1] + 1)));
+    out.push({ units: us, s: units[pieces[from][0]].s, e: units[pieces[to][1]].e, spaced, parts });
+    return true;
   };
-  for (const k of singles) {
-    if (run.length) {
-      const prev = run[run.length - 1];
-      const between = seps.slice(prev + 1, k).join("");
-      if (/^[\s.\-_*]+$/.test(between)) { run.push(k); continue; }
-      flush();
+  for (let a = 0; a < pieces.length; a++) {
+    // separators with no space, then single letters
+    for (let b = a + 1; b < pieces.length && TIGHT.test(gap(b)); b++) if (!push(a, b, false)) break;
+    if (len(a) === 1) for (let b = a + 1; b < pieces.length && len(b) === 1 && (TIGHT.test(gap(b)) || LOOSE.test(gap(b))); b++) if (b - a >= 2 && !push(a, b, false)) break;
+    // up to four pieces with a space between at least two of them, one of them short (a split word leaves a piece of one to three
+    // letters: "ni gger", "fuc k"; two whole words seldom do: "give away"); a word joined by an apostrophe or a dash stays whole
+    // ("Utica's pics" is never "s pics")
+    if (a > 0 && TIGHT.test(gap(a))) continue;
+    let loose = false, short = len(a) <= 3;
+    for (let b = a + 1; b < pieces.length && b - a <= 3; b++) {
+      const g = gap(b);
+      if (LOOSE.test(g)) loose = true; else if (!TIGHT.test(g)) break;
+      short = short || len(b) <= 3;
+      if (!loose || !short || (b + 1 < pieces.length && TIGHT.test(gap(b + 1)))) continue;
+      if (!push(a, b, true)) break;
     }
-    run.push(k);
   }
-  flush();
-  return out.map((x) => {
-    const raw = str(x.units);
-    return { w: (/[a-z]/.test(raw) ? raw.replace(/[013457@$!|]/g, (c) => LEET[c]) : raw).replace(/[@$!|]/g, ""), s: x.s, e: x.e };
-  }).filter((x) => x.w);
+  const read = (raw) => (/[a-z]/.test(raw) ? raw.replace(/[013457@$!|]/g, (c) => LEET[c]) : raw).replace(/[@$!|]/g, "");
+  return out.map((x) => ({ w: read(str(x.units)), s: x.s, e: x.e, spaced: x.spaced, parts: x.parts.map((q) => skel(read(q))) })).filter((x) => x.w);
 }
 // i and l, and their look-alikes, compare as one letter ("sIut", "kiII")
 const skel = (w) => w.replace(/l/g, "i");
@@ -203,14 +257,25 @@ function compile(list) {
   }
   return c;
 }
+/**
+ * A list word, or one with a plural or slang ending: up to three trailing s or z ("kikez", "niggerss"), or "es" after s, x, z, ch or sh
+ * ("bitches"; never "spices": that is spice + s, not spic + es).
+ */
+function listWord(singles, w) {
+  if (singles.has(w)) return true;
+  for (let k = 1; k <= 3 && k < w.length - 1; k++) {
+    const base = w.slice(0, -k), tail = w.slice(-k);
+    if (singles.has(base) && (/^[sz]+$/.test(tail) || (tail === "es" && /(?:[sxz]|ch|sh)$/.test(base)))) return true;
+  }
+  return false;
+}
 function matchList(list, toks, joins, own) {
   const hits = [];
   const { singles, multi } = compile(list);
-  const one = (w) => singles.has(w) || (w.endsWith("s") && singles.has(w.slice(0, -1))) || (w.endsWith("es") && singles.has(w.slice(0, -2)));
   for (const t of [...toks, ...joins]) {
     const w = skel(t.w);
-    if (own.has(w)) continue;
-    if (one(w)) hits.push({ start: t.s, end: t.e, word: w });
+    if (own.has(w) || (t.parts && t.parts.every((x) => own.has(x)))) continue;
+    if (listWord(singles, w)) hits.push({ start: t.s, end: t.e, word: w, spaced: Boolean(t.spaced) });
   }
   const seq = toks.map((t) => skel(t.w));
   for (const p of multi) {
@@ -248,28 +313,57 @@ function hiddenChars(text) {
   }
   // three or more marks stacked on one letter (two is the most a written language needs, Vietnamese in decomposed form)
   for (const m of text.matchAll(/\p{L}\p{M}{3,}/gu)) at(m.index, m.index + m[0].length);
-  // a word that mixes Latin letters with Cyrillic or Greek ones (look-alikes)
+  // a word that mixes Latin letters with those of a script that has Latin look-alikes
   for (const m of text.matchAll(/[\p{L}\p{M}]+/gu)) {
     const wd = m[0];
-    const latin = /\p{Script=Latin}/u.test(wd), other = /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}]/u.test(wd);
+    const latin = /\p{Script=Latin}/u.test(wd), other = LOOKALIKE_SCRIPTS.test(wd);
     if (latin && other) at(m.index, m.index + wd.length);
   }
+  // Latin letters no written language uses, only phonetics or "fancy text" generators: small capitals ("ɴɪɢɢᴇʀ"), phonetic and
+  // epigraphic letters. They read as plain letters to people but match no word list, so they are refused like other look-alikes
+  for (const m of text.matchAll(LOOKALIKE_LATIN)) at(m.index, m.index + m[0].length);
   return issues;
 }
+const LOOKALIKE_SCRIPTS = /[\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}\p{Script=Lisu}\p{Script=Coptic}\p{Script=Canadian_Aboriginal}\p{Script=Tifinagh}\p{Script=Osage}\p{Script=Old_Italic}\p{Script=Runic}\p{Script=Glagolitic}\p{Script=Gothic}\p{Script=Deseret}]/u;
+const LOOKALIKE_LATIN = /[\u0262\u026A\u0274\u0276\u0280\u0281\u028F\u0299\u029B\u029C\u029F\u1D00-\u1D2B\u1D6B-\u1D7F\u1D80-\u1D9A\uA730\uA731\uA7AE\uA7AF\uA7FA-\uA7FF\uAB46]+/gu;
 
 const tldSet = (lists) => new Set(lists.TLDS);
-function links(units, lists) {
-  const t = str(units), out = [];
-  const add = (m, len = m[0].length, off = 0) => out.push({ code: "link", ...span(units, m.index + off, m.index + off + len) });
-  for (const m of t.matchAll(/https?\s*:|www\s*\.|\bw\s+w\s+w\b/g)) add(m);
+// the gTLDs a "word. com" (a dot, then a space) most likely means; only a flag (it is also how a sentence ends: "Utica. so good")
+const WEB_TLDS = new Set(["com", "net", "org", "io", "xyz", "app", "gg", "co", "me", "ly", "ai", "dev", "sol", "eth", "fun", "site", "online", "shop", "store", "live",
+  "club", "info", "biz", "tv", "cc", "ws", "to", "sh", "so", "vc", "fm"]);
+/**
+ * The folded text with every character a browser or a reader takes for a dot written as one: `full` the full stops (ideographic "。",
+ * its half-width form; NFKC already made "．", "﹒" and "․" a dot), `tight` also the middle dots and bullets ("uticacoin·com"), which
+ * only count between two words with no space (a bullet between spaced words is a list: "food • art • music").
+ */
+function dotted(units) {
+  const full = str(units).replace(/[。]/g, ".");
+  return { full, tight: full.replace(/[·⸱・‧∙⋅•]/g, ".") };
+}
+function links(units, lists, text) {
+  const { full: t, tight: tt } = dotted(units), out = [];
+  const add = (m, len = m[0].length, off = 0, severity) => out.push({ code: "link", ...span(units, m.index + off, m.index + off + len), ...(severity ? { severity } : {}) });
+  // a scheme (also disguised: "hxxps"), "://", www.
+  for (const m of t.matchAll(/https?\s*:|\bh(?:xx|tx|xt)ps?\b|:\s*\/\s*\/|www\s*\.|\bw\s+w\s+w\b/g)) add(m);
   const tlds = tldSet(lists);
-  // name.tld (a real top-level domain right after the dot), or an obfuscated dot: "name dot com", "name[.]com", "name(dot)com"
-  for (const m of t.matchAll(/([a-z0-9][a-z0-9-]*)(\.|\s*\[\s*\.\s*\]\s*|\s*\(\s*\.\s*\)\s*|\s*[[({]\s*dot\s*[\])}]\s*|\s+dot\s+)([a-z]{2,})(?![a-z0-9])/g)) {
+  // name.tld (a real top-level domain right after the dot), or an obfuscated dot: "name dot com", "name dotcom", "name d0t com", "name[.]com",
+  // "name(dot)com", "name·com", "name。com"
+  for (const m of tt.matchAll(/([a-z0-9][a-z0-9-]*)(\.|\s*\[\s*\.\s*\]\s*|\s*\(\s*\.\s*\)\s*|\s*[[({]\s*d[o0]t\s*[\])}]\s*|\s+d[o0]t\s*)([a-z]{2,})(?![a-z0-9])/g)) {
     if (tlds.has(m[3]) && !/^\d+$/.test(m[1])) add(m);
   }
+  // a dot with a space before it ("uticacoin . com", "uticacoin .com"): a sentence never puts one there
+  for (const m of t.matchAll(/([a-z0-9][a-z0-9-]*)\s+\.\s*([a-z]{2,})(?![a-z0-9])/g)) if (tlds.has(m[2]) && !/^\d+$/.test(m[1])) add(m);
+  // a dot, a space, then a web ending in small letters ("uticacoin. com"): flagged for a person (a sentence can end like that too)
+  for (const m of t.matchAll(/([a-z0-9][a-z0-9-]*)\.\s+([a-z]{2,})(?![a-z0-9])/g)) {
+    const at = m.index + m[0].length - m[2].length, first = units[at];
+    if (WEB_TLDS.has(m[2]) && first && /^\p{Ll}/u.test(text.slice(first.s, first.e))) add(m, m[0].length, 0, "flag");
+  }
   for (const host of lists.LINK_HOSTS) {
-    const esc = host.replace(/\./g, "\\s*\\.\\s*");
-    for (const m of t.matchAll(new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, "g"))) add(m);
+    // a host whose first part is a real word ("discord gg", "linktr ee") is a link with a space or a "dot" for its dot too
+    const [first, ...rest] = host.split(".");
+    const dot = first.length >= 4 ? "(?:\\s*\\.\\s*|\\s+d[o0]t\\s+|\\s+)" : "\\s*\\.\\s*";
+    const esc = [first, ...rest].join(dot);
+    for (const m of tt.matchAll(new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, "g"))) add(m);
   }
   return out;
 }
@@ -283,8 +377,12 @@ function cryptoAddresses(text) {
   return out;
 }
 function contacts(units) {
-  const t = str(units), out = [];
-  const add = (m, len = m[0].length) => out.push({ code: "contact", ...span(units, m.index, m.index + len) });
+  const t = dotted(units).tight, out = [];
+  const add = (m, len = m[0].length, severity) => out.push({ code: "contact", ...span(units, m.index, m.index + len), ...(severity ? { severity } : {}) });
+  // a handle after a platform's name and a colon, a slash or an @ ("Instagram: uticacoin", "discord / utica", "tg @utica")
+  for (const m of t.matchAll(/\b(?:discord|telegram|tg|instagram|insta|ig|twitter|tiktok|snapchat|whatsapp|wechat|reddit|youtube|yt|facebook|fb|threads|bluesky|bsky)\s*(?::|\/|\bslash\b|@)\s*@?[a-z0-9_.]{3,}/g)) add(m);
+  // "@ uticacoin": an @ and a space before a name; flagged for a person ("meet @ the park" is not a handle)
+  for (const m of t.matchAll(/(?<![a-z0-9_@.])@\s+[a-z0-9_]{3,}/g)) add(m, m[0].length, "flag");
   for (const m of t.matchAll(/[a-z0-9._%+-]+\s*(?:@|\(at\)|\[at\])\s*[a-z0-9-]+(?:\s*\.\s*[a-z0-9-]+)*\s*\.\s*[a-z]{2,}/g)) add(m);
   for (const m of t.matchAll(/\+?\(?\d[\d\s().-]{6,}\d/g)) if ((m[0].match(/\d/g) || []).length >= 9) add(m);
   for (const m of t.matchAll(/(?<![a-z0-9_@.])@[a-z0-9_]{2,}/g)) add(m);
@@ -357,23 +455,28 @@ function otherCityCoins(toks, original, ctx, own) {
 function ownWords(ctx) {
   const c = (ctx && ctx.city) || {};
   const set = new Set();
-  for (const v of [c.name, c.region, c.countryName, c.country, ctx && ctx.ticker, ctx && ctx.name]) for (const w of phraseWords(v)) set.add(w);
+  for (const v of [c.name, c.region, c.countryName, c.country, ctx && ctx.ticker, ctx && ctx.name]) {
+    const p = phraseWords(v);
+    for (const w of p) set.add(w);
+    if (p.length > 1) set.add(p.join("")); // "New York" written "NewYork"
+  }
   return set;
 }
 function run(text, ctx, { rules, lists }) {
   const issues = [];
-  const push = (list) => { for (const x of list) issues.push({ code: x.code, severity: SEVERITY[x.code], start: x.start, end: x.end }); };
+  const push = (list) => { for (const x of list) issues.push({ code: x.code, severity: x.severity || SEVERITY[x.code], start: x.start, end: x.end }); };
   if (rules.has("hidden_chars")) push(hiddenChars(text));
   const units = fold(text);
   const tk = tickers(text, ctx, lists);
-  const toks = words(units, { tickers: tk.spans }), joins = joined(units);
+  const toks = words(units, { tickers: tk.spans }), joins = [...joined(units), ...variants(units, { tickers: tk.spans })];
   const own = ownWords(ctx);
-  if (rules.has("link")) push(links(units, lists));
+  if (rules.has("link")) push(links(units, lists, text));
   if (rules.has("crypto_address")) push(cryptoAddresses(text));
   if (rules.has("contact")) push(contacts(units));
   if (rules.has("street_address")) push(streetAddresses(text, lists));
   const tag = (code, hits) => hits.map((h) => ({ code, start: h.start, end: h.end }));
-  if (rules.has("slur")) push(tag("slur", matchList(lists.SLURS, toks, joins, own)));
+  // a slur found only by joining words across a space ("ni gger", but also "go ok") is flagged for a person, never passed
+  if (rules.has("slur")) { const hits = matchList(lists.SLURS, toks, joins, own); push(tag("slur", hits.filter((h) => !h.spaced))); push(tag("abuse", hits.filter((h) => h.spaced))); }
   if (rules.has("abuse")) push(tag("abuse", matchList(lists.ABUSE, toks, joins, own)));
   if (rules.has("other_city")) { push(tk.issues); push(otherCityCoins(toks, text, ctx, own)); }
   if (rules.has("brand")) {

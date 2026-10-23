@@ -74,6 +74,9 @@
   // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known (state null: its status is on
   // its way, or could not be asked)
   let lp = { on: false, state: null };
+  // the launch status's reasons that come from the coin's review (src/coinreview.js, COIN_V2_REVIEW): said in the server's words, never as
+  // "launches are paused" (that is the owner's switch) nor as "your launch opens after the next round" (the round won't approve it yet)
+  const REVIEW_PAUSE = new Set(["paused_request", "paused_description", "not_reviewed", "registry_waiting", "description_recheck", "description_unchecked", "bad_content", "art_missing", "approval_mismatch", "approval_changed"]);
   // the old Raydium LaunchLab path as the server says it in the coin's own answer (GET /api/coins launchLabClosed, through dashboard.js
   // coin() and coinQueue()): true closed (the launchpad's settings are there), false open, null not said yet. The old path's words show
   // ONLY when the server said it is open (labOpen); not said yet, the card says nothing it would have to take back.
@@ -734,7 +737,7 @@
       note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."
         : s === "launched" ? "Your coin is live on the Vicinity launchpad."
           : s === "expired" ? (inRounds() ? "Your approval ran out before you launched. It is renewed at the owner's next approval round." : "Your approval expired. Ask an admin to approve your coin again.")
-            : s === "paused" ? "Launches are paused for now. Your approval stays."
+            : s === "paused" ? (REVIEW_PAUSE.has(lp.why) && lp.message ? lp.message : "Launches are paused for now. Your approval stays.")
               : s === "not_approved" ? (inRounds() ? "Your launch opens after the owner's next approval round. Then you launch it here." : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.") : LP_PENDING;
       if (s) button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
       else { go.hidden = true; fcardAction = null; }
@@ -952,7 +955,7 @@
 
   /** The launch card's state (dashboard.js after LPLaunch.founder): the Today strip and the Founder card follow it. */
   function setLp(info) {
-    lp = { on: Boolean(info && info.on), state: (info && info.state) || null };
+    lp = { on: Boolean(info && info.on), state: (info && info.state) || null, why: (info && info.why) || null, message: (info && info.message) || null };
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 

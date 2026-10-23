@@ -19,7 +19,8 @@ in one round instead of one card at a time (DESIGN.md 6.5 and 9.4; owner decisio
    - **Blocked**: nothing is built; each row says why.
 3. Untick any city to leave it out of today's round (it comes back in the next one).
 4. Press **Sign today's approvals**. The site checks every city again and builds the transactions (up to 5 cities each). The page
-   shows each transaction and checks that every instruction in it is one of the rows you saw. Nothing else can be in them.
+   shows each transaction and checks the list of its instructions (the one this site worked out when it built them) against the
+   rows you saw. The page does not decode the transaction bytes itself: your wallet's own screen is the last look at what you sign.
 5. Sign: one prompt for all if the wallet can; otherwise one at a time (each next transaction is built again just before, so it does
    not run out of time). Each landed transaction is recorded and the founder is told they can launch.
 

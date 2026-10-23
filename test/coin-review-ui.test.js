@@ -44,6 +44,16 @@ async function open(server) {
   return { page, posts };
 }
 const buttons = (page, sel) => page.$$(`${sel} button`).map((b) => b.textContent);
+/** The same, on the Founder tab (where the card is shown, so the keyboard can land on it). */
+async function openFounder(server) {
+  const posts = [];
+  const page = await openDashboard({ hash: "founder", me: founderMe(), api: async (path, body) => {
+    if (path.startsWith("/api/coins/ready") || path.startsWith("/api/coins/review")) { if (body) posts.push([path, body]); return server(path, body); }
+    return undefined;
+  } });
+  await page.advance(1000);
+  return { page, posts };
+}
 
 test("switch off: an answer without `review` never loads the step; the card is stage 1's (one action, its caption)", async () => {
   const { page } = await open(() => answer({}, null));
@@ -208,4 +218,50 @@ test("no markup from text, 44 px targets, every tag has words, the live regions"
   assert.match(JS, /err\.setAttribute\("role", "alert"\)/);
   for (const label of ["Draft", "Pending", "Approved", "Changes needed"]) assert.ok(!/class=/.test(label), label);
   assert.doesNotMatch(JS + CSS, /24 hours|within a day|tomorrow/i, "no time is ever promised");
+});
+
+test("the keyboard stays with the result of each action, however often the card is drawn again (the route's answer, then the dashboard's reload)", async () => {
+  const pending = answer({ gate: { code: "request_pending", message: "Your change request is waiting for review. Launch and other changes wait until a reviewer decides; you can cancel the request." } }, REVIEW({
+    request: { id: 4, kind: "change", status: "pending", label: "Pending", message: "Version 77aa11bb · a reviewer checks exactly this version. Launch is paused until they decide.", version: "77aa11bb", contentHash: HASH2,
+      submittedAt: "2026-10-23T10:01:00Z", diff: [{ field: "name", from: "Utica", to: "Utica Falls" }], proposed: {}, registryState: null, draft: null, nameIssues: [] },
+    hold: { code: "paused_request", message: "x" }, can: { request: false, describe: false, reset: false, cancel: true, edit: true } }));
+  const draft = answer({}, REVIEW({ request: { id: 4, kind: "change", status: "draft", label: "Draft", message: "d", version: null, contentHash: null, diff: [{ field: "name", from: "Utica", to: "Utica Falls" }],
+    proposed: {}, registryState: null, draft: { name: "Utica Falls", symbol: null, picture: "vicinity", art: null, reason: "Locals call it the falls city since 1850.", updatedAt: "2026-10-23T10:00:00.000Z" }, nameIssues: [] },
+  can: { request: false, describe: true, reset: false, cancel: true, edit: false } }));
+  let view = draft;
+  const { page } = await openFounder((path) => {
+    if (path === "/api/coins/review/submit") view = pending;
+    if (path === "/api/coins/review/cancel") view = answer();
+    return view;
+  });
+  await page.tap(page.$("#crv-submit"));
+  await page.tap(page.$("#crv-confirm-go"));
+  await page.advance(1000); // the dashboard reads the coin again and the card is drawn again
+  assert.equal(page.doc.activeElement && page.doc.activeElement.id, "crv-req-tag", "on the new status, not back at the top");
+  // the coin card names a waiting review as one ("Pending review"), and the review card says it once, not the gate line too
+  assert.equal(page.text("#cr-state"), "Pending review");
+  assert.equal(page.$("#cr-gate").hidden, true);
+  await page.tap(page.$$("#crv-status button").find((b) => b.textContent === "Cancel request"));
+  await page.advance(1000);
+  assert.equal(page.doc.activeElement && page.doc.activeElement.textContent, "Request changes", "after Cancel: on the next action");
+});
+
+test("the request card follows the coin: Before / Approved once decided; the caption says a reviewer approved the name; a draft that changes nothing is said before the question", async () => {
+  const renamed = { ...REVIEW().selected, origin: "change", name: "Utica Falls", symbol: "UTICANY" };
+  const approved = REVIEW({ selected: renamed, request: { id: 4, kind: "change", status: "approved", label: "Approved", message: "Version 77aa11bb was approved. It is now your coin. It is approved on the blockchain too.",
+    version: "77aa11bb", contentHash: HASH2, diff: [{ field: "name", from: "Utica", to: "Utica Falls" }], proposed: {}, registryState: null, draft: null, nameIssues: [] },
+  can: { request: true, describe: true, reset: true, cancel: false, edit: false } });
+  const { page } = await open(() => answer({}, approved));
+  assert.deepEqual(page.$$("#crv-status thead th").map((h) => h.textContent), ["", "Before", "Approved"]);
+  assert.match(page.text(".coin-ready__caption"), /with the changes a reviewer approved for your coin/);
+  assert.equal(page.text(".coin-ready__src"), "The place comes from the Vicinity city list; the ticker and the name are the ones a reviewer approved for your coin.");
+  // a draft with no change: refused before the question, nothing submitted
+  const noop = answer({}, REVIEW({ request: { id: 5, kind: "change", status: "draft", label: "Draft", message: "d", version: null, contentHash: null, diff: [], proposed: {}, registryState: null,
+    draft: { name: null, symbol: null, picture: "vicinity", art: null, reason: "Locals call it the falls city since 1850.", updatedAt: "2026-10-23T10:00:00.000Z" }, nameIssues: [] },
+  can: { request: false, describe: true, reset: false, cancel: true, edit: false } }));
+  const { page: p2, posts } = await open(() => noop);
+  await p2.tap(p2.$("#crv-submit"));
+  assert.equal(p2.$("#crv-confirm").hidden, true, "no question for nothing");
+  assert.equal(p2.text("#crv-err"), "Your draft changes nothing yet. Pick another picture, ticker or name first.");
+  assert.equal(posts.some(([path]) => path === "/api/coins/review/submit"), false);
 });

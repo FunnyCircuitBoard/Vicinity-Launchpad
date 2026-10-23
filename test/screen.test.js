@@ -26,7 +26,7 @@ const check = (text, result, want = [], ctx = UTICA) => {
 
 test("the rules version is the SHA-256 of the lists, pinned (a list change is a new version; old passes are screened again)", () => {
   assert.equal(RULES_VERSION, "s1-" + createHash("sha256").update(listsText()).digest("hex").slice(0, 12));
-  assert.equal(RULES_VERSION, "s1-19762cd10667", "pinned: a change to src/screen-words.js or to the severities must update this line (and re-screens every founder description)");
+  assert.equal(RULES_VERSION, "s1-ef90d894c4e6", "pinned: a change to src/screen-words.js, to the severities or to the engine must update this line (and re-screens every founder description)");
 });
 
 test("the synchronous SHA-256 is SHA-256", () => {
@@ -228,4 +228,60 @@ test("all 8,030 registry defaults pass (their description and their name), with 
   _resetCityCache(); _resetTickers();
   assert.equal(n, 8030);
   assert.deepEqual(bad, []);
+});
+
+test("small capitals and other look-alike letters, words split by separators or a space, slur stems: never a pass (the review's strings)", () => {
+  // Latin small capitals ("fancy text" generators) have no decomposition and are Latin script: refused as look-alikes, and read as letters
+  const sc = check("Utica welcomes everyone except ɴɪɢɢᴇʀꜱ and ꜰᴀɢɢᴏᴛꜱ.", "block", ["hidden_chars:ɴɪɢɢᴇʀꜱ", "slur:ɴɪɢɢᴇʀꜱ", "slur:ꜰᴀɢɢᴏᴛꜱ"]);
+  assert.ok(sc.issues.some((x) => x.code === "hidden_chars"));
+  for (const t of ["Utica says ʜᴇɪʟ ʜɪᴛʟᴇʀ to all", "Utica is a ɢᴜᴀʀᴀɴᴛᴇᴇᴅ ᴘʀᴏꜰɪᴛ", "Utica ꜰᴜᴄᴋ yeah ok", "The ᴠɪᴄɪɴɪᴛʏ team speaks here"]) check(t, "block", [], UTICA);
+  assert.ok(codes(screenDescription("Utica says ʜᴇɪʟ ʜɪᴛʟᴇʀ to all", UTICA)).includes("abuse"), "read as the words they look like too");
+  // letters drawn as symbols, parenthesized, or in a script made of Latin capitals (Lisu)
+  for (const t of ["Utica is for 🅽🅸🅶🅶🅴🆁🆂 only", "Utica is for ⒩⒤⒢⒢⒠⒭⒮ only", "Utica is for ꓠꓲꓖꓖꓰꓣꓢ only", "Utica is for 🇳 🇮 🇬 🇬 🇪 🇷 🇸 only"]) {
+    assert.notEqual(screenDescription(t, UTICA).result, "pass", t);
+  }
+  // a word broken by a separator, whatever the length of its pieces: blocked (a slur) or flagged
+  check("Utica is for nig-ger people", "block", ["slur:nig-ger"]);
+  check("Utica is for nig.gers only", "block");
+  check("Utica fu-ck yeah ok", "flag", ["abuse:fu-ck"]);
+  check("Utica fuc.k yeah ok", "flag", ["abuse:fuc.k"]);
+  check("Utica fuc'k yeah ok", "flag");
+  // split by a space: two real words can make a slur too ("go ok"), so it is flagged for a person, never passed
+  check("Utica is for ni gger people", "flag", ["abuse:ni gger"]);
+  check("Utica is a sc am coin", "flag", ["financial:sc am"]);
+  // stems: trailing s, z, digits; the leet symbols at the end of a word
+  for (const t of ["Utica is for niggerz only", "Utica is for niggers123 only", "Utica is for 123kikes only", "Utica has wetbackz here", "Utica has kikez here", "Utica n!gg@ yeah ok", "Utica sp!c$ yeah ok"]) check(t, "block", [], UTICA);
+  // spaced single letters: no cap on how many come first
+  const pad = "a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f g h i j k l m n";
+  check(`${pad} k i k e`, "block");
+  check(`${pad} ${pad} k i k e`.slice(0, 200), "block");
+  // and what must still pass: a plural is never a shorter slur plus "es", an apostrophe or a dash keeps a word whole, two whole words
+  // stay two words, a bullet between spaced words is a list
+  for (const t of ["Utica has great spices and food", "See Utica's pics online today", "We give away free cookies in Utica", "Utica: food • art • music for all",
+    "Coeur d'Alene and Wilkes-Barre are friends of Utica", "Utica's co-op opens at nine", "Winston-Salem, Stratford-upon-Avon and Utica", "Ŋaŋ, Bakı and Gəncə are lovely"]) check(t, "pass");
+});
+
+test("links and handles written with other dots, spaces or words: blocked, or flagged when it could be a sentence (the review's strings)", () => {
+  for (const t of ["Visit uticacoin。com to learn about our city", "Visit uticacoin｡com to learn about our city", "Visit uticacoin . com for the details, friends", "uticacoin dotcom is our home",
+    "uticacoin d0t com is our home", "uticacoin·com is our home", "uticacoin⸱com is our home", "uticacoin・com is our home", "uticacoin‧com is our home",
+    "hxxps://uticacoin com is home", "Find us at uticacoin://home now", "discord gg slash utica is home", "Join t。me/uticacoin", "Instagram: uticacoin for photos", "Find us on tg @utica_coin today"]) {
+    const r = check(t, "block");
+    assert.ok(codes(r).some((c) => c === "link" || c === "contact"), `${t}: ${JSON.stringify(codes(r))}`);
+  }
+  check("Visit uticacoin．com to learn more", "block", ["link:uticacoin．com"]);
+  check("Visit uticacoin(.)com to learn more", "block");
+  // could be a sentence: flagged, never passed
+  check("Follow @ uticacoin on X for news", "flag", ["contact:@ uticacoin"]);
+  check("Our home is uticacoin. com for news", "flag");
+  // ...and plain sentences still pass
+  for (const t of ["I love Utica. Me too, honestly.", "It is a city. In New York, by the canal.", "Meet us by the falls, ok? Then lunch.", "Utica. So good, so old."]) check(t, "pass");
+});
+
+test("a proposed ticker is read like a word: a slur refuses it, whatever the name says (src/coinreview.js screens it with the coin's own words)", () => {
+  assert.equal(screenName("SPICS", UTICA).result, "block");
+  assert.equal(screenName("NIGGAZ", UTICA).result, "block");
+  assert.equal(screenName("UTICANY", UTICA).result, "pass");
+  // the name with the city's reviewed own words (never the proposed ticker): the slur in it counts
+  assert.equal(screenName("Utica Spics", UTICA).result, "block");
+  assert.equal(screenName("Spic Town", UTICA).result, "block");
 });

@@ -180,3 +180,14 @@ test("the preview keeps the coin card once the launchpad answers: no 'Not chosen
   assert.equal(gated.text("#coin-status"), "Not chosen yet");
   assert.match(gated.text("#coin-note"), /coin is ready in your Founder tab/);
 });
+
+test("a review pause (COIN_V2_REVIEW) is said in the Founder card as the launch status says it, never 'launches are paused' nor 'opens after the next round'", async () => {
+  const msg = "Launch is paused while your change request is reviewed. Cancelling the request ends the pause.";
+  const status = (why, message) => async (path) => (path.startsWith("/api/lp/launch/status?city=") ? { ok: true, cluster: "mainnet", state: "paused", why, message } : undefined);
+  const page = await open({ lp: true, coin: designRow({ name: "Utica", pair: "SOL" }), ready: view({ inUse: true, chosen: CHOSEN, preview: PREVIEW({ chosen: true }) }), extra: status("paused_request", msg) });
+  assert.equal(page.text("#fcard-note"), msg);
+  assert.match(page.text("#lp-launch") || "", /Launch is paused while your change request is reviewed/);
+  // the owner's own pause keeps its words
+  const owner = await open({ lp: true, coin: designRow({ name: "Utica", pair: "SOL" }), ready: view({ inUse: true, chosen: CHOSEN, preview: PREVIEW({ chosen: true }) }), extra: status("launches_paused", "Launches are paused for now. Your approval stays; try again later.") });
+  assert.equal(owner.text("#fcard-note"), "Launches are paused for now. Your approval stays.");
+});

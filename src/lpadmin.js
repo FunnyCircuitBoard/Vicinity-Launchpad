@@ -710,7 +710,7 @@ async function recordStep(env, ctx, body, fetchImpl, now, route = null) {
     }
     default: break; // initCity, collect, forward, platform, pause: the audit line only (the chain is the record)
   }
-  if (told) { await tellFounders(env, told, now); return done("Recorded.", { signature }); }
+  if (told) { await tellFounders(env, told, now, fetchImpl); return done("Recorded.", { signature }); }
   await ensureLpAdminSchema(db);
   writes.push(audit(db, wallet, `lp/${id}`, params.cityId ? `city:${params.cityId}` : id, `${s.cluster} ${signature || "adopted"}`, now));
   await db.batch(writes);
@@ -778,7 +778,7 @@ export async function candidateList(env, ctx, fetchImpl, now, { keep = false } =
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
     LEFT JOIN users u ON u.id = s.user_id
-    ORDER BY cc.updated_at DESC LIMIT 200`).all()).results;
+    ORDER BY cc.updated_at DESC LIMIT ${keep ? -1 : 200}`).all()).results; // the card lists the 200 saved last; the owner's round reads every one
   const L = launchpadPdas(s.programId);
   const ids = rows.map((r) => cityIdOf(r.city_id));
   const addrs = [];

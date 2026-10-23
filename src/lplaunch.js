@@ -33,7 +33,7 @@ import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
 import { coinV2BatchOn, coinV2ReadyOn } from "./flags.js";
-import { launchHold } from "./coinreview.js";
+import { launchHold, reviewPause } from "./coinreview.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
@@ -299,6 +299,9 @@ async function launchStatus(request, env, fetchImpl, now) {
   // COIN_V2_REVIEW: a change request or a description waiting for review pauses the launch; the approved coin must still be launchable
   // (src/coinreview.js launchHold; nothing with the switch off)
   if (!p) { const h = await launchHold(env, String(cityId), st.approval); if (h) p = h; }
+  // not approved yet (or expired): when the review rules keep the next round from approving it (a request waiting, a ticker the city
+  // list does not carry yet...), that is what the founder is told, never "it opens after the next round" (src/coinreview.js reviewPause)
+  else if (p.error === "not_approved" || p.error === "approval_expired") { const h = await reviewPause(env, String(cityId)); if (h) p = h; }
   // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
   if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
@@ -342,6 +345,10 @@ async function launchTx(request, env, fetchImpl, now) {
   // old LaunchLab path (before anything is built), then the rest
   if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
+  if (p && (p.error === "not_approved" || p.error === "approval_expired")) {
+    const h = await reviewPause(env, String(cityId));
+    if (h) return err(h.error, `${h.message} Nothing was built.`, 409, { state: h.state });
+  }
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   // COIN_V2_REVIEW=on: a request waiting for review pauses the launch, and the approved coin must still be launchable (src/coinreview.js)
   const held = await launchHold(env, String(cityId), st.approval);

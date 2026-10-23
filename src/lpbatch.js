@@ -45,7 +45,8 @@ import { chosenOf, ensureReadySchema, markApprovedStatement } from "./coinart-st
 import { pendingRequest, selectionProblem } from "./coinreview.js";
 import { coinV2ReviewOn } from "./flags.js";
 import { notify } from "./notify.js";
-import { buildTx, readAccounts } from "./lpkit.js";
+import { buildTx, lpRpc, readAccounts } from "./lpkit.js";
+import { decodeLaunchpad } from "./sol/dbc.js";
 import { programHashes, programRefusal } from "./programpins.js";
 import { launchpad as launchpadPdas } from "./sol/pda.js";
 import * as IX from "./sol/lpadmin-ix.js";
@@ -111,10 +112,15 @@ async function withdrawReason(env, seat, cityId, country, now) {
   if (seat && seat.uid && ((await activeBan(env.DB, seat.uid, seat.home_country, now)) || (await activeBan(env.DB, seat.uid, seat.country, now)))) {
     return "The founder's account is suspended (a ban). The program lets an approved wallet launch until it expires, so the approval is withdrawn.";
   }
-  if (!coinV2ReviewOn(env)) return null;
-  const pend = await pendingRequest(env.DB, cityId);
-  if (pend) return `The founder's ${pend.kind === "change" ? "change request" : "description"} waits for review: the launch is paused until it is decided, so the approval is withdrawn meanwhile (the next round approves the decided coin).`;
-  const p = await selectionProblem(env, cityId, { country });
+  if (coinV2ReviewOn(env)) {
+    const pend = await pendingRequest(env.DB, cityId);
+    if (pend) return `The founder's ${pend.kind === "change" ? "change request" : "description"} waits for review: the launch is paused until it is decided, so the approval is withdrawn meanwhile (the next round approves the decided coin).`;
+  } else {
+    // switched off after use: a version the review paths made is still checked (src/coinreview.js launchHold); Vicinity's defaults are not
+    const c = await chosenOf(env.DB, cityId, { fresh: true });
+    if (!c || !c.current || !c.content || !c.origin || c.origin === "default") return null;
+  }
+  const p = await selectionProblem(env, cityId, { country, pending: false });
   if (p && ["not_reviewed", "registry_waiting", "description_recheck", "bad_content"].includes(p.code)) return `The founder's coin can't launch as it is (${p.message}), so the approval is withdrawn.`;
   return null;
 }
@@ -178,6 +184,12 @@ export async function batchRows(env, ctx, fetchImpl, now) {
         : !LIVE.includes(seat.status) ? `The founder's seat is ${seat.status === "grace" ? "in its grace period (their balance fell below the bar)" : seat.status === "provisional" ? "not final (still in its appeal window)" : seat.status}, but the approval still works on chain until it expires.` : null;
     const same = next && next.founder === ap.founder && next.name === ap.name && next.symbol === ap.symbol;
     if (same) {
+      // the founder changed the coin (a new description, the defaults again) after this approval was built from an earlier version of it
+      // (approved_hash: kept by the review routes, src/coinreview.js): made again for the coin as it is now, whatever time is left
+      if (next.approvedHash && next.approvedHash !== next.contentHash) {
+        groups.renew.push(rowOf("renew", base, { ...next, approval: view, checks: CHECKS, why: `The founder changed the coin after this approval (version ${next.version} now): it is made again for the coin as it is.` }));
+        continue;
+      }
       if (left >= BATCH.renewUnderHours * 3600) { settled++; continue; }
       // renewed automatically only when the approval on chain was built from this very version (approved_hash): one given by hand
       // before, for the same name and ticker, stands for another design
@@ -371,12 +383,36 @@ export async function recordBatch(env, { wallet, signature, params, tx, now, fet
   }
   return { writes, notices, cities };
 }
-/** After a recorded batch: the founder of each approved city hears that they can launch (NOTIFY on; one line each). */
-export async function tellFounders(env, notices, now) {
+/**
+ * Whether a launch would go through right now, as the launch status says it (src/lplaunch.js): "open", "paused" (the owner paused
+ * launches on the launchpad), "meteora" (Meteora's programs are not the tested builds, or could not be checked), or "unknown" (the
+ * launchpad could not be read).
+ */
+async function launchesNow(env, fetchImpl, now) {
+  try {
+    const s = lpSetup(env);
+    const r = await lpRpc(env, "getAccountInfo", [await launchpadPdas(s.programId).launchpad(), { encoding: "base64", commitment: "confirmed" }], fetchImpl);
+    const lp = decodeLaunchpad(r && r.value, s.programId);
+    if (!lp) return "unknown";
+    if (lp.launchesPaused) return "paused";
+    return programRefusal(await programHashes(env, fetchImpl, now), "Launches") ? "meteora" : "open";
+  } catch { return "unknown"; }
+}
+/**
+ * After a recorded batch: the founder of each approved city hears it (NOTIFY on; one line each). "You can launch now" only when a launch
+ * would go through now: with launches paused, or Meteora's programs waiting for a check, the line says so instead of promising it.
+ */
+export async function tellFounders(env, notices, now, fetchImpl = fetch) {
+  if (!notices.length) return;
+  const open = await launchesNow(env, fetchImpl, now);
   for (const n of notices) {
     const seat = await liveSeat(env.DB, n.cityId);
     if (!seat || seat.wallet !== n.founder || !seat.uid) continue;
-    await notify(env, { to: seat.uid, kind: "founder", ref: n.cityId, href: "/dashboard#founder", now,
-      text: n.renewed ? `Your launch approval was renewed on the blockchain. You can launch $${n.symbol} now.` : `Your launch approval is on the blockchain. You can launch $${n.symbol} now.` });
+    const head = n.renewed ? "Your launch approval was renewed on the blockchain." : "Your launch approval is on the blockchain.";
+    const tail = open === "open" ? `You can launch $${n.symbol} now.`
+      : open === "paused" ? `Launches are paused for now; you can launch $${n.symbol} once they resume.`
+        : open === "meteora" ? `Launches wait for a check of Meteora's programs; you can launch $${n.symbol} once it passes.`
+          : `You can launch $${n.symbol} from your Founder tab.`;
+    await notify(env, { to: seat.uid, kind: "founder", ref: n.cityId, href: "/dashboard#founder", now, text: `${head} ${tail}` });
   }
 }

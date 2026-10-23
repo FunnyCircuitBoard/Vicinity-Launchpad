@@ -26,7 +26,29 @@
   let formOpen = false, formDirty = false, confirmOpen = false, describeOpen = false;
   const draft = { name: "", symbol: "", picture: "vicinity", image: null, imageUrl: null, reason: "", updatedAt: null };
   let screening = null; // the last check's result shown under the editor ({ id, result, text, issues })
-  let captionWas = null;
+  let captionWas = null, srcWas = null;
+  // where the keyboard goes after an action: the card is painted again (often twice: the route's answer, then the dashboard's reload),
+  // so the wanted place is remembered and found again at the end of every paint, until the person moves on (focus anywhere else)
+  let focusWant = null;
+  const FOCUS = {
+    status: ["#crv-req-tag", "#crv-actions button", "#cr-state"],
+    actions: ["#crv-actions button", "#crv-req-tag", "#cr-state"],
+    form: ["#crv-name"],
+    result: ["#crv-desc-result .crv-card", "#crv-desc-info"],
+    info: ["#crv-desc-info", "#crv-actions button"],
+  };
+  // (only for a few seconds after the action, and only when the keyboard was lost to the page: never taken from where the person put it)
+  function wantFocus(where) { focusWant = { where, until: Date.now() + 10_000 }; refocus(true); }
+  const wanted = () => (focusWant ? FOCUS[focusWant.where].map((q) => $(q)).find((x) => x && !x.hidden) : null);
+  function refocus(now = false) {
+    if (!focusWant || Date.now() > focusWant.until) { focusWant = null; return; }
+    const n = wanted(), at = document.activeElement;
+    if (!n || at === n) return;
+    if (!now && at && at !== document.body && at.isConnected !== false) return; // the person is somewhere else on purpose
+    if (!/^(BUTTON|INPUT|TEXTAREA|SELECT|A)$/.test(n.tagName) && !n.hasAttribute("tabindex")) n.setAttribute("tabindex", "-1");
+    n.focus();
+  }
+  document.addEventListener("focusin", (e) => { if (focusWant && e.target !== wanted()) focusWant = null; }); // the person moved on
 
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = String(text); return n; };
   const button = (label, onClick, cls = "btn btn--glass") => {
@@ -82,7 +104,7 @@
     if (!R) { hide(); return; }
     const p = parts();
     p.root.hidden = false;
-    caption(true);
+    caption(true, R);
     // what holds the launch now
     p.hold.hidden = !R.hold;
     p.hold.textContent = R.hold ? R.hold.message : "";
@@ -94,17 +116,31 @@
     if (req && req.status === "pending") { formOpen = false; formDirty = false; confirmOpen = false; }
     paintForm(p.form, R);
     paintDescription(p.desc, R);
+    refocus();
   }
   function hide() {
     const root = document.getElementById("crv");
     if (root) root.hidden = true;
     caption(false);
   }
-  /** The card's caption says how changes happen now (put back as it was when the step is hidden). */
-  function caption(on) {
+  /**
+   * The card's caption says how changes happen now (put back as it was when the step is hidden), and where the coin's words come from:
+   * Vicinity's defaults, or (after an approved change) a picture, ticker or name a reviewer approved.
+   */
+  function caption(on, R = null) {
     const c = document.querySelector(".coin-ready__caption");
     if (!c) return;
-    const words = "Set by Vicinity. Every city coin uses the same Vicinity design, filled in from the Vicinity city list. You can't edit these yourself: request changes and a reviewer decides.";
+    const sel = R && R.selected, defs = R && R.defaults;
+    const renamed = Boolean(sel && defs && (sel.name !== defs.name || sel.symbol !== defs.symbol));
+    const own = Boolean(sel && (sel.upload || renamed));
+    const words = own
+      ? "Set by Vicinity, with the changes a reviewer approved for your coin. You can't edit these yourself: request changes and a reviewer decides."
+      : "Set by Vicinity. Every city coin uses the same Vicinity design, filled in from the Vicinity city list. You can't edit these yourself: request changes and a reviewer decides.";
+    const src = document.querySelector(".coin-ready__src");
+    if (src) {
+      if (on && renamed) { if (srcWas == null) srcWas = src.textContent; src.textContent = "The place comes from the Vicinity city list; the ticker and the name are the ones a reviewer approved for your coin."; }
+      else if (srcWas != null) { src.textContent = srcWas; srcWas = null; }
+    }
     const node = Array.from(c.childNodes || []).filter((n) => n && !n.tagName && typeof n.textContent === "string" && n.textContent.trim()).pop() || null; // the words after the icon
     // (a text node's words are its `data`)
     if (on) {
@@ -120,10 +156,10 @@
     if (!src) return el("span", "muted", "—");
     const i = el("img", "crv-pic"); i.setAttribute("src", src); i.alt = alt; i.width = 56; i.height = 56; return i;
   }
-  /** What a request changes: field, now, proposed (pictures side by side). */
-  function diffTable(diff) {
+  /** What a request changes: field, now, proposed (pictures side by side); once approved, before and approved. */
+  function diffTable(diff, status = "pending") {
     const t = el("table", "crv-diff");
-    const head = el("tr"); for (const h of ["", "Now", "Proposed"]) { const th = el("th", null, h); th.setAttribute("scope", "col"); head.append(th); }
+    const head = el("tr"); for (const h of ["", status === "approved" ? "Before" : "Now", status === "approved" ? "Approved" : "Proposed"]) { const th = el("th", null, h); th.setAttribute("scope", "col"); head.append(th); }
     const thead = el("thead"); thead.append(head); t.append(thead);
     const body = el("tbody");
     for (const d of diff || []) {
@@ -142,6 +178,10 @@
   }
   function paintStatus(box, R) {
     const req = R.request;
+    // the same request in the same state is not drawn again (the live region would read it twice, and the keyboard would lose its place)
+    const key = req && req.status !== "draft" ? JSON.stringify([req.id, req.status, req.contentHash, req.message, req.diff, R.can.edit]) : "";
+    if (box.dataset.key === key && (key === "" || box.firstChild)) return;
+    box.dataset.key = key;
     box.replaceChildren();
     if (!req || req.status === "draft") return;
     const card = el("section", `crv-card crv-card--${req.status}`); card.setAttribute("aria-labelledby", "crv-req-title");
@@ -152,21 +192,21 @@
     const msg = el("p", "small crv-card__msg", req.message); msg.id = "crv-req-msg";
     card.append(head, msg);
     if (req.submittedAt && req.status === "pending") card.append(el("p", "tiny muted", `Sent ${when(req.submittedAt)} · version ${req.version}`));
-    if (req.diff && req.diff.length) card.append(diffTable(req.diff));
+    if (req.diff && req.diff.length) card.append(diffTable(req.diff, req.status));
     const row = el("div", "crv-row");
     if (req.status === "pending") {
-      row.append(button("Cancel request", () => send("cancel", { requestId: req.id }, "Request cancelled: your coin is as it was")));
+      row.append(button("Cancel request", () => send("cancel", { requestId: req.id }, "Request cancelled: your coin is as it was").then((r) => { if (r && r.ok) wantFocus("actions"); })));
       if (req.kind === "change" && R.can.edit) {
         row.append(button("Edit", () => {
           if (!window.confirm("Editing withdraws this version; the new version needs its own review. Edit it?")) return;
           formDirty = false;
-          send("edit", { requestId: req.id }, "Back to a draft");
+          send("edit", { requestId: req.id }, "Back to a draft").then((r) => { if (r && r.ok) wantFocus("form"); });
         }));
       }
     } else if (req.status === "changes_needed") {
-      if (req.kind === "change" && R.can.edit) row.append(button("Revise", () => { formDirty = false; send("edit", { requestId: req.id }, "A new draft, from your last version"); }, "btn btn--primary"));
+      if (req.kind === "change" && R.can.edit) row.append(button("Revise", () => { formDirty = false; send("edit", { requestId: req.id }, "A new draft, from your last version").then((r) => { if (r && r.ok) wantFocus("form"); }); }, "btn btn--primary"));
       else if (req.kind === "description") row.append(button("Revise", () => openDescribe(req.proposed && req.proposed.description)));
-      row.append(button("Cancel and keep the coin as it is", () => send("cancel", { requestId: req.id })));
+      row.append(button("Cancel and keep the coin as it is", () => send("cancel", { requestId: req.id }).then((r) => { if (r && r.ok) wantFocus("actions"); })));
     } // approved: nothing here (Request changes, under the card, makes the next request; one button for one thing)
     if (row.childNodes.length) card.append(row);
     box.append(card);
@@ -182,7 +222,7 @@
     if (R.can.reset) {
       box.append(button("Reset to Vicinity defaults", () => {
         if (!window.confirm("Go back to the Vicinity coin as the city list makes it (its picture, ticker, name and description)?")) return;
-        send("reset", {}, "Back to the Vicinity coin");
+        send("reset", {}, "Back to the Vicinity coin").then((r) => { if (r && r.ok) wantFocus("actions"); });
       }));
     }
   }
@@ -274,21 +314,22 @@
     try {
       const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-      // cropped to a centred square and shrunk under 190 KB, as the studio did (src/social.js readImage takes WebP, PNG or JPEG)
+      // cropped to a centred square PNG and shrunk under 190 KB (the server takes a square PNG of 64 to 1024 pixels a side, and the
+      // public address of an approved picture ends in .png: src/coinreview.js squarePng)
       const side = Math.min(img.width, img.height);
       let size = 512, out = "";
-      for (let k = 0; k < 5; k++) {
+      for (let k = 0; k < 6; k++) {
         const cv = document.createElement("canvas"); cv.width = cv.height = size;
         cv.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
-        out = cv.toDataURL("image/webp", 0.86);
-        if (!out.startsWith("data:image/webp")) out = cv.toDataURL("image/png");
+        out = cv.toDataURL("image/png");
         if (out.length * 0.75 < 190_000) break;
         size = Math.round(size * 0.8);
       }
+      if (!out.startsWith("data:image/png") || out.length * 0.75 >= 190_000) throw new Error("too big");
       draft.image = { type: out.slice(5, out.indexOf(";")), b64: out.slice(out.indexOf(",") + 1) };
       draft.picture = "upload"; formDirty = true;
       syncForm(last.review);
-    } catch { say("That picture couldn't be read. Use a PNG, JPEG or WebP."); }
+    } catch { say("That picture couldn't be read. Use a PNG, JPEG or WebP picture."); }
     input.value = "";
   }
   async function checkTicker() {
@@ -309,6 +350,9 @@
   }
   async function askSubmit() {
     if (formDirty || !draft.updatedAt) { const r = await saveDraft(); if (!r || !r.ok) return; }
+    // a draft that changes nothing is said before the question, not refused after it
+    const req = last && last.review && last.review.request;
+    if (!req || !req.diff || !req.diff.length) { say("Your draft changes nothing yet. Pick another picture, ticker or name first."); return; }
     confirmOpen = true;
     paintConfirm(last.review);
     const go = $("#crv-confirm-go"); if (go) go.focus();
@@ -329,8 +373,7 @@
       const r = await send("submit", { draftUpdatedAt: draft.updatedAt }, "Sent for review");
       if (r && r.ok) {
         formOpen = false; formDirty = false;
-        const s = $("#crv-req-tag"); // the keyboard goes to the new status ("Pending"), never back to the top of the page
-        if (s) { s.setAttribute("tabindex", "-1"); s.focus(); }
+        wantFocus("status"); // the keyboard goes to the new status ("Pending") and stays there however often the card is drawn again
       }
       else paint(last);
     }, "btn btn--primary"); go.id = "crv-confirm-go";
@@ -343,6 +386,7 @@
     formOpen = false; formDirty = false; confirmOpen = false;
     const box = $("#crv-form"); if (box) { box.dataset.built = ""; box.replaceChildren(); }
     paint(last);
+    wantFocus("actions");
   }
 
   /* ---------- the description ---------- */
@@ -391,7 +435,7 @@
       screening = r.screening;
       if (r.screening.result === "pass") { describeOpen = false; ctx.toast("Description checked: your coin uses it now"); }
       paint(last);
-      const res = $("#crv-desc-result"); if (res && res.firstChild && res.firstChild.focus) res.firstChild.focus();
+      wantFocus("result");
     } else if (r && r.error === "screening_error") {
       screening = { result: "error", text: ta.value, issues: [] };
       paint(last);
@@ -412,6 +456,9 @@
     return p;
   }
   function paintResult(box, s, R) {
+    const key = s ? JSON.stringify([s, R.description && R.description.source]) : "";
+    if (box.dataset.key === key && (key === "" || box.firstChild)) return; // the same result is not drawn (and read out) again
+    box.dataset.key = key;
     box.replaceChildren();
     if (!s) return;
     const card = el("section", `crv-card crv-card--${s.result}`); card.setAttribute("tabindex", "-1");
@@ -430,12 +477,12 @@
     if (s.result === "flag") {
       card.append(el("p", "small", "You can revise it, or send it to Vicinity for review; your launch waits until they decide. Or keep the default description, which needs no review."));
       row.append(button("Revise", () => openDescribe(s.text)));
-      if (s.id) row.append(button("Send for review", () => send("description/review", { screeningId: s.id }, "Sent for review").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); } }), "btn btn--primary"));
-      row.append(button("Keep the default", () => send("description/default", {}, "Default description").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); } })));
+      if (s.id) row.append(button("Send for review", () => send("description/review", { screeningId: s.id }, "Sent for review").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); wantFocus("status"); } }), "btn btn--primary"));
+      row.append(button("Keep the default", () => send("description/default", {}, "Default description").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); wantFocus("info"); } })));
     } else if (s.result === "block") row.append(button("Revise", () => openDescribe(s.text)));
     else if (s.result === "error") row.append(button("Try again", () => checkDescription()));
     else if (s.result === "pass" && R.description && R.description.source === "founder") {
-      row.append(button("Use the default instead", () => send("description/default", {}, "Default description").then((r) => { if (r && r.ok) { screening = null; paint(last); } })));
+      row.append(button("Use the default instead", () => send("description/default", {}, "Default description").then((r) => { if (r && r.ok) { screening = null; paint(last); wantFocus("info"); } })));
     }
     if (row.childNodes.length) card.append(row);
     box.append(card);

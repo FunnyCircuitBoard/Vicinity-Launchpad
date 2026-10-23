@@ -66,13 +66,16 @@
     text("#cr-pair", coin ? coin.pair : "SOL");
     text("#cr-desc", coin ? coin.description : "—");
     text("#cr-version", coin && coin.version ? `Design version ${coin.version}` : "");
-    const g = show("#cr-gate", Boolean(gate));
-    g.textContent = gate ? gate.message : "";
+    // a review that waits is said by the review card under the coin (its status and what it pauses), not a third time here
+    const reviewSays = Boolean(gate && gate.code === "request_pending" && r.review);
+    const g = show("#cr-gate", Boolean(gate) && !reviewSays);
+    g.textContent = gate && !reviewSays ? gate.message : "";
     const use = $("#cr-use"), st = $("#cr-state");
     let state = ["Ready to choose", "tag--gold"], note = "";
     if (chosen && chosen.launched) { state = ["Launched", "tag--ok"]; note = "Your coin launched with this design. Its picture and words are fixed for good."; }
     // the founder's own coin, approved on chain or being approved right now: it is theirs, said as that (the gate's words say the rest)
     else if (gate && r.inUse && ["approved", "held"].includes(gate.code)) state = [gate.code === "approved" ? "Approved" : "Your coin", "tag--ok"];
+    else if (gate && gate.code === "request_pending") state = ["Pending review", "tag--warn"];
     else if (gate) state = ["Not available now", "tag--warn"];
     else if (r.inUse) {
       state = ["Your coin", "tag--ok"];

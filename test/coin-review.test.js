@@ -20,9 +20,9 @@ import { sha256Hex } from "../src/coinart.js";
 import { _resetCityCache } from "../src/cities.js";
 import { _resetTickers } from "../src/tickers.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
-import { PROGRAM, SYRACUSE, UTICA, approvalAccount, b64, fresh, launchOnChain, meta, seenOf, world } from "./helpers/readyworld.js";
+import { PROGRAM, SYRACUSE, UTICA, approvalAccount, b64, fresh, launchOnChain, meta, pngOf, seenOf, world } from "./helpers/readyworld.js";
 
-const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c63f8ffff3f0005fe02fea7d6a3f40000000049454e44ae426082", "hex");
+const PNG = pngOf(64); // a whole, square PNG: what the page sends (src/coinreview.js squarePng)
 const PNG_B64 = PNG.toString("base64");
 let renders = 0;
 before(async () => { const r = await nodeRenderer(); _setArtRenderer(async (svg) => { renders++; return r(svg); }); });
@@ -311,7 +311,8 @@ test("a ticker change: free tickers only; approved, it waits for the city list (
   await w.env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES (?, 'Syracuse', 'US', ?, ?, 3, 1000000, 'active', ?, ?)").bind(SYRACUSE, ou.id, ou.wallet, at, at).run();
   const t2 = await w.get(other, `/api/coins/review/ticker-check?city=${SYRACUSE}&t=UTICANY`);
   assert.deepEqual([t2.available, t2.code], [false, "ticker_taken"]);
-  assert.match(t2.message, /requested by another city right now/);
+  // another city's request is private to its founder and the staff: only "not available", never that it waits or was approved
+  assert.equal(t2.message, "$UTICANY is not available. Pick another ticker.");
   // approve: waits for the city list; the answer says which line to add
   const ok = await w.decide({ id: p.id, action: "approve", contentHash: p.contentHash });
   assert.equal(ok.ok, true, JSON.stringify(ok));
@@ -320,12 +321,15 @@ test("a ticker change: free tickers only; approved, it waits for the city list (
   assert.deepEqual(q.waitingRegistry.map((x) => [x.ticker, x.registryPatch]), [["UTICANY", { [UTICA]: "UTICANY" }]]);
   let v = await w.ready();
   assert.deepEqual([v.coin.ticker, v.review.request.registryState], ["UTICANY", "waiting"]);
-  assert.match(v.review.request.message, /Your new ticker \$UTICANY goes into the Vicinity city list with the next site update; launch opens then\./);
-  assert.deepEqual(v.review.hold, { code: "registry_waiting", message: "Your new ticker $UTICANY is approved. It goes into the Vicinity city list with the next site update; launch opens then." });
-  assert.ok((await w.notices()).some((n) => /\$UTICANY goes into the city list with the next site update/.test(n)));
+  // nothing is automatic: an admin adds it in a site update, and then the coin goes into the owner's next round (never "launch opens then")
+  const waits = "Your new ticker $UTICANY is approved. It goes into the Vicinity city list once an admin adds it in a site update; then your coin goes into the owner's next approval round.";
+  assert.ok(v.review.request.message.includes(waits), v.review.request.message);
+  assert.deepEqual(v.review.hold, { code: "registry_waiting", message: waits });
+  assert.ok((await w.notices()).includes("Your coin change was approved. $UTICANY goes into the Vicinity city list once an admin adds it; then your coin goes into the owner's next approval round."));
+  assert.doesNotMatch(JSON.stringify(v), /launch opens then|with the next site update/);
   const c = await w.card();
   assert.equal(c.ok, false);
-  assert.match(c.reasons.join(" "), /The founder's new ticker \$UTICANY is approved\. .*ticker-overrides\.json, then a deploy/);
+  assert.match(c.reasons.join(" "), /The founder's new ticker \$UTICANY is approved and waits for the Vicinity city list \(scripts\/cities\/ticker-overrides\.json in a pull request, then a deploy\)/);
   // still another city's: no one else can request or be approved for UTICANY
   assert.equal((await w.get(other, `/api/coins/review/ticker-check?city=${SYRACUSE}&t=UTICANY`)).available, false);
   // the deploy: the list carries UTICANY; the job notices and says so once; the owner can approve it now
@@ -380,7 +384,7 @@ test("the founder's own description: a pass is used at once; a flag pauses nothi
   assert.equal(sent.ok, true, JSON.stringify(sent));
   assert.deepEqual([sent.review.request.kind, sent.review.request.status], ["description", "pending"]);
   assert.equal(sent.review.hold.code, "paused_description");
-  assert.equal(sent.review.hold.message, "Launch is paused while your description is reviewed. Going back to the default description ends the pause.");
+  assert.equal(sent.review.hold.message, "Launch is paused while your description is reviewed. Cancelling the review ends the pause; your coin keeps the description it has now.");
   assert.equal((await w.card()).ok, false);
   const row = (await w.queue()).reviews[0];
   assert.equal(row.kind, "description");
@@ -438,11 +442,14 @@ test("never publish unapproved content: a coin launched outside the site while a
   assert.equal(b.ok, true, JSON.stringify(b));
   advance(6 * 60_000);
   w.lp.S.accounts[await w.L.approval(BigInt(UTICA))] = approvalAccount({ cityId: UTICA, founder: w.f.w.address, rentPayer: w.owner.w.address, name: "Utica", symbol: "UTICA", expiresAt: Math.floor(Date.now() / 1000) + 7 * 86_400 });
-  // approved on chain: the coin is fixed; no request, no description, no reset
+  // approved on chain by hand (not built from the founder's chosen coin: no approved_hash): the coin is fixed as it was approved; no
+  // request, no description, no reset. (One built from the chosen coin lets them all: "an approval built from the founder's coin" below.)
+  await w.env.DB.prepare("UPDATE coin_ready SET approved_hash = NULL WHERE city_id = ?").bind(UTICA).run();
   for (const [path, body] of [["draft", { name: "Other Name", reason: "A reason that is long enough." }], ["description", { text: "The Handshake City on the Mohawk." }], ["reset", {}]]) {
     const r = await w.rv(path, body);
     assert.deepEqual([r.status, r.error], [409, "approved_on_chain"], path);
   }
+  await w.env.DB.prepare("UPDATE coin_ready SET approved_hash = content_hash WHERE city_id = ?").bind(UTICA).run();
   // a request smuggled in (straight into the table, as if the page had sent it before the approval): never published
   await w.env.DB.prepare(`INSERT INTO coin_versions (city_id, origin, content_json, content_hash, name, symbol, description, art_sha256, template_version, created_by, created_at)
     VALUES (?, 'change', '{}', ?, 'Smuggled', 'UTICA', 'x', 'y', 'upload', 1, 'now')`).bind(UTICA, "e".repeat(64)).run();

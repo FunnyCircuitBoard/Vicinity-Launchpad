@@ -23,6 +23,7 @@ import { decodeHeader, MAX_TX_BYTES } from "../src/sol/message.js";
 import { fromBase64 } from "../src/sol/bytes.js";
 import * as IX from "../src/sol/lpadmin-ix.js";
 import { programDataAddress, PROGRAM_IDS } from "../src/sol/pda.js";
+import { LAYOUT } from "../src/sol/layout.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
 import { CONFIG, PROGRAM, SYRACUSE, UTICA, approvalAccount, fresh, world } from "./helpers/readyworld.js";
 import { programDataAccount as meteoraProgramData, METEORA_AUTHORITY } from "./helpers/lpchain.js";
@@ -408,4 +409,76 @@ test("the founder's words with the round on: the launch opens after the owner's 
   for (const x of [v, st, ex]) assert.doesNotMatch(JSON.stringify(x), /24 hours|within a day|tomorrow|hours? from now/i);
   const probe = await w.get(w.owner, "/api/admin/lp");
   assert.equal(probe.batch, true);
+});
+
+/** Set one field of a fake account (the owner's switches on the launchpad: launches_paused). */
+function setField(S, address, layout, field, value) {
+  const f = LAYOUT[layout].fields[field];
+  const bytes = Buffer.from(S.accounts[address].data, "base64");
+  bytes[f.at] = Number(value);
+  S.accounts[address].data = bytes.toString("base64");
+}
+
+test("SEC-4: a pre-approved founder can still ask for changes or write a description: the round withdraws the approval while a request waits, and renews it for a changed coin", async () => {
+  const w = await batchWorld();
+  await w.useCoin();
+  advance(6 * 60_000);
+  await signRound(w, (await w.round()).groups.approve);
+  advance(6 * 60_000); // the round's hold on the design is over
+  await reprove(w.f);
+  // a request while approved: accepted (no "ask Vicinity to withdraw it first"); the round withdraws the approval while it waits
+  const d = await w.post(w.f, "/api/coins/review/draft", { cityId: UTICA, name: "Utica Falls", reason: "Locals call it the falls city since 1850." });
+  assert.equal(d.ok, true, JSON.stringify(d));
+  const s = await w.post(w.f, "/api/coins/review/submit", { cityId: UTICA, draftUpdatedAt: d.review.request.draft.updatedAt });
+  assert.equal(s.ok, true, JSON.stringify(s));
+  let r = await w.round();
+  const rv = ofCity(r, UTICA);
+  assert.equal(rv.group, "revoke");
+  assert.match(rv.why, /change request waits for review/);
+  assert.equal((await w.post(w.f, "/api/coins/review/cancel", { cityId: UTICA, requestId: s.review.request.id })).ok, true);
+  assert.equal(ofCity(await w.round(), UTICA), null, "cancelled: the approval stands, nothing to do today");
+  // a description that passes, written under the approval: the next round renews it for the coin as it is now (whatever time is left)
+  const desc = await w.post(w.f, "/api/coins/review/description", { cityId: UTICA, text: "The Handshake City on the Mohawk River, home of tomato pie." });
+  assert.equal(desc.used, true, JSON.stringify(desc));
+  assert.equal((await w.get(w.f, `/api/lp/launch/status?city=${UTICA}&cluster=devnet`)).why, "approval_changed");
+  r = await w.round();
+  const rn = ofCity(r, UTICA);
+  assert.deepEqual([rn.group, rn.contentHash], ["renew", desc.review.selected.contentHash]);
+  assert.match(rn.why, /changed the coin after this approval/);
+  advance(6 * 60_000);
+  await signRound(w, [rn]);
+  const st = await w.get(w.f, `/api/lp/launch/status?city=${UTICA}&cluster=devnet`);
+  assert.equal(st.state, "ready", JSON.stringify(st));
+});
+
+test("SEC-8: the round reads every city with a design, not only the 200 saved last: an older eligible founder is approved, an older approval renewed", async () => {
+  const w = await batchWorld();
+  await w.useCoin();
+  const old = "2026-01-01T00:00:00.000Z";
+  await w.env.DB.prepare("UPDATE city_coins SET updated_at = ? WHERE city_id = ?").bind(old, UTICA).run();
+  await w.env.DB.prepare("UPDATE coin_ready SET design_at = ? WHERE city_id = ?").bind(old, UTICA).run();
+  // 200 newer designs of other cities (no founder: blocked, but listed first)
+  const at = new Date(Date.now()).toISOString();
+  await w.env.DB.batch(Array.from({ length: 200 }, (_, i) => w.env.DB.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, updated_at, created_at)
+    VALUES (?, ?, 'US', 0, 0, ?, '', 'SOL', 'ink', ?, ?)`).bind(String(9_000_000 + i), `Town ${i}`, `Town ${i}`, at, at)));
+  advance(6 * 60_000);
+  const card = (await w.get(w.owner, "/api/admin/lp/candidates?cluster=devnet")).candidates;
+  assert.equal(card.length, 200, "the one-at-a-time card still lists the 200 saved last");
+  assert.equal(card.some((c) => c.cityId === UTICA), false);
+  const r = await w.round();
+  const u = ofCity(r, UTICA);
+  assert.equal(u && u.group, "approve", JSON.stringify(u));
+});
+
+test("UX-3: launches paused when the round lands: the founder is told the approval is there, never that they can launch now", async () => {
+  const w = await batchWorld();
+  await w.useCoin();
+  advance(6 * 60_000);
+  setField(w.lp.S, await w.L.launchpad(), "Launchpad", "launches_paused", 1);
+  const round = await w.round();
+  await signRound(w, round.groups.approve);
+  const texts = (await w.all("SELECT text FROM notices ORDER BY id")).map((n) => n.text);
+  assert.ok(texts.includes("Your launch approval is on the blockchain. Launches are paused for now; you can launch $UTICA once they resume."), JSON.stringify(texts));
+  assert.equal(texts.some((t) => /launch \$UTICA now/.test(t)), false);
+  assert.equal((await w.get(w.f, `/api/lp/launch/status?city=${UTICA}&cluster=devnet`)).state, "paused");
 });

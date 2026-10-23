@@ -4,6 +4,7 @@
 // test/coin-ready-launch.test.js and test/coin-ready-recheck.test.js (each sets the art renderer and resets the modules itself).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import zlib from "node:zlib";
 import { BOUNDS, CITIES, IN_UTICA, MINT, newWorld, person, useClock, chain } from "./world.js";
 import { GENESIS } from "../../src/lpkit.js";
 import { _resetCityCache } from "../../src/cities.js";
@@ -20,6 +21,18 @@ export const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS =
 export const LOADER = PROGRAM_IDS.upgradeableLoader, WSOL = ADDRESSES.wsol, METAPLEX = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 export const UTICA = "5142056";
 export const b64 = (u8) => Buffer.from(u8).toString("base64");
+/** A real, whole PNG: `w` x `h` pixels of one colour (an uploaded coin picture must be a square PNG of 64 to 1024 px: src/coinreview.js). */
+export function pngOf(w = 64, h = w, rgb = [200, 40, 40]) {
+  const chunk = (type, data) => {
+    const t = Buffer.from(type, "latin1"), len = Buffer.alloc(4), crc = Buffer.alloc(4);
+    len.writeUInt32BE(data.length); crc.writeUInt32BE(zlib.crc32(Buffer.concat([t, data])));
+    return Buffer.concat([len, t, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  const row = Buffer.concat([Buffer.of(0), Buffer.from(Array.from({ length: w }, () => rgb).flat())]);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))), chunk("IEND", Buffer.alloc(0))]);
+}
 export let n = 0;
 export const fresh = () => base58Encode(Uint8Array.from({ length: 32 }, (_, j) => (++n * 37 + j * 11 + 5) & 255));
 export const CONFIG = fresh();
