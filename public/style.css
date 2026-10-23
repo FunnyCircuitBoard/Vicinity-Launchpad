@@ -1219,15 +1219,16 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 /* a guest (theme.js, before the first paint): while /api/me answers, the signed-out page holds its place unseen (no Tab stop, nothing
    read out), so nothing under it moves when it shows; dashboard.js drops .is-pending on the answer. Without JavaScript it stays hidden. */
 :root[data-guest] .dash-out.is-pending[hidden] { display: block !important; visibility: hidden; }
-/* a browser that has shown a member here (no data-guest; data-theme says theme.js ran): until /api/me answers, the public roles section
-   waits, so a returning member's first paint is never the rules at the top of the page, then a jump (CLS 0.93 at 390 px). A browser whose
-   last visit was the tabbed dashboard (theme.js data-dash-v2) shows its placeholders from the first paint. Both give way when
-   dashboard.js drops .is-pending (in the same task as what takes their place); the roles also wait while the placeholders show (the
-   tabbed dashboard folds them into its Profile tab). Meanwhile the page is at least a screen tall, so the footer waits below the fold
-   instead of jumping down from mid-screen when the page fills in */
+/* a browser that has shown a member here (theme.js data-returning: its storage said so; nothing is held where it cannot be read): until
+   /api/me answers, the public roles section waits, so a returning member's first paint is never the rules at the top of the page, then a
+   jump (CLS 0.93 at 390 px). A browser whose last visit was the tabbed dashboard (theme.js data-dash-v2) shows its placeholders from the
+   first paint. Both give way when dashboard.js drops .is-pending (in the same task as what takes their place), or when theme.js does
+   because dashboard.js never will (a script that failed or threw, no answer within 5 s, Back to a page that had left); the roles also wait
+   while the placeholders show (the tabbed dashboard folds them into its Profile tab). Meanwhile the page is at least a screen tall, so the
+   footer waits below the fold instead of jumping down from mid-screen when the page fills in */
 :root[data-dash-v2] .dash-out.is-pending ~ #dash-skel[hidden] { display: block !important; }
-:root[data-theme]:not([data-guest]) .dash-out.is-pending ~ #roles, #dash-skel:not([hidden]) ~ #roles { display: none; }
-:root[data-theme]:not([data-guest]) main:has(> .dash-out.is-pending), main:has(> #dash-skel:not([hidden])) { min-height: 100vh; }
+:root[data-returning] .dash-out.is-pending ~ #roles, #dash-skel:not([hidden]) ~ #roles { display: none; }
+:root[data-returning] main:has(> .dash-out.is-pending), main:has(> #dash-skel:not([hidden])) { min-height: 100vh; }
 .teaser { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: center; }
 @media (max-width: 900px) { .teaser { grid-template-columns: minmax(0, 1fr); gap: 34px; } }
 .onboard { max-width: 720px; margin: 0 auto; }

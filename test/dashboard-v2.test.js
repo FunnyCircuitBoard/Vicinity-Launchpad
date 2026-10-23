@@ -298,7 +298,7 @@ test("dashboard.js fetches dashboard-v2.js only when /api/me says dashboardV2 ==
   assert.match(dash, /const v2Coin = \(\) => \{ if \(v2\) v2\.coin\(\{ coin: coinData, vicMint \}\); \};/);
   assert.equal((dash.match(/v2Coin\(\);/g) || []).length, 3, "after the coin loads, after a design is saved, after a contract is sent");
   assert.match(dash, /seat\.status === "active" \|\| \(v2 && seat\.status === "steward"\)/, "a Seed Steward gets the studio only under v2 (the server allows both)");
-  assert.match(dash, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true; if \(d\.dashboardV2 !== true\) \{ try \{ localStorage\.removeItem\(V2_KEY\); \} catch \{\} \} \}/, "the skeleton hint is dropped the moment the switch is off");
+  assert.match(dash, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true; if \(d\._status === 200 && \(d\.dashboardV2 !== true \|\| !d\.signedIn\)\) \{ try \{ localStorage\.removeItem\(V2_KEY\); \} catch \{\} \} \}/, "the skeleton hint is dropped the moment the switch is off (on a real answer: review EDGE-4)");
   assert.match(dash, /setTimeout\(\(\) => done\(null\), 4000\)/, "a slow or failing script falls back to today's dashboard");
 });
 

@@ -50,7 +50,15 @@
   // a phone: the strip is icons (polish-dash.css, the same query): the glass pill sits behind the chosen tab's icon, the fit steps are not needed
   const ICONS = "(max-width: 600px)";
   const iconMode = () => Boolean(window.matchMedia && window.matchMedia(ICONS).matches);
-  const HEADER = 67; // the site header: 66px plus its 1px border
+  // Where a jump may put something: under the site header and, for a card in a tab, under the strip where it sticks. Read from the page,
+  // never assumed: the header is 8 px down on a phone, or under a notched iPhone's status bar in a full-screen web view (style.css:
+  // env(safe-area-inset-top), --header-h follows), 12 px down on a computer; its place in the page is where it sticks, so its bottom edge
+  // is the same at any scroll. The strip sticks at its own top (polish-dash.css: 6 px under --header-h on a phone).
+  const headerBottom = () => { const h = document.querySelector(".site-header"); return h ? h.getBoundingClientRect().bottom : 68; };
+  const stripBottom = () => {
+    const strip = byId("dash-tabs"), cs = typeof window.getComputedStyle === "function" ? window.getComputedStyle(strip) : null, top = cs ? parseFloat(cs.top) : NaN;
+    return (Number.isFinite(top) ? top : headerBottom()) + strip.offsetHeight;
+  };
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
 
@@ -137,7 +145,7 @@
     if (ALIAS[h]) return { tab: ALIAS[h], target: "#" + h, ok: false };
     return { tab: "home", target: null, ok: false };
   }
-  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - HEADER - 8;
+  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - headerBottom() - 8;
   function go(tab, { push = true, scroll = true, replace = false } = {}) {
     if (!TABS.includes(tab)) tab = "home";
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
@@ -346,14 +354,14 @@
     const target = $(sel);
     if (!target) return;
     const panel = target.closest(".dpanel");
-    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - HEADER - 12, behavior: behavior() }); return; }
+    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - headerBottom() - 12, behavior: behavior() }); return; }
     const tab = panel.id.slice("panel-".length);
     go(tab, { push: tab !== active, scroll: false });
     if (active !== tab) return; // the tab is gated (Moderate without rights): it opens when the rights arrive
     for (let d = target.closest("details"); d; d = d.parentElement ? d.parentElement.closest("details") : null) d.open = true;
     if (openRole) { const r = $("#roles").querySelector(`details[data-role="${openRole}"]`); if (r) r.open = true; }
     if (target.closest("[hidden]")) return; // a card that is not shown right now (no squad, no studio): the tab is enough
-    const top = target.getBoundingClientRect().top + window.scrollY - (HEADER + $("#dash-tabs").offsetHeight + 12);
+    const top = target.getBoundingClientRect().top + window.scrollY - (stripBottom() + 12);
     window.scrollTo({ top, behavior: behavior() });
     if (focus) {
       if (!target.matches("input, textarea, select, button, a[href], [tabindex]")) target.setAttribute("tabindex", "-1");

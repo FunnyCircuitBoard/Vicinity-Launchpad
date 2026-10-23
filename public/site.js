@@ -407,6 +407,20 @@
     return d;
   });
 
+  /* ---------- Log out: one way out for every button that signs out (the account sheet, the dashboard's Profile tab, its "Log in
+     again") ----------
+     The session ends, this browser forgets the tabbed dashboard (theme.js would show its placeholders to whoever comes next here), and
+     the page goes to `next`. A page left this way and brought back by Back (the back/forward cache keeps it as it was) is drawn again
+     for the signed-out person, never with the member's avatar, name or dashboard. */
+  let loggedOut = false;
+  async function logout(next = "/") {
+    await api("/api/auth/logout", {});
+    loggedOut = true;
+    try { localStorage.removeItem("vicinity:dash-v2"); } catch {}
+    location.assign(next);
+  }
+  window.addEventListener("pageshow", (e) => { if (e && e.persisted && loggedOut) location.reload(); });
+
   /* ---------- the account sheet: the header's one avatar (signed in) ----------
      One button, top right, on every page: the member's initial (the site has no member pictures). It opens one sheet (a bottom sheet on
      a phone, a small popover under the avatar on a computer: polish.css, the same query as SHEET_MQ) with the username and the home
@@ -497,16 +511,9 @@
       e.preventDefault(); close(false);
       go((a.getAttribute("href") || "").split("#")[1] || "profile");
     });
-    let loggedOut = false;
-    $("[data-acct-logout]", sheet).addEventListener("click", async (e) => {
-      e.currentTarget.disabled = true;
-      await api("/api/auth/logout", {});
-      loggedOut = true;
-      location.assign("/");
-    });
+    $("[data-acct-logout]", sheet).addEventListener("click", (e) => { e.currentTarget.disabled = true; logout("/"); });
     // leaving the page (a link in the sheet, Log out, Back): the sheet goes at once, so a page the browser keeps and brings back (the
-    // back/forward cache: an iPhone's swipe back, Android's Back) is never shown with the sheet up and the page held still under it;
-    // and a page left by Log out is drawn again for the signed-out person, never with the member's avatar and name
+    // back/forward cache: an iPhone's swipe back, Android's Back) is never shown with the sheet up and the page held still under it
     window.addEventListener("pagehide", () => {
       if (state === "closed") return;
       stopAnims(); drag = null; panel.style.transform = "";
@@ -514,7 +521,6 @@
       btn.setAttribute("aria-expanded", "false");
       document.documentElement.classList.remove("acct-open");
     });
-    window.addEventListener("pageshow", (e) => { if (e && e.persisted && loggedOut) location.reload(); });
     // a phone: the sheet follows a finger dragging it down from its top, and goes once it is pulled far enough (or flicked)
     panel.addEventListener("pointerdown", (e) => {
       if (state !== "open" || e.pointerType === "mouse" || !phone() || panel.scrollTop > 0) return;
@@ -647,5 +653,6 @@
   window.V = { $, $$, el, fmt, compact, mask, short, ago, isAddr, initials, toast, burst, copy, api, getLocation, webView, takeCarry, takeLink, walletApp, termsGate, liveNums, reveal,
     get reduced() { return reducedNow(); }, // read when it is needed: the device setting can change while the page is open
     me: () => meLite, ready, official, opensAt: () => opensAt, launchOpen, siteMode: () => siteMode,
-    setAccount: (u) => setAccount(u) }; // the dashboard keeps the account sheet's name and home in step with /api/me
+    setAccount: (u) => setAccount(u), // the dashboard keeps the account sheet's name and home in step with /api/me
+    logout };
 })();

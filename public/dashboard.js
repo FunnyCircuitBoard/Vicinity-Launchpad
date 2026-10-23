@@ -12,7 +12,7 @@
 // (the chain's symbol once launched, else the city list's): this file never makes one up from the city's name.
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal, isAddr } = window.V;
+  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal, isAddr, logout } = window.V;
   const W = window.VW;
   // the wallet app this person uses on this phone, and the one whose browser this is (site.js): null on a computer and in Safari
   const WA = window.V.walletApp || { here: () => null, remembered: () => null, remember() {} };
@@ -155,7 +155,7 @@
   $("#proof-cancel").addEventListener("click", () => closeProof(false));
   $("#proof-login").addEventListener("click", async () => {
     const again = Boolean(me && me.user && me.user.wallet); // (the 7 days after a wallet joined from another app: say why on the Log in tab)
-    closeProof(false); await api("/api/auth/logout", {}); location.assign(again ? "/connect?mode=login&error=relogin_confirm" : "/connect?mode=login");
+    closeProof(false); await logout(again ? "/connect?mode=login&error=relogin_confirm" : "/connect?mode=login");
   });
   /** Run a sensitive call; if the server asks, confirm with the wallet and try once more. An answer that needs a wallet points at the link card. */
   async function sensitive(call) {
@@ -435,7 +435,7 @@
     if (!confirm(`Remove this wallet (${wn.wallet}) from your account? ${k ? k.name : "The wallet app"} will be logged out of Vicinity.`)) return;
     const r = await api("/api/me/wallet/disown", {});
     if (r.ok) { toast(r.passwordCleared ? "Wallet removed. Other browsers are logged out. Set a new password with “Forgot password”." : "Wallet removed. Other browsers are logged out."); linkedNow = false; await refresh(); return; }
-    if (r.error === "relogin") { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin"); return; } // a fresh login first (a stolen old cookie can't)
+    if (r.error === "relogin") { await logout("/connect?mode=login&error=relogin"); return; } // a fresh login first (a stolen old cookie can't)
     toast(DISOWN_ERR[r.error] || errText({}, r, "Couldn't remove it. Tap Feedback and we'll help."));
   }
 
@@ -1750,7 +1750,7 @@
     e.replaceChildren(...(text ? [text] : []));
     if (relogin) {
       const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Log in again";
-      b.addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin_confirm"); });
+      b.addEventListener("click", () => logout("/connect?mode=login&error=relogin_confirm"));
       e.append(" ", b);
     }
     e.hidden = !text;
@@ -1854,7 +1854,7 @@
     try { localStorage.removeItem(WCARD_SKIP); } catch {}
     await refresh(); openProfile();
   });
-  $("#profile-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
+  $("#profile-logout").addEventListener("click", () => logout("/"));
   $("#username-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = $("#username-err"); err.hidden = true;
@@ -2074,9 +2074,11 @@
     const d = await api("/api/me");
     const unhold = () => out.classList.remove("is-pending"); // the held room gives way, in the same task as what takes its place
     const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
-    if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
+    // the tabbed dashboard's key: forgotten on a real answer that will not show it (the switch is off, or nobody is signed in here: a guest
+    // on a browser a member once used gets no member placeholders next time); an answer that failed (500, 401, offline) says nothing
+    if (!tabbed) { $("#dash-skel").hidden = true; if (d._status === 200 && (d.dashboardV2 !== true || !d.signedIn)) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
-      if (d.pending || d.proof) { location.assign("/connect"); return; }
+      if (d.pending || d.proof) { unhold(); location.assign("/connect"); return; } // (unheld: a page Back brings back shows the roles)
       unhold();
       preview();
       out.hidden = false; return;
@@ -2130,5 +2132,10 @@
     if (linked && d.user.wallet) { const k = appNamed(d.user.walletApp); toast(k ? `${k.name} connected ✓` : "Wallet linked ✓"); const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40); }
     if (!v2 && params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
-  })();
+  })().catch((e) => {
+    // whatever went wrong on the way, the page is not left held: the placeholders go and the roles show (today's page; theme.js does the
+    // same when this file never runs at all), and the error still reaches the console
+    $("#dash-skel").hidden = true; $("#dash-out").classList.remove("is-pending");
+    console.error(e);
+  });
 })();

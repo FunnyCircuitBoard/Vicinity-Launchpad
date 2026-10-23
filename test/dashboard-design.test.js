@@ -111,7 +111,7 @@ test("D2 at runtime: the header's one avatar shows the person's initial, the Mod
 test("D4: the Pass has no Sign out (Log out lives in Profile, the same action) and one line of facts: masked wallet, a copy button, how you sign in, Live", () => {
   assert.doesNotMatch(src, /id="me-logout"|Sign out/);
   assert.match(src, /<button class="btn btn--glass btn--block profile__logout" type="button" id="profile-logout">Log out<\/button>/);
-  assert.match(dash, /\$\("#profile-logout"\)\.addEventListener\("click", async \(\) => \{ await api\("\/api\/auth\/logout", \{\}\); location\.assign\("\/"\); \}\);/, "the same action as the Pass's old Sign out");
+  assert.match(dash, /\$\("#profile-logout"\)\.addEventListener\("click", \(\) => logout\("\/"\)\);/, "the same action as the Pass's old Sign out (site.js V.logout: the request, then the home page)");
   const bottom = src.match(/<div class="pass__bottom">[\s\S]*?\n            <\/div>/)[0];
   assert.match(bottom, /<span class="pass__wallet"><span class="mono" data-me-wallet><\/span><button class="pass__copy" type="button" id="me-copy" aria-label="Copy your wallet address" title="Copy"><svg /);
   assert.match(bottom, /<span class="pass__provider" data-me-login><\/span>/);

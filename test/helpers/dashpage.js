@@ -58,8 +58,10 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
  *   wallets          Wallet Standard wallets in this browser ([] = none, like a phone's Safari)
  *   confirm          the answer to window.confirm (default true)
  *   globals          browser features this window lacks by default, set before the scripts run (e.g. { ResizeObserver })
+ *   without          page scripts that did not load (["wallets.js"]: its request failed): the others still run, and one that throws
+ *                    stops only itself, as in a browser (scriptErrors)
  */
-export async function openDashboard({ ua = UA.desktop, search = "", hash = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {} } = {}) {
+export async function openDashboard({ ua = UA.desktop, search = "", hash = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {}, without = [] } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("dashboard.html")));
   let now = 0, seq = 0, hidden = false;
@@ -153,7 +155,11 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
     }
     now = until; await flush();
   }
-  for (const f of ["site.js", "wallets.js", "dashboard-roles.js", "dashboard.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
+  const scriptErrors = [];
+  for (const f of ["site.js", "wallets.js", "dashboard-roles.js", "dashboard.js"]) {
+    if (without.includes(f)) continue;
+    try { vm.runInContext(read(f), ctx, { filename: `public/${f}` }); } catch (e) { if (!without.length) throw e; scriptErrors.push(e); }
+  }
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);
   await flush();
@@ -165,7 +171,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
   const $ = (s) => doc.querySelector(s);
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
-    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms,
+    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms, scriptErrors,
     /** A Wallet Standard wallet registers now (a wallet app's browser injects it a moment late). */
     register: async (w) => { register(w); await flush(); noteToast(); },
     advance: async (ms) => { await advance(ms); noteToast(); },

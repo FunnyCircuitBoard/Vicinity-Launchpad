@@ -27,13 +27,36 @@
   // the retired "Pause animations" choice: forgotten once (nothing reads it any more)
   try { localStorage.removeItem("vicinity-motion"); } catch {}
 
-  // A guest: this browser has never shown a signed-in page here (site.js remembers one, and so does the tabbed dashboard). Set before
-  // the first paint, so a page can hold the room of what a guest will see while it asks the server (style.css: the signed-out dashboard,
-  // the header's Sign up).
-  try { if (localStorage.getItem("vicinity-account") !== "1" && localStorage.getItem("vicinity:dash-v2") !== "1") root.dataset.guest = ""; } catch {}
-  // Someone whose last visit here was the tabbed dashboard (dashboard.js's key): its placeholders show from the first paint (style.css),
-  // not once dashboard.js has run, so a returning member never sees the public rules at the top of the page first
-  try { if (localStorage.getItem("vicinity:dash-v2") === "1") root.dataset.dashV2 = ""; } catch {}
+  // What this browser remembers, set before the first paint, so a page can hold the room of what it will show while it asks the server:
+  //   data-guest      it has never shown a signed-in page here (site.js remembers one, and so does the tabbed dashboard): the signed-out
+  //                   dashboard's room, the header's Sign up (style.css)
+  //   data-returning  it has: the dashboard's public roles wait for the answer (style.css), so a member's first paint is never them
+  //   data-dash-v2    its last visit was the tabbed dashboard (dashboard.js's key): its placeholders show from the first paint
+  // Storage that cannot be read sets none of them: today's page, nothing held back (a first visit as far as anyone can tell).
+  try {
+    const member = localStorage.getItem("vicinity-account") === "1", tabbed = localStorage.getItem("vicinity:dash-v2") === "1";
+    if (member || tabbed) root.dataset.returning = ""; else root.dataset.guest = "";
+    if (tabbed) root.dataset.dashV2 = "";
+  } catch {}
+
+  // The dashboard's first-paint hold (style.css: #dash-out.is-pending) ends when dashboard.js has the answer. If that never comes (a script
+  // that did not load or threw, an answer that never arrives, a page brought back by Back after it left), it ends here anyway: the roles
+  // show (today's page) and the placeholders go, never a screen of placeholders or a blank page that stays. dashboard.js carries on if it
+  // can (a late answer still opens the dashboard). The same file sets the hold and its way out, so one never runs without the other.
+  const HOLD_MS = 5000;
+  const unhold = () => {
+    const out = document.getElementById("dash-out");
+    if (!out || !out.classList.contains("is-pending")) return; // not the dashboard, or it has decided
+    out.classList.remove("is-pending");
+    const skel = document.getElementById("dash-skel");
+    if (skel) skel.hidden = true;
+  };
+  // an error thrown by a script (on the window itself), or a script that did not load (its element's error reaches the window only in
+  // the capture phase); a picture that did not load is not a reason
+  window.addEventListener("error", (e) => { if (!e.target || e.target === window || e.target.tagName === "SCRIPT") unhold(); }, true);
+  window.addEventListener("unhandledrejection", unhold);
+  window.addEventListener("pageshow", (e) => { if (e.persisted) unhold(); });
+  setTimeout(unhold, HOLD_MS);
 
   document.addEventListener("DOMContentLoaded", () => {
     apply(root.dataset.theme);

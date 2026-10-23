@@ -67,11 +67,13 @@ test("the account sheet: a modal dialog named for what it is and whose (\"Your a
   assert.match(polish, /\.acct__panel \{ position: absolute; left: 0; right: 0; bottom: 0;/, "a phone: a bottom sheet");
   assert.match(block(polish, "@media (min-width: 601px)"), /\.acct__panel \{ left: auto; bottom: auto; top: calc\(var\(--header-h\) \+ 8px\); right: max\(var\(--gutter\), calc\(\(100% - 1152px\) \/ 2\)\); width: 360px;/, "a computer: a popover under the avatar");
   assert.match(site, /const SHEET_MQ = "\(max-width: 600px\)";/, "the script's phone is the style's");
-  // a member's browser never flashes Log in before the avatar (theme.js data-guest, like Sign up)
-  assert.match(polish, /:root:not\(\[data-guest\]\) \[data-account\]:not\(\.is-shown\) \{ display: none; \}/);
+  // a member's browser never flashes Log in before the avatar (theme.js data-guest, like Sign up); only once theme.js has run (data-theme):
+  // without JavaScript nothing answers, and Log in stays (review SW-2)
+  assert.match(polish, /\n:root\[data-theme\]:not\(\[data-guest\]\) \[data-account\]:not\(\.is-shown\) \{ display: none; \}/);
   // and keeps the avatar's room unseen until the answer: !important, or style.css's [hidden] { display: none !important } wins and the
   // avatar pops in (the theme switch beside it moving 44 px on a computer)
-  assert.match(polish, /:root:not\(\[data-guest\]\) \.hdr-avatar\[hidden\]:not\(\.is-off\) \{ display: inline-grid !important; visibility: hidden; \}/);
+  assert.match(polish, /\n:root\[data-theme\]:not\(\[data-guest\]\) \.hdr-avatar\[hidden\]:not\(\.is-off\) \{ display: inline-grid !important; visibility: hidden; \}/);
+  assert.doesNotMatch(polish, /\n:root:not\(\[data-guest\]\)/, "no header rule that holds anything back without theme.js");
   assert.match(read("public/style.css"), /\[hidden\] \{ display: none !important; \}/, "(the rule it has to beat)");
   // motion: the Web Animations API, at once with reduced motion; site.js never names the tabbed dashboard (it hands over V.accountGo)
   assert.match(site, /if \(reducedNow\(\) \|\| typeof panel\.animate !== "function"\) \{ if \(done\) done\(\); return; \}/);
