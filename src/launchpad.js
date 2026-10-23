@@ -80,6 +80,8 @@ async function countryName(env, cc) {
 }
 /** Forget everything this server remembers for the Launchpad: the list, the country names, every market source's answers. */
 export const _resetLaunchpad = () => { countryNames = null; memo = new WeakMap(); _resetMarketLive(); _resetLaunchlab(); };
+/** Forget this server's copy of the list (an admin's takedown changed a coin's words: src/cointakedown.js); the market answers stay. */
+export const forgetLaunchpadList = (env) => { if (env && env.DB) memo.delete(env.DB); };
 
 /** Holder counts the job wrote: Map(mint -> { count, asOf }). Empty, and a note in the log, when the table cannot be made. */
 async function holderCounts(env) {

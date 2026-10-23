@@ -263,16 +263,49 @@ export const approvedBasis = (db, cityId, { name, symbol, art }) => reviewRead((
     WHERE r.city_id = ? AND r.kind = 'change' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.name = ? AND v.symbol = ? AND v.art_sha256 = ?
     ORDER BY r.id DESC LIMIT 1`).bind(String(cityId), name, symbol, art).first());
 /**
- * A description a person approved for this city: a DESCRIPTION request (the reviewer read exactly that text, flagged spans and all)
- * approved with exactly that text. Its row, or null. A change request's approval never counts for its description: the reviewer was
- * asked about the picture, ticker and name, and the description only came along from the coin it started from.
+ * An admin's takedown of a founder's description (src/cointakedown.js) is kept as a coin_screenings row of its own: target "description",
+ * result "block", rules_version TAKEDOWN, the taken-down text, the admin as user_id (never the founder's own check, which src/coinreview.js
+ * reads by the founder's id). From then on that text is never vouched for by an earlier pass or approval: it passes again only through a
+ * person's review decided AFTER the takedown.
  */
-export const approvedDescription = (db, cityId, text) => reviewRead(() => db.prepare(`SELECT r.id FROM coin_requests r JOIN coin_versions v ON v.id = r.version_id
-    WHERE r.city_id = ? AND r.kind = 'description' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.description = ? ORDER BY r.id DESC LIMIT 1`)
-  .bind(String(cityId), String(text || "")).first());
-/** A passing screening of exactly this description for this city (any rules version: the routes screen again before a launch). */
-export const passedScreening = async (db, cityId, text) => reviewRead(async () => db.prepare(`SELECT id, rules_version FROM coin_screenings
-    WHERE city_id = ? AND target = 'description' AND result = 'pass' AND text_sha256 = ? ORDER BY id DESC LIMIT 1`).bind(String(cityId), await sha256Hex(String(text || ""))).first());
+export const TAKEDOWN = "takedown";
+// "since": by row order (the screening a pass is, or the one a description request was sent from), never by clock (two at one instant)
+const NOT_TAKEN_DOWN = (alias, sinceId) => `NOT EXISTS (SELECT 1 FROM coin_screenings t WHERE t.city_id = ${alias}.city_id AND t.target = 'description'
+      AND t.rules_version = '${TAKEDOWN}' AND t.text_sha256 = ? AND t.id > ${sinceId})`;
+/**
+ * The takedown row of a text (src/cointakedown.js writes it in the batch that takes the text down). `target`: "description", or "name" (a
+ * coin name a reviewer had approved: kept for the founder's card and the reviewers; only a description's row stops vouching).
+ */
+export const takedownStatement = async (db, { cityId, adminId, text, reason, at, target = "description" }) => db.prepare(`INSERT INTO coin_screenings (city_id, user_id, target, text, text_sha256,
+    result, issues_json, rules_version, created_at) VALUES (?, ?, ?, ?, ?, 'block', ?, '${TAKEDOWN}', ?)`)
+  .bind(String(cityId), adminId, target === "name" ? "name" : "description", String(text || ""), await sha256Hex(String(text || "")),
+    JSON.stringify([{ code: "taken_down", severity: "flag", reason }]), at);
+/** When an admin last took this text down as this city's description (an ISO time), or null (no review tables: never). */
+export async function takenDownAt(db, cityId, text) {
+  const row = await reviewRead(async () => db.prepare(`SELECT created_at FROM coin_screenings WHERE city_id = ? AND target = 'description' AND rules_version = '${TAKEDOWN}'
+      AND text_sha256 = ? ORDER BY id DESC LIMIT 1`).bind(String(cityId), await sha256Hex(String(text || ""))).first());
+  return row ? row.created_at : null;
+}
+/**
+ * A description a person approved for this city: a DESCRIPTION request (the reviewer read exactly that text, flagged spans and all)
+ * approved with exactly that text, and not taken down by an admin since it was sent (a takedown after the check it was sent from). Its
+ * row, or null. A change request's approval never counts for its description: the reviewer was asked about the picture, ticker and
+ * name, and the description only came along from the coin it started from.
+ */
+export const approvedDescription = async (db, cityId, text) => reviewRead(async () => db.prepare(`SELECT r.id FROM coin_requests r JOIN coin_versions v ON v.id = r.version_id
+    WHERE r.city_id = ? AND r.kind = 'description' AND r.status = 'approved' AND r.decided_hash = r.content_hash AND v.description = ?
+      AND ${NOT_TAKEN_DOWN("r", "COALESCE(r.screening_id, 0)")} ORDER BY r.id DESC LIMIT 1`)
+  .bind(String(cityId), String(text || ""), await sha256Hex(String(text || ""))).first());
+/**
+ * A passing screening of exactly this description for this city, not taken down by an admin since (any rules version: the routes screen
+ * again before a launch).
+ */
+export const passedScreening = async (db, cityId, text) => {
+  const sha = await sha256Hex(String(text || ""));
+  return reviewRead(async () => db.prepare(`SELECT s.id, s.rules_version FROM coin_screenings s
+      WHERE s.city_id = ? AND s.target = 'description' AND s.result = 'pass' AND s.text_sha256 = ? AND ${NOT_TAKEN_DOWN("s", "s.id")} ORDER BY s.id DESC LIMIT 1`)
+    .bind(String(cityId), sha, sha).first());
+};
 /** Vicinity's own sentence for a version's city (the same words as src/coindefaults.js defaultDescription; test/coin-review.test.js checks both). */
 export function cityDescription(city) {
   const c = city || {}, parts = [c.name];

@@ -265,3 +265,10 @@ test("the request card follows the coin: Before / Approved once decided; the cap
   assert.equal(p2.text("#crv-err"), "Your draft changes nothing yet. Pick another picture, ticker or name first.");
   assert.equal(posts.some(([path]) => path === "/api/coins/review/submit"), false);
 });
+
+test("NEW-1: after an admin's takedown the description line says what happened, in the server's words (until the founder changes the coin again)", async () => {
+  const message = "Vicinity took down your description (abuse or hate). Your coin uses Vicinity's own description now. If you send the same words again, a person reviews them first.";
+  const { page } = await open(() => answer({}, REVIEW({ description: { source: "default", text: COIN.description, screening: null, takenDown: { at: "2026-10-20T12:00:00Z", message } } })));
+  assert.equal(page.text("#crv-desc-info"), `Description: Vicinity's default. ${message}`);
+  assert.equal(page.$("#crv-desc-info").children.length, 0, "text only");
+});

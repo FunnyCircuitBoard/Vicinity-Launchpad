@@ -186,19 +186,18 @@ test("SEC-6: an approved upload is cached briefly (not a year) until a launched 
   assert.equal(art.headers.get("Cache-Control"), "public, max-age=300");
   // Vicinity's own picture is the coin's for ever, as before
   assert.equal((await meta(w.env, coin.art)).headers.get("Cache-Control"), "public, max-age=31536000, immutable");
-  // the takedown: the address answers 404, the coin can't launch with it, the founder is told; the log has it
+  // the takedown (src/cointakedown.js): the address answers 404, the coin that used it is Vicinity's coin again (never a broken picture,
+  // nothing to reset), the founder is told; the log has it
   const td = await w.post(w.owner, "/api/coins/takedown", { city: UTICA, what: "art", sha, reason: "illegal", note: "A logo they don't own." });
   assert.equal(td.ok, true, JSON.stringify(td));
   assert.equal((await meta(w.env, `/coin-meta/art/${sha}.png`)).status, 404);
-  assert.equal((await w.ready()).review.hold.code, "art_missing");
+  const r = await w.ready();
+  assert.deepEqual([r.review.hold, r.coin.art], [null, coin.art]);
   assert.ok((await w.notices()).some((n) => /Your coin picture was taken down/.test(n)));
   assert.ok(await w.row("SELECT 1 FROM mod_actions WHERE action = 'coin_art_removed'"));
-  // nothing (more) to take down: the answer of any unknown kind, as before
+  // nothing (more) to take down: said so, nothing changes
   const again = await w.post(w.owner, "/api/coins/takedown", { city: UTICA, what: "art", sha, reason: "illegal", note: "Again." });
-  assert.deepEqual([again.status, again.error], [400, "bad_request"]);
-  // the founder resets to the Vicinity coin and can launch again
-  assert.equal((await w.rv("reset")).ok, true);
-  assert.equal((await w.ready()).review.hold, null);
+  assert.deepEqual([again.status, again.error], [404, "not_found"]);
 });
 
 test("SEC-7: an upload must be a whole, square PNG of 64 to 1024 px (never a JPEG or WebP under .png, a flood, a fragment or a rectangle)", async () => {
@@ -303,7 +302,18 @@ test("UX-6 and UX-7: the approved card follows the chain; a waiting description 
   assert.equal((await w.decide({ id: p.id, action: "approve", contentHash: p.contentHash })).ok, true);
   let v = await w.ready();
   assert.match(v.review.request.message, /It launches after the owner approves it on the blockchain, at the owner's next approval round\./);
-  await w.approveOnChain();
+  // NIT-1: while the owner builds the approval (the five-minute hold) the card says it is happening right now, as the coin card does
+  // (GATES.held), never "at the owner's next approval round"
+  const c = await w.card();
+  assert.equal((await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(c), expiryDays: 7 })).ok, true);
+  v = await w.ready();
+  assert.equal(v.gate.code, "held");
+  assert.match(v.gate.message, /^The owner is approving your coin right now/);
+  assert.equal(v.review.request.message, `Version ${p.version} was approved. It is now your coin. The owner is approving it on the blockchain right now.`);
+  assert.doesNotMatch(JSON.stringify([v.review.request, v.review.hold, v.review.blocked, v.gate]), /next approval round/);
+  advance(6 * 60_000);
+  await reprove(w.f);
+  w.lp.S.accounts[await w.L.approval(BigInt(UTICA))] = approvalAccount({ cityId: UTICA, founder: w.f.w.address, rentPayer: w.owner.w.address, name: c.name, symbol: c.symbol, expiresAt: Math.floor(Date.now() / 1000) + 7 * 86_400 });
   v = await w.ready();
   assert.equal(v.gate.code, "approved");
   assert.equal(v.review.request.message, `Version ${p.version} was approved. It is now your coin. It is approved on the blockchain too.`);

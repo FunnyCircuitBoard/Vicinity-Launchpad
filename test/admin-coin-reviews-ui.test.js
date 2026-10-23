@@ -175,3 +175,48 @@ test("the reason is picked on purpose, from the reasons that fit the request, an
   down.click(); await tick();
   assert.deepEqual(t.posts.at(-1), ["/api/coins/takedown", { city: "5140405", what: "art", sha: SHA, reason: "abuse", note: "A logo they don't own." }]);
 });
+
+test("NEW-1: every founder's own words and picture in use are listed with their takedown; the answer's words stay above the queue", async () => {
+  const SHA = "f".repeat(64);
+  REVIEWS.reviews = [];
+  REVIEWS.inUse = [
+    { city: { id: "5142056", name: "Utica", country: "US" }, launched: true, mint: "Mint1111111111111111111111111111111111111111", name: "Utica", symbol: "UTICA",
+      description: "Utica is the Handshake City.", ownDescription: true, ownName: false, upload: false, art: "/coin-meta/art/" + "b".repeat(64) + ".png", version: "1234abcd", chosenAt: ago(60) },
+    { city: { id: "5140405", name: "Syracuse", country: "US" }, launched: false, mint: null, name: "Salt City", symbol: "SYRACUSE", description: "The city coin of Syracuse, New York, United States.",
+      ownDescription: false, ownName: true, upload: true, art: `/coin-meta/art/${SHA}.png`, version: "99aa88bb", chosenAt: ago(120) },
+  ];
+  const t = await open("admin");
+  const said = "Taken down: the founder's description of $UTICA. The coin's page, the Launchpad and its metadata show Vicinity's own sentence now.";
+  t.win.fetch = ((orig) => async (path, init = {}) => (String(path) === "/api/coins/takedown"
+    ? (t.posts.push([String(path), JSON.parse(init.body || "{}")]), { ok: true, status: 200, json: async () => ({ ok: true, changed: [said], message: said, coin: {} }) })
+    : orig(path, init)))(t.win.fetch);
+  const box = t.doc.querySelector(".adm-coinrev__inuse");
+  assert.match(box.textContent, /Founders' own words and pictures in use/);
+  assert.match(box.textContent, /A description that passes the checks by itself never comes through this queue/);
+  const [ut, sy] = box.querySelectorAll(".adm-coinrev__use");
+  assert.match(ut.textContent, /Utica \(US\) · \$UTICA “Utica” · launched · version 1234abcd/);
+  assert.match(ut.textContent, /“Utica is the Handshake City\.”/);
+  assert.deepEqual(ut.querySelectorAll("button").map((b) => b.textContent), ["Take the description down"]);
+  assert.deepEqual(sy.querySelectorAll("button").map((b) => b.textContent), ["Take the name and words down", "Take the picture down"]);
+  assert.match(sy.textContent, /The coin name is the founder's own \(a reviewer approved it\)\./);
+  // a note first (it goes to the staff log, never public)
+  const before = t.posts.length;
+  ut.querySelectorAll("button")[0].click(); await tick();
+  assert.equal(t.posts.length, before, "no note: nothing sent");
+  ut.querySelector("input").value = "Copied from a rival coin.";
+  assert.match(ut.querySelector("input").placeholder, /staff log only/);
+  ut.querySelectorAll("button")[0].click(); await tick();
+  assert.match(t.asked.at(-1), /^Take the founder's description down\? Every page and the coin's metadata show Vicinity's own sentence instead\./);
+  assert.deepEqual(t.posts.at(-1), ["/api/coins/takedown", { city: "5142056", what: "text", reason: "abuse", note: "Copied from a rival coin." }]);
+  await tick(80);
+  const msg = t.doc.querySelector(".adm-coinrev__said");
+  assert.equal(msg.textContent, said, "the server's own words, kept above the queue after it is drawn again");
+  assert.equal(msg.getAttribute("role"), "status");
+  // the picture: its sha goes with it
+  const sy2 = t.doc.querySelectorAll(".adm-coinrev__use")[1];
+  sy2.querySelector("input").value = "A logo they don't own.";
+  sy2.querySelectorAll("button").find((b) => b.textContent === "Take the picture down").click(); await tick();
+  assert.match(t.asked.at(-1), /the coin goes back to Vicinity's coin for the city on every page/);
+  assert.deepEqual(t.posts.at(-1), ["/api/coins/takedown", { city: "5140405", what: "art", sha: SHA, reason: "abuse", note: "A logo they don't own." }]);
+  delete REVIEWS.inUse;
+});

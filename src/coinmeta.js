@@ -87,6 +87,15 @@ export function coinMetadataJson(i) {
   return out;
 }
 /**
+ * The JSON of a coin launched with a ready-made version `v` (src/coinart-store.js versionForCoin: its description, picture and city), with
+ * the chain's name and symbol (`md`). Pure: src/cointakedown.js builds the JSON a takedown leaves with it, in the same batch.
+ */
+export function versionJson(row, md, v) {
+  const c = (v.content && v.content.city) || {};
+  return coinMetadataJson({ mint: row.mint, name: md.name, symbol: md.symbol, pitch: v.description, image: artUrl(v.art_sha256),
+    city: { id: row.city_id, name: c.name, country: c.country, region: c.region || undefined, countryName: c.countryName || undefined, ticker: md.symbol } });
+}
+/**
  * The JSON of a recorded coin (`row`: lp_coins) from its on-chain metadata (`md`: { name, symbol }) and its city's design row:
  * the chain's name and symbol (the symbol is the city's ticker by the program's own rule), the design's pitch (dropped when it
  * would break the no-links rule), the city's name and country (the coin's own name when the city has no design row).
@@ -98,11 +107,7 @@ export async function metaJsonFor(env, row, md) {
   // mint when its launch was recorded with the switch on and the owner's approval built from it, with the chain's name and symbol and
   // its picture intact; anything else gets the JSON below)
   const v = await versionForCoin(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol });
-  if (v) {
-    const c = v.content.city;
-    return coinMetadataJson({ mint: row.mint, name: md.name, symbol: md.symbol, pitch: v.description, image: artUrl(v.art_sha256),
-      city: { id: row.city_id, name: c.name, country: c.country, region: c.region || undefined, countryName: c.countryName || undefined, ticker: md.symbol } });
-  }
+  if (v) return versionJson(row, md, v);
   const city = await env.DB.prepare("SELECT city_name, country, pitch FROM city_coins WHERE city_id = ?").bind(String(row.city_id)).first();
   const pitch = city && city.pitch && !PITCH_BAD.test(city.pitch) ? city.pitch : undefined;
   return coinMetadataJson({ mint: row.mint, name: md.name, symbol: md.symbol, pitch,

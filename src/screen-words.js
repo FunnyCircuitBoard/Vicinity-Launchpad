@@ -3,6 +3,12 @@
  * other list only FLAGS, so a person looks before anything is refused for good). Changing any list changes src/screen.js RULES_VERSION,
  * and a founder description that passed under older lists is screened again before it can launch.
  *
+ * The lists are the LAST of three checks, not the first: a description passes by itself only when (a) every character is a plain one
+ * (src/screen.js plainChars: the letters of the city's own script and A to Z, the digits 0 to 9, everyday punctuation and spaces), (b)
+ * nothing in it looks like a link, an address or a handle (linkLike, with the allow-list words at the end of this file), and (c) none of
+ * the lists below finds anything. Fancy-text styles, other alphabets and new spellings are therefore never matched against a list at all:
+ * they are flagged for a person whatever they spell.
+ *
  * Every entry is written in plain lower-case letters. The screener compares them with the text after folding it: Unicode compatibility
  * forms, letter case, accents, look-alike letters from other scripts, leetspeak (0 o, 1 i, 3 e, 4 a, 5 s, 7 t, @ a, $ s), dots, dashes
  * and spaces between single letters ("s.c.a.m", "s c a m"). Single words match whole words only (so "Scunthorpe", "Essex" or "Penistone"
@@ -120,3 +126,26 @@ export const TLDS = Object.freeze([
 export const LINK_HOSTS = Object.freeze(["t.me", "telegram.me", "discord.gg", "discord.com", "bit.ly", "linktr.ee", "x.com", "wa.me", "tinyurl.com"]);
 /** Tickers a description may name besides its own: Vicinity's and the pairs. */
 export const OK_TICKERS = Object.freeze(["VICINITY", "SOL", "USDC"]);
+
+/*
+ * The allow-list (src/screen.js plainChars and linkLike, ENGINE 3): what a founder's description must look like to pass by itself. Every
+ * one of these only FLAGS (a person decides); nothing here refuses a text for good.
+ */
+/** Web endings that are not English words: a word, a SPACE and one of these reads as an address with the dot left out ("uticacoin com"). */
+export const SPACED_TLDS = Object.freeze(["com", "org", "io", "xyz", "gg", "ly", "biz", "cc", "ws", "sh", "ru", "onion"]);
+/** More link hosts written with a space for the dot ("youtu be", "t co"), besides LINK_HOSTS ("t me", "bit ly", "x com"). */
+export const SPACED_HOSTS = Object.freeze(["youtu.be", "instagr.am", "fb.me", "fb.com", "t.co", "tiktok.com", "twitter.com", "discordapp.com", "pump.fun"]);
+/** Platforms: their name anywhere in a description is a pointer to a social account or a chat. */
+export const PLATFORMS = Object.freeze(["twitter", "telegram", "discord", "instagram", "insta", "tiktok", "youtube", "facebook", "snapchat", "whatsapp", "wechat",
+  "reddit", "bluesky", "bsky", "linktree", "linktr", "onlyfans", "twitch", "weibo", "kakaotalk", "viber", "pinterest", "linkedin", "tumblr", "dexscreener", "pumpfun"]);
+/** Platform names that are also letters or ordinary words: a pointer only right after one of CONTACT_WORDS ("on X", "follow tg"). */
+export const PLATFORM_SHORT = Object.freeze(["x", "tg", "ig", "fb", "yt", "threads", "vk"]);
+/** The words that send a reader to an account: "follow ...", "join ...", "on X", "DM me". */
+export const CONTACT_WORDS = Object.freeze(["follow", "join", "find", "search", "dm", "message", "add", "on", "via"]);
+/** "DM me", "text us": a request to be contacted privately. */
+export const CONTACT_ME = Object.freeze(["dm", "pm", "message", "text", "call", "contact", "ping", "whatsapp", "telegram", "signal"]);
+/** What a handle or a domain glues to a city's own name: "uticacoin", "uticaofficial", "visitutica", "theutica". */
+export const HANDLE_SUFFIXES = Object.freeze(["coin", "coins", "token", "tokens", "official", "hq", "app", "club", "dao", "sol", "crypto", "fans", "army", "gang",
+  "community", "news", "xyz", "io", "com", "net", "org", "online", "live", "tv", "fm", "bot", "dev", "labs", "nft", "meme", "moon", "pump", "cash", "money", "finance",
+  "swap", "dex"]);
+export const HANDLE_PREFIXES = Object.freeze(["the", "real", "official", "get", "join", "visit", "my", "go", "team", "ilove", "love", "we", "buy", "i"]);

@@ -478,6 +478,15 @@
 .adm-coinrev__issue { color: var(--text-2, inherit); }
 .adm-coinrev__act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .adm-coinrev__act .btn { min-height: 44px; }
+.adm-coinrev__said { margin: 0; padding: var(--sp-3, 12px) var(--sp-4, 16px); border-radius: 12px; border: 1px solid var(--line, rgba(255, 255, 255, 0.12)); overflow-wrap: anywhere; }
+.adm-coinrev__said.is-flag { color: var(--warn, #FFD58A); }
+.adm-coinrev__inuse { display: grid; gap: var(--sp-2, 8px); padding: var(--sp-3, 12px) var(--sp-4, 16px); min-width: 0; }
+.adm-coinrev__inuse p, .adm-coinrev__inuse h3 { margin: 0; overflow-wrap: anywhere; }
+.adm-coinrev__use { display: grid; gap: 6px; padding-top: var(--sp-2, 8px); border-top: 1px solid var(--line, rgba(255, 255, 255, 0.12)); min-width: 0; }
+.adm-coinrev__use > * { min-width: 0; max-width: 100%; }
+.adm-coinrev__takedown { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.adm-coinrev__takedown .btn { min-height: 44px; }
+.adm-coinrev__takedown input, .adm-coinrev__takedown select { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
 /* phone width: one column that never grows past the card (a grid item's min-content would otherwise push the table, the hash and the
    reason form out of the card and cut them off) */
 .adm-coinrev__item, .adm-coinrev__registry { grid-template-columns: minmax(0, 1fr); }

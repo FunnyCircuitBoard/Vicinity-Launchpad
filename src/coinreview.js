@@ -52,7 +52,7 @@ import { designFrozen } from "./lpcoins.js";
 import { cityOfTicker, tickerOf } from "./tickers.js";
 import { coinDefaults } from "./coindefaults.js";
 import { TEMPLATE_VERSION, coinSvg, sha256Hex } from "./coinart.js";
-import { approvedBasis, approvedDescription, approvedRequest, artBySvg, artBytes, artPath, chosenOf, cityDescription, ensureReadySchema } from "./coinart-store.js";
+import { TAKEDOWN, approvedBasis, approvedDescription, approvedRequest, artBySvg, artBytes, artPath, chosenOf, cityDescription, ensureReadySchema, takenDownAt } from "./coinart-store.js";
 import { canonicalContent, choiceStatements, coinState, ensureArt, founderAnswer, renderPng, svgOf, symbolTaken, versionLabel } from "./coinready.js";
 import { RULES_VERSION, explained, screenDescription, screenName, screenReason } from "./screen.js";
 import { nameProblem } from "./lpadmin.js";
@@ -61,7 +61,7 @@ import { HAS_ADDRESS, cleanText } from "./text.js";
 import { readImage } from "./social.js";
 import { IMAGE_TYPES } from "./logos.js";
 import { toBytes } from "./blobs.js";
-import { notify } from "./notify.js";
+import { notify, pictureReason } from "./notify.js";
 import { coinV2ReviewOn } from "./flags.js";
 
 /* ---------------------------------------------------------------- the words */
@@ -312,6 +312,8 @@ export async function selectionProblem(env, cityId, { c = undefined, d = null, c
   // description (a description request). An approved CHANGE request does not vouch for it: its reviewer was asked about the picture,
   // ticker and name (DESIGN 4.4: a pass under older rules is not enough)
   if (c.description !== cityDescription(c.content.city) && !(await approvedDescription(db, cityId, c.description))) {
+    // an admin took this text down (src/cointakedown.js): only a person's review decided since brings it back (approvedDescription above)
+    if (await takenDownAt(db, cityId, c.description)) return { code: "description_recheck", message: "Your description was taken down by Vicinity. Use the default description, or write a new one." };
     const r = screenText(c.description, d.ok ? await screenCtx(env, d, c) : { city: c.content.city, ticker: c.symbol, name: c.name });
     if (r.result === "error") return { code: "description_unchecked", message: "We couldn't re-check your description just now. Try again in a minute, or use the default description." };
     if (r.result !== "pass") return { code: "description_recheck", message: "Your description no longer passes the checks. Use the default description, or write a new one." };
@@ -346,6 +348,15 @@ export async function tickerProblem(env, cityId, symbol, fetchImpl = fetch, { ch
   return null;
 }
 
+/** The founder's words for an admin's takedown that made the coin what it is now (the newest rows first), or null. */
+function takenDownWords(rows) {
+  if (!rows.length) return null;
+  const name = rows.some((x) => x.target === "name"), text = rows.some((x) => x.target === "description");
+  let why = "other";
+  try { why = (JSON.parse(rows[0].issues_json || "[]")[0] || {}).reason || "other"; } catch { /* the rule's words for "other" */ }
+  const what = name && text ? "coin name and description" : name ? "coin name" : "description";
+  return { at: rows[0].created_at, message: `Vicinity took down your ${what} (${pictureReason(why)}). Your coin uses Vicinity's ${name ? "coin for your city" : "own description"} now. If you send the same words again, a person reviews them first.` };
+}
 /** The founder's card: the request, the description and what holds the launch (only with COIN_V2_REVIEW on: src/coinready.js founderAnswer). */
 export async function reviewState(env, { seat, cityId, view }) {
   const db = env.DB;
@@ -363,6 +374,10 @@ export async function reviewState(env, { seat, cityId, view }) {
     .bind(String(cityId), seat.user_id).first());
   // the last check is shown only while it is the newest thing that happened (a flag or a block the founder may revise or send)
   const lastShown = last && last.result !== "pass" && (!sel || last.created_at >= sel.chosen_at) && !(req && req.kind === "description" && req.screening_id === last.id && req.status !== "draft");
+  // an admin's takedown that made the coin what it is now (src/cointakedown.js): said on the card until the founder changes the coin again
+  const down = sel ? await rd(() => db.prepare(`SELECT target, issues_json, created_at FROM coin_screenings WHERE city_id = ? AND rules_version = '${TAKEDOWN}' AND created_at >= ?
+      ORDER BY id DESC`).bind(String(cityId), sel.chosen_at).all()) : null;
+  const downRows = (down && down.results) || [];
   return {
     on: true, rulesVersion: RULES_VERSION, nextRound: NEXT_ROUND,
     defaults: d.ok ? { name: d.name, symbol: d.ticker, description: d.description } : null,
@@ -370,7 +385,7 @@ export async function reviewState(env, { seat, cityId, view }) {
       description: sel.description, art: artPath(sel.art_sha256), descriptionSource: descSource, upload: sel.template_version === "upload" } : null,
     request: req ? await requestView(env, req, { d, sel, gate: view && view.gate }) : null,
     description: {
-      source: descSource, text: sel ? sel.description : d.ok ? d.description : null,
+      source: descSource, text: sel ? sel.description : d.ok ? d.description : null, takenDown: takenDownWords(downRows),
       screening: lastShown ? { id: last.id, result: last.result, text: last.text, at: last.created_at, current: last.rules_version === RULES_VERSION,
         issues: explained(JSON.parse(last.issues_json || "[]"), d.ok ? d.city.name : seat.city_name) } : null,
     },
@@ -413,13 +428,16 @@ async function requestView(env, r, { d, sel, gate = null }) {
     if (r.kind === "description" || proposed.description !== base.description) diff.push({ field: "description", from: base.description, to: proposed.description });
   }
   const registry = r.status === "approved" && v && d.ok && v.symbol !== d.ticker ? "waiting" : r.status === "approved" && r.registry_state ? "live" : null;
-  // the approved card follows the coin's state: once the owner's approval is on the blockchain (or the coin launched) the round is behind it
+  // the approved card follows the coin's state: once the owner's approval is on the blockchain (or the coin launched) the round is behind it,
+  // and while the owner builds that approval (the five-minute hold) it is happening right now, as the coin card says (GATES.held)
   const onChain = Boolean(gate && ["approved", "launched"].includes(gate.code));
+  const beingApproved = Boolean(gate && gate.code === "held");
   const words = {
     draft: "Your draft is private. Your coin stays as it is until a reviewer approves the change. Submitting pauses your launch until they decide.",
     pending: `Version ${versionLabel(r.content_hash)} · a reviewer checks exactly this version. Launch is paused until they decide.`,
     approved: r.kind === "change"
-      ? `Version ${versionLabel(r.content_hash)} was approved. It is now your coin.${registry === "waiting" ? ` ${registryWords(v.symbol)}` : onChain ? " It is approved on the blockchain too." : ` It launches after the owner approves it on the blockchain, ${NEXT_ROUND}.`}`
+      ? `Version ${versionLabel(r.content_hash)} was approved. It is now your coin.${registry === "waiting" ? ` ${registryWords(v.symbol)}` : onChain ? " It is approved on the blockchain too."
+        : beingApproved ? " The owner is approving it on the blockchain right now." : ` It launches after the owner approves it on the blockchain, ${NEXT_ROUND}.`}`
       : `Your description (version ${versionLabel(r.content_hash)}) was approved. It is now your coin's description.`,
     changes_needed: `Changes needed: ${REASONS[r.reason_code] || REASONS.other}${r.note ? ` Note from the reviewer: ${r.note}` : ""} Your coin stays as it was.`,
   };
@@ -809,7 +827,11 @@ async function descriptionRoute(request, env, fetchImpl, now) {
   const frozen = await notFrozen(env, w, fetchImpl, now);
   if (frozen) return frozen;
   const base = await basisOf(env, { cityId: w.cityId, seat: w.seat, d: w.d, now, draw: true });
-  const r = screenText(typeof w.body.text === "string" ? w.body.text : "", await screenCtx(env, w.d, base));
+  let r = screenText(typeof w.body.text === "string" ? w.body.text : "", await screenCtx(env, w.d, base));
+  // words an admin took down as this city's description (src/cointakedown.js) are never used by themselves again: a person reviews them
+  if ((r.result === "pass" || r.result === "flag") && r.text && (await takenDownAt(db, w.cityId, r.text))) {
+    r = { ...r, result: "flag", issues: [...(r.issues || []), { code: "taken_down", severity: "flag", start: 0, end: r.text.length }] };
+  }
   const at = iso(now);
   const row = await screeningStmt(db, { cityId: w.cityId, userId: w.u.id, target: "description", r: { ...r, text: r.text || "" }, at });
   if (r.result !== "pass") {
@@ -930,7 +952,32 @@ export async function listReviews(env, now = Date.now(), fetchImpl = fetch) {
   const reviews = [];
   for (const r of rows) reviews.push(await reviewRow(env, r, now, fetchImpl));
   const waiting = reviews.filter((x) => x.status === "approved" && x.registryState === "waiting").map((x) => ({ id: x.id, city: x.city, ticker: x.proposed.symbol, registryPatch: x.registryPatch }));
-  return { ok: true, reviews, pending: reviews.filter((x) => x.status === "pending").length, waitingRegistry: waiting, reasons: Object.entries(REASONS).map(([code, text]) => ({ code, text, kinds: REASON_KINDS[code] })) };
+  return { ok: true, reviews, pending: reviews.filter((x) => x.status === "pending").length, waitingRegistry: waiting, inUse: await founderContent(db),
+    reasons: Object.entries(REASONS).map(([code, text]) => ({ code, text, kinds: REASON_KINDS[code] })) };
+}
+/**
+ * What of the founders' own is public on a coin now, launched or not (the newest first, at most 200): a description that passed the
+ * screening by itself never comes through the queue, so the staff see every one here, with the takedown (src/cointakedown.js) at hand.
+ * A coin counts while the version is its design (not launched) or is bound to it (launched); a founder's description, a name no default
+ * version of the city has, or an uploaded picture.
+ */
+async function founderContent(db) {
+  const rows = await rd(() => db.prepare(`SELECT r.city_id, r.mint, r.chosen_at, r.design_at, r.content_hash, v.name, v.symbol, v.description, v.art_sha256, v.template_version,
+      v.content_json, c.updated_at AS design_now, c.city_name, c.country,
+      NOT EXISTS (SELECT 1 FROM coin_versions d WHERE d.city_id = r.city_id AND d.origin = 'default' AND d.name = v.name) AS own_name
+    FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id LEFT JOIN city_coins c ON c.city_id = r.city_id
+    WHERE v.origin <> 'default' ORDER BY r.chosen_at DESC LIMIT 200`).all());
+  const out = [];
+  for (const r of (rows && rows.results) || []) {
+    if (!r.mint && r.design_at !== r.design_now) continue; // not the coin any more (a studio design replaced it)
+    let content = null;
+    try { content = JSON.parse(r.content_json); } catch { continue; }
+    const ownDescription = r.description !== cityDescription(content.city), upload = r.template_version === "upload", ownName = Boolean(r.own_name);
+    if (!ownDescription && !upload && !ownName) continue;
+    out.push({ city: { id: String(r.city_id), name: (content.city && content.city.name) || r.city_name, country: r.country }, launched: Boolean(r.mint), mint: r.mint || null,
+      name: r.name, symbol: r.symbol, description: r.description, ownDescription, ownName, upload, art: artPath(r.art_sha256), version: versionLabel(r.content_hash), chosenAt: r.chosen_at });
+  }
+  return out;
 }
 async function reviewRow(env, r, now, fetchImpl) {
   const db = env.DB;
@@ -969,6 +1016,14 @@ async function reviewRow(env, r, now, fetchImpl) {
     if (r.kind === "description" && r.screening_id) {
       const sc = await db.prepare("SELECT issues_json, text FROM coin_screenings WHERE id = ?").bind(r.screening_id).first();
       if (sc) checks.push({ check: "description_screening", ok: false, text: "The checks flagged the description.", issues: explained(JSON.parse(sc.issues_json || "[]"), city && city.name) });
+    }
+    // words an admin took down from this city's coin before (src/cointakedown.js): approving them puts them back
+    const downs = await rd(() => db.prepare(`SELECT target, text, created_at FROM coin_screenings WHERE city_id = ? AND rules_version = '${TAKEDOWN}' ORDER BY id DESC LIMIT 50`).bind(String(r.city_id)).all());
+    for (const x of (downs && downs.results) || []) {
+      const hit = x.target === "name" ? x.text === v.name : x.text === v.description;
+      if (hit && !checks.some((k) => k.check === `taken_down_${x.target}`)) {
+        checks.push({ check: `taken_down_${x.target}`, ok: false, text: `Vicinity took this ${x.target === "name" ? "coin name" : "description"} down on ${String(x.created_at).slice(0, 10)}. Approving it puts it back on the coin.` });
+      }
     }
   }
   const registry = r.status === "approved" && v && d.ok ? (v.symbol !== d.ticker ? "waiting" : r.registry_state ? "live" : null) : r.registry_state || null;

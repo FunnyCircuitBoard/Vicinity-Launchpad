@@ -43,8 +43,9 @@ import { adminRoleOf } from "./admin.js";
 import { clearedStatement, pendingStatement, publicLogo, rejectLogo, reviewView } from "./logos.js";
 import { notify, pictureReason } from "./notify.js";
 import { coinV2ReadyOn } from "./flags.js";
-import { boundArtOf, chosenOf, madeByOf, unboundUploads } from "./coinart-store.js";
+import { boundArtOf, chosenOf, madeByOf } from "./coinart-store.js";
 import { choiceHolds } from "./coinready.js";
+import { v2Takedown } from "./cointakedown.js";
 
 const C = POLICY.coins;
 
@@ -338,7 +339,8 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
 
 /**
  * POST /api/coins/takedown { city, what: "logo" | "text" | "art", sha?, reason, note } — an admin removes a logo, text or (COIN_V2_REVIEW) a founder's
- * approved own picture no launched coin carries yet (takeArtDown below) that breaks the rules.
+ * own picture that breaks the rules. A ready-made coin's founder content (a founder's description or name, an uploaded picture), launched
+ * or not, is taken down by src/cointakedown.js (its answer says every change in words: `changed`, `message`); everything else as before.
  * A logo takedown is a rejection (src/logos.js): the public picture goes at once (caches keep it at most an hour), the founder sees
  * the reason and the note on their dashboard and can replace the picture, which then waits for a check like any other. A newer
  * working picture that waits for its check is left waiting (nobody has looked at it). A coin without any picture has nothing to take
@@ -354,14 +356,15 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   const reason = POLICY.moderation.reasons.includes(body.reason) ? body.reason : null;
   const note = cleanText(body.note, 300);
   if (!reason || note == null || note.length < 3) return json({ ok: false, error: "reason_required" }, 400);
+  // a ready-made coin's founder content (COIN_V2_REVIEW: a founder's description or name, an uploaded picture), launched or not: taken down
+  // from its version, its design row, its /coin-meta JSON and every page, with every change said in words (src/cointakedown.js)
+  const v2 = await v2Takedown(env, { coin, what: body.what, sha: typeof body.sha === "string" ? body.sha : null, reason, note, actor: a.u, now });
+  if (v2) return json(v2.body.ok ? { ...v2.body, coin: coinView(await coinOf(db, coin.city_id), { mine: true }) } : v2.body, v2.status);
   if (body.what === "logo") {
     if (!coin.media_id && !coin.approved_media_id) return json({ ok: false, error: "not_found" }, 404);
     await rejectLogo(db, coin.city_id, { reason, note, by: a.u.id, at: now, takedown: true });
     await db.prepare("UPDATE city_coins SET updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
     // in-app notice (NOTIFY=on) to the founder, with the public reason (the note is on their coin card and in the public log)
-    await notify(env, { to: coin.user_id, kind: "picture", ref: coin.city_id, href: "/dashboard#founder", now, text: `Your coin picture was taken down: ${pictureReason(reason)}.` });
-  }
-  else if (body.what === "art" && (await takeArtDown(env, coin, body.sha, now))) {
     await notify(env, { to: coin.user_id, kind: "picture", ref: coin.city_id, href: "/dashboard#founder", now, text: `Your coin picture was taken down: ${pictureReason(reason)}.` });
   }
   else if (body.what === "text" && !coin.mint) await db.prepare("UPDATE city_coins SET name = city_name, pitch = NULL, updated_at = ? WHERE city_id = ?").bind(iso(now), coin.city_id).run();
@@ -381,24 +384,6 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   await log(db, { actor: a.u.id, role: "admin", action: `coin_${body.what}_removed`, user: coin.user_id, country: coin.country, place: coin.city_id,
     reason, note: `${coin.city_name}: ${note}`, at: iso(now) });
   return json({ ok: true, coin: coinView(await coinOf(db, coin.city_id), { mine: true }) });
-}
-
-/**
- * "art" (COIN_V2_REVIEW): a founder's own picture a reviewer approved is public at /coin-meta/art/<sha>.png from then on, but until a
- * launched coin carries it, it can be taken down: its row leaves the public store (the address answers 404; it was never cached for
- * long, src/coinmeta.js artAnswer), and a coin that still uses it cannot launch until the founder resets it or asks for another picture
- * (src/coinreview.js selectionProblem "art_missing"). `sha`: one picture, or none for every such picture of the city. A picture a
- * launched coin carries is the coin's for ever: never removed here. true when one was removed.
- */
-async function takeArtDown(env, coin, sha, now) {
-  const all = await unboundUploads(env.DB, coin.city_id);
-  const gone = sha == null ? all : all.filter((x) => x === sha);
-  if (!gone.length) return false;
-  await env.DB.batch(gone.map((x) => env.DB.prepare(`DELETE FROM coin_art WHERE sha256 = ? AND template_version = 'upload'
-      AND NOT EXISTS (SELECT 1 FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id WHERE r.mint IS NOT NULL AND v.art_sha256 = ?)`).bind(x, x)));
-  const cache = typeof caches !== "undefined" ? caches.default : null;
-  if (cache) for (const x of gone) { try { await cache.delete(new Request(`https://cache.vicinity.internal/coin-meta/art/${x}.png`)); } catch { /* the cache is a convenience */ } }
-  return true;
 }
 
 /** Is this mint a coin recorded from the Vicinity launchpad (lp_coins), whatever the settings say now? */

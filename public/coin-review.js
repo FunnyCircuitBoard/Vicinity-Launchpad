@@ -407,7 +407,9 @@
     if (!describeOpen && editor) { editor.remove(); editor = null; }
     let info = $("#crv-desc-info");
     if (!info) { info = el("p", "small crv-desc-info"); info.id = "crv-desc-info"; box.prepend(info); }
-    info.textContent = d.source === "founder" ? "Description: your own, checked by Vicinity." : "Description: Vicinity's default.";
+    // an admin's takedown that made the coin what it is now is said here, in the server's words, until the founder changes the coin again
+    info.textContent = d.source === "founder" ? "Description: your own, checked by Vicinity."
+      : d.takenDown && d.takenDown.message ? `Description: Vicinity's default. ${d.takenDown.message}` : "Description: Vicinity's default.";
     if (describeOpen && !editor) {
       editor = el("div", "crv-editor"); editor.id = "crv-desc-editor";
       const city = (last.city && last.city.name) || "your city";

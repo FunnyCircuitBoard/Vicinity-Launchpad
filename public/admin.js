@@ -936,9 +936,63 @@
       for (const x of d.waitingRegistry) w.append(el("p", "mono small", `${x.city && x.city.name ? x.city.name : ""} · ${JSON.stringify(x.registryPatch)}`));
       wrap.append(w);
     }
-    if (!reviews.length) { wrap.append(el("p", "empty adm-empty", "Nothing here.")); return wrap; }
+    // the last takedown's answer in the server's own words (what changed, everywhere), until the next one
+    if (takedownSaid) { const p = el("p", `adm-coinrev__said ${takedownSaid.ok ? "is-ok" : "is-flag"}`, takedownSaid.text); p.setAttribute("role", "status"); wrap.append(p); }
+    const inUse = (d && d.inUse) || [];
+    if (inUse.length) wrap.append(inUseSection(inUse));
+    if (!reviews.length) { wrap.append(el("p", "empty adm-empty", inUse.length ? "No request waits or was decided lately." : "Nothing here.")); return wrap; }
     for (const x of reviews) wrap.append(coinReviewCard(x, reasons));
     return wrap;
+  }
+  /** A takedown's answer (src/cointakedown.js says every change in words): kept above the queue after the list is drawn again. */
+  let takedownSaid = null;
+  const said = (r, what) => {
+    takedownSaid = { ok: Boolean(r && r.ok), text: (r && r.message) || (r && r.ok ? `${what}.` : (r && ERRORS[r.error]) || `Failed: ${(r && r.error) || "unknown"}`) };
+    toast(r && r.ok ? `${what} ✓` : takedownSaid.text);
+    refresh();
+  };
+  const TAKEDOWN_REASONS = [["abuse", "Abusive or hateful"], ["illegal", "Not theirs to use (rights) or illegal"], ["scam", "Scam or misleading"], ["other", "Other"]];
+  /**
+   * The founders' own words and pictures public on a coin now (GET /api/admin/coins/reviews inUse): a description that passed the checks
+   * by itself never comes through the queue, so every one is listed here with its takedown (POST /api/coins/takedown).
+   */
+  function inUseSection(list) {
+    const s = el("section", "card adm-coinrev__inuse");
+    s.append(el("h3", "adm-h3", "Founders' own words and pictures in use"),
+      el("p", "small muted", "A description that passes the checks by itself never comes through this queue. Each one here is public on its coin now. Take it down if it breaks the rules: the coin falls back to Vicinity's own words or design, everywhere, and the founder is told."));
+    for (const x of list) {
+      const row = el("article", "adm-coinrev__use");
+      row.append(el("p", "small", `${x.city && x.city.name ? x.city.name : "—"}${x.city && x.city.country ? ` (${x.city.country})` : ""} · $${x.symbol} “${x.name}” · ${x.launched ? "launched" : "not launched yet"} · version ${x.version || "—"}`));
+      if (x.ownDescription) row.append(el("p", "adm-text adm-coinrev__words", `“${x.description}”`));
+      if (x.ownName) row.append(el("p", "small muted", x.launched ? "The coin name is the founder's own: it is on the blockchain for good." : "The coin name is the founder's own (a reviewer approved it)."));
+      if (x.upload && x.art) { const img = el("img", "adm-thumb"); img.src = x.art; img.width = 64; img.height = 64; img.alt = `The founder's own picture on ${x.city && x.city.name ? x.city.name : "the city"}'s coin`; row.append(img); }
+      if (!can(2)) row.append(el("span", "muted", "admin only"));
+      else row.append(takedownForm(x));
+      s.append(row);
+    }
+    return s;
+  }
+  function takedownForm(x) {
+    const box = el("div", "adm-coinrev__takedown");
+    const why = el("select", "adm-pic__reason"); why.setAttribute("aria-label", `Why ${x.city && x.city.name ? x.city.name : "the coin"}'s founder content is taken down`);
+    for (const [v, t] of TAKEDOWN_REASONS) { const o = el("option", null, t); o.value = v; why.append(o); }
+    why.value = "abuse";
+    const note = textInput("What is wrong (staff log only, 3 to 300 characters)"); note.maxLength = 300; note.setAttribute("aria-label", "What is wrong");
+    const go = async (what, sha = null) => {
+      const n = note.value.trim();
+      if (n.length < 3) { toast("Say what is wrong in 3 to 300 characters (it goes into the staff log)."); note.focus(); return; }
+      const ask = what === "art"
+        ? (x.launched ? "Take the founder's picture down? The coin's metadata and every page show the Vicinity design of the coin instead; the picture's address stops working. The founder is told."
+          : "Take the founder's picture down? Its address stops working, and the coin goes back to Vicinity's coin for the city on every page. The founder is told.")
+        : (x.ownName && !x.launched ? "Take the founder's coin name and words down? The coin goes back to Vicinity's coin for the city (name, ticker, picture and description) on every page. The founder is told."
+          : `Take the founder's description down? Every page${x.launched ? " and the coin's metadata" : ""} show Vicinity's own sentence instead. The founder is told.`);
+      if (!sure(ask)) return;
+      said(await post("/api/coins/takedown", { city: x.city && x.city.id, what, ...(sha ? { sha } : {}), reason: why.value, note: n }), what === "art" ? "Picture taken down" : "Taken down");
+    };
+    box.append(why, note);
+    if (x.ownDescription || (x.ownName && !x.launched)) box.append(btn(x.ownName && !x.launched ? "Take the name and words down" : "Take the description down", () => go("text")));
+    if (x.upload) box.append(btn("Take the picture down", () => go("art", (String(x.art || "").match(/([0-9a-f]{64})\.png$/) || [])[1] || null)));
+    return box;
   }
   function coinReviewCard(x, reasons) {
     const card = el("article", `card adm-coinrev__item is-${x.status}`);
@@ -1016,20 +1070,20 @@
     card.append(act);
     return card;
   }
-  /** Take down a founder's own approved picture that no launched coin carries yet (POST /api/coins/takedown, what "art"). */
+  /** Take down a founder's own approved picture (POST /api/coins/takedown, what "art"); the answer says what changed (src/cointakedown.js). */
   function artTakedown(x) {
     const box = el("div", "adm-coinrev__takedown");
     const sha = (String(x.proposed.art).match(/([0-9a-f]{64})\.png$/) || [])[1] || null;
     if (!sha) return box;
     const why = el("select", "adm-pic__reason"); why.setAttribute("aria-label", "Why the picture is taken down");
-    for (const [v, t] of [["abuse", "Abusive or hateful"], ["illegal", "Not theirs to use (rights) or illegal"], ["scam", "Scam or misleading"], ["other", "Other"]]) { const o = el("option", null, t); o.value = v; why.append(o); }
+    for (const [v, t] of TAKEDOWN_REASONS) { const o = el("option", null, t); o.value = v; why.append(o); }
     why.value = "abuse";
-    const note = textInput("What is wrong (public, 3 to 300 characters)"); note.maxLength = 300; note.setAttribute("aria-label", "What is wrong with the picture");
+    const note = textInput("What is wrong (staff log only, 3 to 300 characters)"); note.maxLength = 300; note.setAttribute("aria-label", "What is wrong with the picture");
     box.append(why, note, btn("Take the picture down", async () => {
       const n = note.value.trim();
-      if (n.length < 3) { toast("Say what is wrong in 3 to 300 characters (it goes into the public log)."); return; }
-      if (sure("Take this picture down? Its public address stops working; a coin using it can't launch until the founder resets it or sends another picture.")) {
-        okMsg(await post("/api/coins/takedown", { city: x.city && x.city.id, what: "art", sha, reason: why.value, note: n }), "Picture taken down");
+      if (n.length < 3) { toast("Say what is wrong in 3 to 300 characters (it goes into the staff log)."); return; }
+      if (sure("Take this picture down? Its public address stops working; a coin that uses it goes back to Vicinity's coin for the city (a launched one shows the Vicinity design of its own ticker and name). The founder is told.")) {
+        said(await post("/api/coins/takedown", { city: x.city && x.city.id, what: "art", sha, reason: why.value, note: n }), "Picture taken down");
       }
     }));
     return box;

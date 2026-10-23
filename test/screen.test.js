@@ -26,7 +26,7 @@ const check = (text, result, want = [], ctx = UTICA) => {
 
 test("the rules version is the SHA-256 of the lists, pinned (a list change is a new version; old passes are screened again)", () => {
   assert.equal(RULES_VERSION, "s1-" + createHash("sha256").update(listsText()).digest("hex").slice(0, 12));
-  assert.equal(RULES_VERSION, "s1-ef90d894c4e6", "pinned: a change to src/screen-words.js, to the severities or to the engine must update this line (and re-screens every founder description)");
+  assert.equal(RULES_VERSION, "s1-58273b466ed0", "pinned: a change to src/screen-words.js, to the severities or to the engine must update this line (and re-screens every founder description)");
 });
 
 test("the synchronous SHA-256 is SHA-256", () => {
@@ -43,7 +43,8 @@ test("every result and its plain sentence: pass, flag, block", () => {
   check("Utica ".repeat(40), "block");
   check("Line one is here\nLine two is here\nLine three\nLine four", "block");
   check("🏙️".repeat(100), "block"); // 200 code points of emoji: too many bytes
-  check("Ünïcödé çhàrs are fine in Utica, the city of 🍪 cookies.", "pass");
+  check("Ünïcödé çhàrs are fine in Utica, the city of cookies.", "pass");
+  check("Ünïcödé çhàrs are fine in Utica, the city of 🍪 cookies.", "flag", ["characters:🍪"]); // an emoji is not plain: a person looks
   // links
   check("Visit utica.io for news", "block", ["link:utica.io"]);
   check("Visit https://utica.example", "block");
@@ -88,7 +89,9 @@ test("every result and its plain sentence: pass, flag, block", () => {
   check("UTICA IS THE GREATEST CITY IN ALL OF NEW YORK", "flag");
   check("Utica rocks!!!!!!! so good", "flag", ["spam:!!!!!!!"]);
   check("Utica 🍪🍪🍪🍪🍪🍪🍪🍪🍪 cookies", "flag");
-  check("Utica ❤️ is home 👨‍👩‍👧 for families 1️⃣ first", "pass");
+  // the zero-width joiner and the variation selectors inside an emoji are not hidden characters (no block), but emoji are not plain (flag)
+  const emoji = check("Utica ❤️ is home 👨‍👩‍👧 for families 1️⃣ first", "flag");
+  assert.deepEqual([...new Set(codes(emoji))], ["characters"]);
   // block wins over flag
   const both = check("Profit guaranteed at utica.io", "block");
   assert.deepEqual([...new Set(codes(both))].sort(), ["financial", "link"]);
@@ -119,8 +122,11 @@ test("evasion: case, spacing, separators, leetspeak, look-alikes, full-width and
   // look-alike letters mixed into a Latin word
   check("The Vіcinity coin (that i is Cyrillic)", "block", ["hidden_chars:Vіcinity"]);
   check("Official Vicinitу coin", "block");
-  check("Μοσχα is all Greek here and fine", "pass");
-  check("Москва — a whole word in Cyrillic is fine", "pass");
+  // a whole word in another alphabet is not hidden (no block), but for Utica it is not plain either: a person looks
+  check("Μοσχα is all Greek here, a person checks it", "flag", ["characters:Μοσχα"]);
+  check("Москва — a whole word in Cyrillic, a person checks it", "flag", ["characters:Москва"]);
+  // ...and in a city whose own name is written in that alphabet, it is plain
+  check("Москва — столица России, a city of 13 million people.", "pass", [], { city: { name: "Москва", region: "Москва", countryName: "Россия", country: "RU" }, ticker: "MOSCOW" });
   // a whole word of look-alikes is still read as the Latin word
   check("а ѕсам coin", "flag");
   // stacked marks (Zalgo)
@@ -191,13 +197,15 @@ test("a screening that cannot run is an error, never a pass: a list that throws,
   for (const code of Object.keys(SEVERITY)) assert.ok(MESSAGES[code], code);
 });
 
-test("whatever passes is never refused by the metadata JSON's own rule (PITCH_BAD), over a corpus and 3,000 random texts", () => {
+test("whatever passes is never refused by the metadata JSON's own rule (PITCH_BAD), over a corpus and 6,000 random texts", () => {
   const corpus = ["see http://x.y", "www.utica", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "HTTPS: in caps", "w w w . a . b", "The Utica coin, plain and simple."];
   let seed = 7;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789 .:/w@$-_\n0OIl";
-  for (let i = 0; i < 3000; i++) { let s = ""; const n = 10 + Math.floor(rnd() * 120); for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)]; corpus.push(s); }
+  // the second alphabet has only plain characters, so that many of its texts pass the allow-list (the first one's mostly do not)
+  for (const alphabet of ["abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789 .:/w@$-_\n0OIl", "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ      .:w-\nOIl"]) {
+    for (let i = 0; i < 3000; i++) { let s = ""; const n = 10 + Math.floor(rnd() * 120); for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)]; corpus.push(s); }
+  }
   let passed = 0;
   for (const t of corpus) {
     const r = screenDescription(t, UTICA);
@@ -257,8 +265,11 @@ test("small capitals and other look-alike letters, words split by separators or 
   check(`${pad} ${pad} k i k e`.slice(0, 200), "block");
   // and what must still pass: a plural is never a shorter slur plus "es", an apostrophe or a dash keeps a word whole, two whole words
   // stay two words, a bullet between spaced words is a list
-  for (const t of ["Utica has great spices and food", "See Utica's pics online today", "We give away free cookies in Utica", "Utica: food • art • music for all",
+  for (const t of ["Utica has great spices and food", "See Utica's pics online today", "We give away free cookies in Utica", "Utica: food, art, music for all",
     "Coeur d'Alene and Wilkes-Barre are friends of Utica", "Utica's co-op opens at nine", "Winston-Salem, Stratford-upon-Avon and Utica", "Ŋaŋ, Bakı and Gəncə are lovely"]) check(t, "pass");
+  // a bullet between spaced words is a list, never a link (not plain either: a person looks)
+  const bullets = check("Utica: food • art • music for all", "flag");
+  assert.deepEqual([...new Set(codes(bullets))], ["characters"]);
 });
 
 test("links and handles written with other dots, spaces or words: blocked, or flagged when it could be a sentence (the review's strings)", () => {
