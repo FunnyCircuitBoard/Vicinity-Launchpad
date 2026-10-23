@@ -23,7 +23,7 @@ after(() => { _setArtRenderer(null); _setScreener(null); realClock(); });
 beforeEach(() => { _resetLpKit(); _resetLpAdmin(); _resetLpCoins(); _resetReview(); _resetLaunchpad(); _setScreener(null); realClock(); });
 
 const DEFAULT = "The city coin of Utica, New York, United States.";
-const OWN = "Utica is the Handshake City, home of the half moon cookie and chicken riggies.";
+const OWN = "Utica is the Handshake City, home of the half moon cookie and the tomato pie.";
 const NOTE = "Copied from a rival coin's page, word for word.";
 
 async function takedownWorld({ review = "on" } = {}) {
@@ -171,6 +171,15 @@ test("not launched: a founder's own name (a reviewer approved it) and descriptio
   const coin = await w.useCoin();
   const p = await w.request({ name: "Utica Falls" });
   assert.equal((await w.decide({ id: p.id, action: "approve", contentHash: p.contentHash })).ok, true);
+  // NEW-1-R: the public log (/api/audit) names the approved version, never the founder's name or ticker
+  const audit = async () => JSON.stringify((await w.get(browser(w.env), "/api/audit?country=US")).actions);
+  assert.match(await audit(), /Utica: coin change approved, version [0-9a-f]{8}/);
+  assert.doesNotMatch(await audit(), /Utica Falls/);
+  // a line written before that rule (the older words named them): the takedown takes the name out of it too
+  await w.env.DB.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
+    SELECT actor_id, 'admin', 'coin_change_approved', 'city_coin', NULL, target_user, 'US', ?, 'review', ?, ?, 'done' FROM mod_actions WHERE action = 'coin_change_approved'`)
+    .bind(UTICA, 'Utica: coin change approved, $UTICA "Utica Falls", version abcdef12', new Date(Date.now()).toISOString()).run();
+  assert.match(await audit(), /Utica Falls/);
   assert.equal((await w.rv("description", { text: OWN })).used, true);
   const c = await w.ready();
   assert.deepEqual([c.coin.name, c.coin.description], ["Utica Falls", OWN]);
@@ -185,6 +194,9 @@ test("not launched: a founder's own name (a reviewer approved it) and descriptio
   assert.equal((await w.get(browser(w.env), `/api/coins?city=${UTICA}`)).coin.name, "Utica");
   const line = await neutral(w, "coin_text_removed");
   assert.match(line.note, /^Utica: the founder's coin name and description were taken down \(abuse or hate\); the coin uses Vicinity's coin for the city, version [0-9a-f]{8}$/);
+  assert.doesNotMatch(await audit(), /Utica Falls/, "no public line names the taken-down name any more");
+  assert.match(await audit(), /Utica: coin change approved, version abcdef12/);
+  assert.match(t.message, /The public log no longer names the taken-down coin name \(1 line\)\./);
   // nothing more of the founder's: said so, and nothing changes
   const none = await w.takedown({ what: "text" });
   assert.deepEqual([none.status, none.error], [409, "system_text"]);

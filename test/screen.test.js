@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MESSAGES, RULES_VERSION, SEVERITY, explain, explained, listsText, screen, screenDescription, screenName, screenReason, sha256Sync } from "../src/screen.js";
+import { MESSAGES, RULES_VERSION, SEVERITY, explain, explained, listsText, screen, screenDescription, screenName, screenReason, screenTicker, sha256Sync } from "../src/screen.js";
 import * as WORDS from "../src/screen-words.js";
 import { coinDefaults } from "../src/coindefaults.js";
 import { coinMetadataJson } from "../src/coinmeta.js";
@@ -26,7 +26,7 @@ const check = (text, result, want = [], ctx = UTICA) => {
 
 test("the rules version is the SHA-256 of the lists, pinned (a list change is a new version; old passes are screened again)", () => {
   assert.equal(RULES_VERSION, "s1-" + createHash("sha256").update(listsText()).digest("hex").slice(0, 12));
-  assert.equal(RULES_VERSION, "s1-58273b466ed0", "pinned: a change to src/screen-words.js, to the severities or to the engine must update this line (and re-screens every founder description)");
+  assert.equal(RULES_VERSION, "s1-3dc208e14db9", "pinned: a change to src/screen-words.js, to the severities or to the engine must update this line (and re-screens every founder description)");
 });
 
 test("the synchronous SHA-256 is SHA-256", () => {
@@ -36,15 +36,17 @@ test("the synchronous SHA-256 is SHA-256", () => {
 });
 
 test("every result and its plain sentence: pass, flag, block", () => {
-  check("Utica is the Handshake City, home of the half moon cookie and chicken riggies.", "pass");
+  check("Utica is the Handshake City, home of the half moon cookie and the tomato pie.", "pass");
+  // a word the screener does not know (a local dish, another language, a new spelling): a person reads it (ENGINE 4)
+  check("Utica is the Handshake City, home of the half moon cookie and chicken riggies.", "flag", ["words:riggies"]);
   // length: 10 to 200 characters (code points), at most 3 lines, at most 600 bytes
   check("Too short", "block", ["length:Too short"]);
   check("Utica, NY.", "pass"); // exactly 10
   check("Utica ".repeat(40), "block");
   check("Line one is here\nLine two is here\nLine three\nLine four", "block");
   check("🏙️".repeat(100), "block"); // 200 code points of emoji: too many bytes
-  check("Ünïcödé çhàrs are fine in Utica, the city of cookies.", "pass");
-  check("Ünïcödé çhàrs are fine in Utica, the city of 🍪 cookies.", "flag", ["characters:🍪"]); // an emoji is not plain: a person looks
+  check("Accents are fine in Utica, the city of cookies: café, naïve, façade.", "pass");
+  check("Accents are fine in Utica, the city of 🍪 cookies: café, naïve, façade.", "flag", ["characters:🍪"]); // an emoji is not plain: a person looks
   // links
   check("Visit utica.io for news", "block", ["link:utica.io"]);
   check("Visit https://utica.example", "block");
@@ -56,7 +58,8 @@ test("every result and its plain sentence: pass, flag, block", () => {
   check("Join discord.gg/abc today", "block");
   check("My name is utica.sol on chain", "block");
   check("Welcome to St.Louis and Mt.Fuji, two nice places.", "pass");
-  check("Utica.Come and see the falls.", "pass");
+  // letters, a dot and letters with no space: whatever the ending, a person looks (SEC-2-R2: "mvmoon.sbs" ends in no common one)
+  check("Utica.Come and see the falls.", "flag", ["link_like:Utica.Come"]);
   // addresses and contacts
   check("Send to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU today", "block", ["crypto_address:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"]);
   check("EVM 0x52908400098527886E0F7030069857D2E4169EE7 too", "block");
@@ -77,7 +80,7 @@ test("every result and its plain sentence: pass, flag, block", () => {
   check("Pairs with $SOL; part of $VICINITY; $UTICA forever", "pass");
   check("The official partner of Binance in Utica", "flag", ["brand:Binance"]);
   check("Our coin is backed by Coinbase", "flag");
-  check("Binance sells many things in many places", "pass", [], UTICA); // a brand alone is not a claim
+  check("Binance sells many things in many places", "pass", [], UTICA); // a brand alone is not a claim (and a name in an English sentence)
   check("Endorsed by the Utica city council", "flag", ["brand:city council"]);
   check("The city council meets on Mondays in Utica", "pass");
   check("Vicinity team approved coin for Utica", "flag", ["staff:Vicinity"]);
@@ -125,14 +128,17 @@ test("evasion: case, spacing, separators, leetspeak, look-alikes, full-width and
   // a whole word in another alphabet is not hidden (no block), but for Utica it is not plain either: a person looks
   check("Μοσχα is all Greek here, a person checks it", "flag", ["characters:Μοσχα"]);
   check("Москва — a whole word in Cyrillic, a person checks it", "flag", ["characters:Москва"]);
-  // ...and in a city whose own name is written in that alphabet, it is plain
-  check("Москва — столица России, a city of 13 million people.", "pass", [], { city: { name: "Москва", region: "Москва", countryName: "Россия", country: "RU" }, ticker: "MOSCOW" });
+  // ...and in a city of a country that writes in that alphabet, it is plain (the city list writes "Moscow"), but the checks read English
+  // only: a person reads it (FP-1: "language", never "characters")
+  const moscow = check("Москва — столица России, a city of 13 million people.", "flag", ["language:Москва"], { city: { name: "Moscow", region: "Moscow", countryName: "Russia", country: "RU" }, ticker: "MOSCOW" });
+  assert.deepEqual([...new Set(codes(moscow))], ["language"]);
   // a whole word of look-alikes is still read as the Latin word
   check("а ѕсам coin", "flag");
   // stacked marks (Zalgo)
   check("Utica sc̷a̴m̵ coin", "flag", ["financial:sc̷a̴m̵"]); // one mark on a letter: read through
   check("Utica s̸̡̛c̷a̴m̵ coin", "block"); // three on one letter: hidden
   check("Utica Z̷̡̛̤a̴l̵g̶o̷ text", "block");
+  // Vietnamese letters are plain, and these words are words of the city list's place names (Hà Nội, Việt Nam): it passes
   check("Phở in Hà Nội, Việt Nam is great", "pass");
   check("Phở in Hà Nộ̂i is great", "pass"); // decomposed Vietnamese: two marks, fine
   // w w w, dot com, 1OOx
@@ -142,8 +148,12 @@ test("evasion: case, spacing, separators, leetspeak, look-alikes, full-width and
 });
 
 test("Scunthorpe: whole words only, and a city's own name, region, country and ticker never count against it", () => {
-  check("Scunthorpe, Essex, Sussex, Middlesex, Penistone and Clitheroe are towns.", "pass");
-  check("Shitterton and Twatt are villages; so is Cockermouth.", "pass");
+  // no list matches a shorter word inside a longer one; the towns the city list does not have are only words the screener does not know
+  // ("Twatt", a doubled letter away from a listed insult, is read as one: a person checks it)
+  assert.deepEqual([...new Set(codes(screenDescription("Scunthorpe, Essex, Sussex, Middlesex, Penistone and Clitheroe are towns.", UTICA)))], ["words"]);
+  const villages = screenDescription("Shitterton and Twatt are villages; so is Cockermouth.", UTICA);
+  assert.deepEqual(villages.issues.filter((x) => x.code !== "words").map((x) => `${x.code}:${villages.text.slice(x.start, x.end)}`), ["abuse:Twatt"]);
+  check("Scunthorpe and Batman are towns too.", "pass");
   check("Classic assessment of the Assembly", "pass");
   check("The city coin of Fucking, Upper Austria, Austria.", "pass", [], { city: { name: "Fucking", region: "Upper Austria", countryName: "Austria", country: "AT" }, ticker: "FUCKING" });
   check("Fucking is a small village.", "flag", ["abuse:Fucking"]); // elsewhere it is still the word
@@ -202,10 +212,13 @@ test("whatever passes is never refused by the metadata JSON's own rule (PITCH_BA
     "HTTPS: in caps", "w w w . a . b", "The Utica coin, plain and simple."];
   let seed = 7;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  // the second alphabet has only plain characters, so that many of its texts pass the allow-list (the first one's mostly do not)
+  // random letters (mostly words nobody knows: flagged), and random known words with the characters links are made of (many pass)
   for (const alphabet of ["abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789 .:/w@$-_\n0OIl", "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ      .:w-\nOIl"]) {
-    for (let i = 0; i < 3000; i++) { let s = ""; const n = 10 + Math.floor(rnd() * 120); for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)]; corpus.push(s); }
+    for (let i = 0; i < 1500; i++) { let s = ""; const n = 10 + Math.floor(rnd() * 120); for (let k = 0; k < n; k++) s += alphabet[Math.floor(rnd() * alphabet.length)]; corpus.push(s); }
   }
+  const pieces = ["utica", "coin", "city", "the", "www", "http", "https", "com", "io", "net", "org", "x", "me", "t", "bit", "ly", "dot", "slash", "at", "on", "home",
+    "we", "love", "it", "is", "a", "and", "Utica", "WWW", "HTTP", ".", ":", "/", ",", "-", " ", " ", " ", " ", "\n", "1", "22", "100", "7xKXtg2CW87d97TXJSDpbD5jBkhe"];
+  for (let i = 0; i < 3000; i++) { let s = ""; const n = 4 + Math.floor(rnd() * 30); for (let k = 0; k < n; k++) s += `${pieces[Math.floor(rnd() * pieces.length)]} `; corpus.push(s.slice(0, 190)); }
   let passed = 0;
   for (const t of corpus) {
     const r = screenDescription(t, UTICA);
@@ -266,7 +279,8 @@ test("small capitals and other look-alike letters, words split by separators or 
   // and what must still pass: a plural is never a shorter slur plus "es", an apostrophe or a dash keeps a word whole, two whole words
   // stay two words, a bullet between spaced words is a list
   for (const t of ["Utica has great spices and food", "See Utica's pics online today", "We give away free cookies in Utica", "Utica: food, art, music for all",
-    "Coeur d'Alene and Wilkes-Barre are friends of Utica", "Utica's co-op opens at nine", "Winston-Salem, Stratford-upon-Avon and Utica", "Ŋaŋ, Bakı and Gəncə are lovely"]) check(t, "pass");
+    "Saint-Étienne and Aix-en-Provence are friends of Utica", "Utica's co-op opens at nine", "Winston-Salem, Saint-Étienne and Utica"]) check(t, "pass");
+  assert.deepEqual([...new Set(codes(check("Ŋaŋ, Bakı and Gəncə are lovely", "flag")))], ["words"]); // plain letters, words the list does not write
   // a bullet between spaced words is a list, never a link (not plain either: a person looks)
   const bullets = check("Utica: food • art • music for all", "flag");
   assert.deepEqual([...new Set(codes(bullets))], ["characters"]);
@@ -289,9 +303,10 @@ test("links and handles written with other dots, spaces or words: blocked, or fl
 });
 
 test("a proposed ticker is read like a word: a slur refuses it, whatever the name says (src/coinreview.js screens it with the coin's own words)", () => {
-  assert.equal(screenName("SPICS", UTICA).result, "block");
-  assert.equal(screenName("NIGGAZ", UTICA).result, "block");
-  assert.equal(screenName("UTICANY", UTICA).result, "pass");
+  assert.equal(screenTicker("SPICS", UTICA).result, "block");
+  assert.equal(screenTicker("NIGGAZ", UTICA).result, "block");
+  assert.equal(screenTicker("UTICANY", UTICA).result, "pass", "a ticker is letters, not a word of a language");
+  assert.equal(screenTicker("UFR", UTICA).result, "pass");
   // the name with the city's reviewed own words (never the proposed ticker): the slur in it counts
   assert.equal(screenName("Utica Spics", UTICA).result, "block");
   assert.equal(screenName("Spic Town", UTICA).result, "block");

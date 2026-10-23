@@ -258,7 +258,7 @@ test("a cancelled wallet: the page says so and records nothing", async () => {
 test("COIN_V2_READY: a ready-made coin's card shows the exact picture and version that go into its metadata (never the badge line), and approving sends that version", async () => {
   const HASH = "3f9a2c1b" + "e".repeat(56), ART = `/coin-meta/art/${"b".repeat(64)}.png`;
   const ready = { ...CANDIDATES.candidates[0], name: "New York City", pitch: "The city coin of New York City, New York, United States.", logo: false, logoStatus: null, approved: false,
-    ready: { version: HASH.slice(0, 8), contentHash: HASH, template: "t1", art: ART } };
+    ready: { version: HASH.slice(0, 8), contentHash: HASH, template: "t1", art: ART, description: "New York City: pizza, parks and the subway at 3 a.m.", descriptionBy: "founder" } };
   const bodies = [];
   const t = await tab({ answers: {
     "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": { ...CANDIDATES, candidates: [ready] },
@@ -272,7 +272,9 @@ test("COIN_V2_READY: a ready-made coin's card shows the exact picture and versio
   assert.match(img.alt, new RegExp(`version ${HASH.slice(0, 8)}`));
   t.button("Approve on chain").click(); await tick();
   assert.equal(plain(bodies[0]).contentHash, HASH, "the approval names the exact version the card showed");
-  assert.match(t.panel.querySelector(".lp-approve").textContent, new RegExp(`Picture and description \\(the coin's metadata, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}`));
+  assert.match(t.panel.querySelector(".lp-approve").textContent, new RegExp(`Picture \\(the coin's metadata, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}`));
+  // BATCH-1: the approve check shows the description that goes into the metadata for ever, and whose words they are
+  assert.match(t.panel.querySelector(".lp-approve").textContent, /Description \(the coin's metadata, for ever\)The founder's own wordsNew York City: pizza, parks and the subway at 3 a\.m\./);
 });
 
 test("a city whose Raydium LaunchLab contract still waits: 'Reject the old contract' on its card (candidate or approved) asks first, posts only the city, then reads the list again; no other card has it", async () => {

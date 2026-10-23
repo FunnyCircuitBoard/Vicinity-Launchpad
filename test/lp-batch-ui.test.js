@@ -222,6 +222,30 @@ test("the card: shown only with the switch's probe key; four groups with every r
   assert.doesNotMatch(ADMIN_LP, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|eval\(/);
 });
 
+test("BATCH-1: every row shows the description that goes into the metadata for ever and whose words it is; the founder's own start unticked", async () => {
+  const round = structuredClone(ROUND);
+  Object.assign(round.groups.approve[0], { description: "Utica coin: home of the half moon cookie and the tomato pie.", descriptionBy: "founder" });
+  Object.assign(round.groups.approve[1], { description: "The city coin of Syracuse, New York, United States.", descriptionBy: "vicinity" });
+  Object.assign(round.groups.renew[0], { description: "The city coin of Albany, New York, United States.", descriptionBy: "vicinity" });
+  const t = await card({ round });
+  const rows = t.panel.querySelectorAll(".lp-round__row");
+  assert.match(rows[0].textContent, /Description \(in the coin's metadata for ever\)The founder's own wordsUtica coin: home of the half moon cookie and the tomato pie\./);
+  assert.match(rows[1].textContent, /Description \(in the coin's metadata for ever\)Vicinity's sentenceThe city coin of Syracuse, New York, United States\./);
+  assert.doesNotMatch(rows[3].textContent, /Description/, "a revoke approves nothing");
+  const box = (id) => t.panel.querySelectorAll("input").find((i) => i.id === id);
+  assert.equal(box("lp-round-approve-5142056").checked, false, "the founder's own words: the owner reads them, then ticks the city");
+  assert.equal(box("lp-round-approve-5140405").checked, true);
+  assert.match(t.text(), /1 city has a description in the founder's own words\. It passed the automatic checks, but no person has read it/);
+  assert.ok(t.button(/^Sign today's approvals \(3 cities\)$/), "the unticked city is not in the count");
+  // ticked by the owner, it is echoed like any other row
+  box("lp-round-approve-5142056").checked = true; box("lp-round-approve-5142056").dispatchEvent(newEvent("change"));
+  t.button(/^Sign today's approvals \(4 cities\)$/).click();
+  await tick();
+  const sent = t.calls.find((c) => c.path === "/api/admin/lp/batch/tx");
+  assert.deepEqual(sent.body.rows.map((r) => r.cityId).sort(), ["5106834", "5128581", "5140405", "5142056"]);
+  assert.match(CSS, /\.lp-desc\b/);
+});
+
 test("unticking leaves a city out; the build echoes exactly the ticked rows; one prompt signs all; each landed one is recorded with step batch", async () => {
   const t = await card();
   const box = t.panel.querySelectorAll("input").find((i) => i.id === "lp-round-approve-5140405");

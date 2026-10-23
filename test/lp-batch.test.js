@@ -165,6 +165,8 @@ test("the list: every city in its group, each row with the city, $TICKER, name, 
   assert.deepEqual([r.groups.approve.length, r.groups.renew.length, r.groups.revoke.length, r.global], [1, 0, 0, []]);
   const u = r.groups.approve[0];
   assert.deepEqual([u.cityId, u.cityName, u.action, u.symbol, u.name, u.founder, u.contentHash, u.version, u.art], [UTICA, "Utica", "approve", "UTICA", "Utica", w.f.w.address, coin.contentHash, coin.version, coin.art]);
+  // BATCH-1: the description that goes into the metadata for ever, and whose words it is
+  assert.deepEqual([u.description, u.descriptionBy], ["The city coin of Utica, New York, United States.", "vicinity"]);
   assert.equal(u.founderMasked, `${w.f.w.address.slice(0, 5)}…${w.f.w.address.slice(-4)}`);
   assert.deepEqual(u.checks, [...CHECKS]);
   const why = (id) => ofCity(r, id) && ofCity(r, id).reasons.join(" ");
@@ -444,6 +446,8 @@ test("SEC-4: a pre-approved founder can still ask for changes or write a descrip
   r = await w.round();
   const rn = ofCity(r, UTICA);
   assert.deepEqual([rn.group, rn.contentHash], ["renew", desc.review.selected.contentHash]);
+  // BATCH-1: the owner reads the founder's own words in the row (the card leaves it unticked until then)
+  assert.deepEqual([rn.description, rn.descriptionBy], ["The Handshake City on the Mohawk River, home of tomato pie.", "founder"]);
   assert.match(rn.why, /changed the coin after this approval/);
   advance(6 * 60_000);
   await signRound(w, [rn]);

@@ -208,7 +208,8 @@ test("deciding: moderators look but don't decide; never the city's own founder; 
   // the public log: one line, no note; the founder's notice
   const log = await w.all("SELECT actor_role, action, reason, note FROM mod_actions WHERE action LIKE 'coin_change%'");
   assert.deepEqual(log.map((l) => [l.actor_role, l.action, l.reason]), [["admin", "coin_change_approved", "review"]]);
-  assert.match(log[0].note, /^Utica: coin change approved, \$UTICA "Utica Falls", version [0-9a-f]{8}$/);
+  // NEW-1-R: the public line names the version, never the founder's chosen words (a takedown could not take them back)
+  assert.match(log[0].note, /^Utica: coin change approved, version [0-9a-f]{8}$/);
   assert.ok((await w.notices()).includes("Your coin change was approved. It is your coin now."));
   assert.ok(await w.row("SELECT id FROM admin_audit WHERE action = 'coins/approve' AND detail LIKE ?", `request ${p.id} version ${p.contentHash}%`));
   // the owner's list: approvable with that exact version; the approval binds it; the launch record publishes exactly it

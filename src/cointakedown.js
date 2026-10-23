@@ -93,6 +93,12 @@ async function carrying(t, text) {
   return { n: (n && n.n) || 0, stmt: t.db.prepare(`UPDATE coin_requests SET status = 'withdrawn', closed_at = ?, updated_at = ? WHERE city_id = ? AND status = 'pending'
       AND version_id IN (SELECT id FROM coin_versions WHERE city_id = ? AND description = ?)`).bind(t.at, t.at, t.cityId, t.cityId, text) };
 }
+/** The public log lines of this city that name its founder's coin name and ticker (written before the log stopped naming them). */
+async function namedInLog(t, c) {
+  const words = ` $${c.symbol} "${c.name}",`;
+  const n = await t.db.prepare("SELECT COUNT(*) AS n FROM mod_actions WHERE target_type = 'city_coin' AND place = ? AND instr(note, ?) > 0").bind(t.cityId, words).first();
+  return { n: (n && n.n) || 0, stmt: t.db.prepare("UPDATE mod_actions SET note = replace(note, ?, '') WHERE target_type = 'city_coin' AND place = ? AND instr(note, ?) > 0").bind(words, t.cityId, words) };
+}
 /** This data centre's cached copies of the pages that show a coin's words (src/index.js cached: the same keys), and this server's list. */
 async function purgePages(env, mint = null, arts = []) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
@@ -142,10 +148,13 @@ async function textChosen(t) {
   }
   const what = ownName ? (ownText ? "coin name and description were" : "coin name was") : "description was";
   const marks = [], withdraw = ownText ? await carrying(t, c.description) : { n: 0, stmt: null };
+  // the public log never names a founder's words (src/coinreview.js decideReview); a line written before that rule named the approved
+  // name and ticker: they leave it now, in the same batch (the staff audit keeps them)
+  const redacted = ownName ? await namedInLog(t, c) : { n: 0, stmt: null };
   if (ownText) marks.push(await takedownStatement(db, { cityId, adminId: t.actor.id, text: c.description, reason: t.reason, at: t.at }));
   if (ownName) marks.push(await takedownStatement(db, { cityId, adminId: t.actor.id, text: c.name, reason: t.reason, at: t.at, target: "name" }));
   const refused = await writeChoice(t, v, {
-    before: [...marks, ...(withdraw.n ? [withdraw.stmt] : [])],
+    before: [...marks, ...(withdraw.n ? [withdraw.stmt] : []), ...(redacted.n ? [redacted.stmt] : [])],
     log: { actorId: t.actor.id, role: "admin", action: "coin_text_removed", reason: t.reason,
       note: `${coin.city_name}: the founder's ${what} taken down (${pictureReason(t.reason)}); the coin uses Vicinity's ${ownName ? "coin for the city" : "own description"}, version ${versionLabel(v.hash)}` },
     after: [audit(t, "coins/takedown_text", `version ${c.content_hash} → ${v.hash}`)],
@@ -160,6 +169,7 @@ async function textChosen(t) {
       `The coin is Vicinity's coin for ${d.city.name} again: $${v.symbol} “${v.name}”, the Vicinity design and Vicinity's own description (“${v.description}”), because the name, the ticker and the picture were reviewed together.`]
     : [`Taken down: the founder's description of $${c.symbol}.`, `The coin uses Vicinity's own sentence now (“${t.sentence}”); its name, ticker and picture stay.`];
   if (withdraw.n) changed.push(`The founder's request that carried the description was withdrawn (${withdraw.n}).`);
+  if (redacted.n) changed.push(`The public log no longer names the taken-down coin name (${redacted.n} line${redacted.n === 1 ? "" : "s"}).`);
   changed.push(approvalWords(t), SPREAD, told(n, true), "If the founder sends the same words again, a person reviews them first.");
   return done(changed, { version: versionLabel(v.hash) });
 }

@@ -54,7 +54,7 @@ import { coinDefaults } from "./coindefaults.js";
 import { TEMPLATE_VERSION, coinSvg, sha256Hex } from "./coinart.js";
 import { TAKEDOWN, approvedBasis, approvedDescription, approvedRequest, artBySvg, artBytes, artPath, chosenOf, cityDescription, ensureReadySchema, takenDownAt } from "./coinart-store.js";
 import { canonicalContent, choiceStatements, coinState, ensureArt, founderAnswer, renderPng, svgOf, symbolTaken, versionLabel } from "./coinready.js";
-import { RULES_VERSION, explained, screenDescription, screenName, screenReason } from "./screen.js";
+import { RULES_VERSION, explained, screenDescription, screenName, screenReason, screenTicker } from "./screen.js";
 import { nameProblem } from "./lpadmin.js";
 import { checkName, checkSymbol } from "./coinmeta.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
@@ -690,8 +690,8 @@ async function submitRoute(request, env, fetchImpl, now) {
     nameIssues = explained(s.issues, w.d.city.name);
   }
   if (symbol !== base.symbol) {
-    // a ticker is read like a word too: a slur refuses it, anything else the lists find is shown to the reviewer
-    const s = screenName(symbol, own);
+    // a ticker is read like a word too: a slur (spelled any way) refuses it, anything else the lists find is shown to the reviewer
+    const s = screenTicker(symbol, own);
     if (s.result === "error") return fail("screening_error", 503);
     if (s.result === "block") return fail("ticker_refused", 409, { issues: explained(s.issues, w.d.city.name) });
     nameIssues = [...nameIssues, ...explained(s.issues, w.d.city.name).map((x) => ({ ...x, field: "ticker" }))];
@@ -1146,8 +1146,10 @@ export async function decideReview(env, ctx, body, fetchImpl = fetch) {
   const w = { cityId: String(r.city_id), seat: live, userId: r.user_id, u: { id: r.user_id } };
   const s = await select(env, { w, now, noPending: false, before,
     v: { content: v.content_json, hash: v.content_hash, name: v.name, symbol: v.symbol, description: v.description, artSha: v.art_sha256, templateVersion: v.template_version, origin: v.origin },
+    // the public log names the version, never the founder's words (a name or ticker taken down later must not stay public: NEW-1-R);
+    // the staff audit below keeps the request and its hash
     log: { actorId: ctx.user.id, role: ctx.role === "owner" ? "owner" : "admin", action: r.kind === "change" ? "coin_change_approved" : "coin_description_approved", reason: "review",
-      note: `${cityName}: ${what} approved, $${v.symbol} "${v.name}", version ${label}` },
+      note: `${cityName}: ${what} approved, version ${label}` },
     after: [audit(r.kind === "change" ? "coins/approve" : "coins/description_approve", `request ${id} version ${r.content_hash}${registry ? ` · ticker ${v.symbol} waits for the city list` : ""}`),
       guard(db, "EXISTS (SELECT 1 FROM coin_requests WHERE id = ? AND status = 'approved' AND decided_at = ?)", [id, at])] });
   if (s.error) {

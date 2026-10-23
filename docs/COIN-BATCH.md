@@ -17,7 +17,10 @@ in one round instead of one card at a time (DESIGN.md 6.5 and 9.4; owner decisio
      or description waits for review, or the coin may no longer launch as it is. The program would let that wallet launch until it
      expires, so it is withdrawn; its rent comes back.
    - **Blocked**: nothing is built; each row says why.
-3. Untick any city to leave it out of today's round (it comes back in the next one).
+3. Read each row's **Description**: it goes into the coin's metadata for ever. A row says whose words they are: "Vicinity's
+   sentence" (the city list's) or "The founder's own words" (they passed the automatic checks, but no person has read them). A row
+   with the founder's own words starts unticked: read it, then tick it. Untick any city to leave it out of today's round (it comes
+   back in the next one).
 4. Press **Sign today's approvals**. The site checks every city again and builds the transactions (up to 5 cities each). The page
    shows each transaction and checks the list of its instructions (the one this site worked out when it built them) against the
    rows you saw. The page does not decode the transaction bytes itself: your wallet's own screen is the last look at what you sign.

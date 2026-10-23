@@ -47,7 +47,7 @@ import { coinV2BatchOn, coinV2ReadyOn, coinV2ReviewOn } from "./flags.js";
 import { batchList, batchTx, recordBatch, tellFounders } from "./lpbatch.js";
 import { candidateProblem, pendingRequest } from "./coinreview.js";
 import { BLANK_CHARS, FORMAT_CHARS } from "./text.js";
-import { chosenOf, clearApproved, ensureReadySchema, markApprovedStatement } from "./coinart-store.js";
+import { chosenOf, cityDescription, clearApproved, ensureReadySchema, markApprovedStatement } from "./coinart-store.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, lpRpc, readAccounts, respond } from "./lpkit.js";
 import { ADDRESSES, PROGRAM_IDS, ata, launchpad as launchpadPdas, programDataAddress } from "./sol/pda.js";
 import { createAtaIdempotent } from "./sol/ix.js";
@@ -839,7 +839,9 @@ export async function candidateList(env, ctx, fetchImpl, now, { keep = false } =
       // description that no longer passes the checks... the review rules speak first (src/coinreview.js); nothing is approved meanwhile
       const review = await candidateProblem(env, r.city_id, r.country);
       if (review) reasons.push(review);
-      else if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png` };
+      // the description goes into the coin's metadata for ever: the owner reads it, and whose words they are (BATCH-1)
+      else if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png`,
+        description: c.description || "", descriptionBy: c.description === cityDescription(c.content && c.content.city) ? "vicinity" : "founder" };
       else reasons.push(c && c.current ? "The founder's chosen Vicinity coin no longer matches the city list (its ticker or name changed). The founder must use the coin again." : "The founder has not chosen the Vicinity coin yet (\"Use this coin\" in their Founder tab).");
     }
     return { reasons, readyCoin, chosen: c };

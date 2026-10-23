@@ -421,6 +421,10 @@
 .lp-round__row { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
 .lp-round__row:first-child { border-top: 0; }
 .lp-round__row > p { margin: 0; }
+/* a coin's description as the owner approves it (BATCH-1): whose words, then the words, wrapped (they go into the metadata for ever) */
+.lp-desc { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.lp-desc__by { flex: none; }
+.lp-desc__text { font-style: italic; }
 .lp-round__head { min-width: 0; overflow-wrap: anywhere; }
 .lp-round__name { font-weight: 400; }
 .lp-round__txs { margin: 0; padding-left: 20px; display: grid; gap: 12px; }

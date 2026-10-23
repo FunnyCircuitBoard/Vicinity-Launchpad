@@ -127,10 +127,15 @@ async function withdrawReason(env, seat, cityId, country, now) {
 
 /* ---------------------------------------------------------------- the list */
 const hours = (s) => Math.max(0, Math.floor(s / 3600));
-function rowOf(action, a, { founder, name, symbol, contentHash = null, version = null, art = null, approval = null, why = null, checks = null, warnings = [] }) {
+/**
+ * One row of the round. An approve or renew row carries the coin's description (it goes into the metadata for ever) and whose words it
+ * is: "vicinity" (the city list's sentence) or "founder" (their own, which passed the checks by itself: the card leaves it unticked
+ * until the owner has read it, BATCH-1).
+ */
+function rowOf(action, a, { founder, name, symbol, contentHash = null, version = null, art = null, description = null, descriptionBy = null, approval = null, why = null, checks = null, warnings = [] }) {
   return {
     cityId: a.cityId, cityName: a.cityName, country: a.country || null, action, founder, founderMasked: maskWallet(founder), handle: a.handle || null,
-    name, symbol, contentHash, version, art, why, ...(checks ? { checks } : {}), ...(approval ? { approval } : {}), warnings,
+    name, symbol, contentHash, version, art, ...(description != null ? { description, descriptionBy } : {}), why, ...(checks ? { checks } : {}), ...(approval ? { approval } : {}), warnings,
   };
 }
 const approvalView = (ap) => ({ founder: ap.founder, founderMasked: maskWallet(ap.founder), name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), rentPayer: ap.rentPayer });
@@ -159,6 +164,7 @@ export async function batchRows(env, ctx, fetchImpl, now) {
     }
     if (reasons.length) { groups.blocked.push(blockedOf(base, reasons)); continue; }
     groups.approve.push(rowOf("approve", base, { founder: c.founder, name: c.name, symbol: c.symbol, contentHash: c.ready.contentHash, version: c.ready.version, art: c.ready.art,
+      description: c.ready.description, descriptionBy: c.ready.descriptionBy,
       why: "A new founder's chosen coin: it passes every check.", checks: CHECKS, warnings: c.warnings || [] }));
   }
   // 2. every approval on chain (not only the cities whose design is among the 200 listed): renew, revoke, or nothing
@@ -176,7 +182,8 @@ export async function batchRows(env, ctx, fetchImpl, now) {
     let next = null, notNext = null;
     if (a && !own(a.reasons).length && a.readyCoin) {
       const f = await founderNow(env, seat, now, fetchImpl);
-      if (!f) next = { founder: a.row.seat_wallet, name: a.row.name, symbol: a.symbol, contentHash: a.readyCoin.contentHash, version: a.readyCoin.version, art: a.readyCoin.art, approvedHash: a.chosen ? a.chosen.approved_hash : null };
+      if (!f) next = { founder: a.row.seat_wallet, name: a.row.name, symbol: a.symbol, contentHash: a.readyCoin.contentHash, version: a.readyCoin.version, art: a.readyCoin.art,
+        description: a.readyCoin.description, descriptionBy: a.readyCoin.descriptionBy, approvedHash: a.chosen ? a.chosen.approved_hash : null };
       else notNext = [f.reason];
     } else notNext = a ? (own(a.reasons).length ? own(a.reasons) : ["The founder has not chosen the Vicinity coin yet."]) : ["The city has no coin design on this site."];
     const lost = !seat ? "The city has no founder now, but the approved wallet can still launch its coin on chain until the approval expires."

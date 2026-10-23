@@ -25,7 +25,7 @@ test("the owner approves the founder's chosen ready-made coin as today: defaults
   const coin = await w.useCoin();
   const c = await w.card();
   assert.deepEqual([c.ok, c.name, c.symbol, c.pair, c.pitch, c.logo, c.founder], [true, "Utica", "UTICA", "SOL", "The city coin of Utica, New York, United States.", false, w.f.w.address], JSON.stringify(c.reasons));
-  assert.deepEqual(c.ready, { version: coin.version, contentHash: coin.contentHash, template: "t1", art: coin.art });
+  assert.deepEqual(c.ready, { version: coin.version, contentHash: coin.contentHash, template: "t1", art: coin.art, description: "The city coin of Utica, New York, United States.", descriptionBy: "vicinity" });
   // the approval stands for that exact version: none sent (a page from before), or another one, builds nothing
   for (const contentHash of [undefined, "f".repeat(64)]) {
     const x = await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(c), contentHash, expiryDays: 7 });

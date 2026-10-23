@@ -12,23 +12,39 @@
  * missing list or a rules version the caller did not expect leaves "error", and an error is never a pass (the routes treat it as "nothing
  * changed, try again"). block > flag > pass.
  *
- * An ALLOW-LIST decides what passes by itself (ENGINE 3), not a race against every new spelling. A description passes only when all
- * three hold, and anything else is FLAGGED for a person (never used by itself, never counted as approved):
- *   (a) plainChars: every character is a plain one. The letters of the scripts the city's own name is written in (for a Latin-script
+ * An ALLOW-LIST decides what passes by itself (ENGINE 4), not a race against every new spelling. A description passes only when all
+ * four hold, and anything else is FLAGGED for a person (never used by itself, never counted as approved):
+ *   (a) plainChars: every character is a plain one. The letters of the scripts the city's own name is written in, and those of its
+ *       country (src/screen-words.js COUNTRY_SCRIPTS: Japanese for a Japanese city, Cyrillic for a Russian one; for a Latin-script
  *       name: A to Z and the accented letters written languages use, never small capitals, phonetic, medieval, upside-down or other
  *       "fancy text" letters), A to Z for every city, the digits 0 to 9, everyday punctuation, spaces and line breaks, and any character
  *       of the city's own name, region and country. Compatibility forms (full-width, mathematical, circled, squared, parenthesized,
  *       superscript letters: whatever NFKC would rewrite) are not plain, nor are symbols, emoji, other alphabets, zero-width or bidi
  *       characters, and combining marks other than the accents of written languages (strike-through, underline and overlay marks).
- *   (b) linkLike: nothing reads as a link, an address or a handle with the dot written as a space or left out: a word, a space and a web
- *       ending ("uticacoin com"), a link host with a space for its dot ("t me", "bit ly", "x com"), a slash between words
- *       ("x com/uticacoin"), a platform's name ("Telegram", or "on X"), "DM me", a word that glues the city's name to a handle word
+ *   (b) knownWords: every word is one the screener knows: everyday English (src/screen-vocab.js, from SCOWL), a name of the dictionary
+ *       ("Broadway"), a word of a place name in the Vicinity city list, the city's own name, region and country (and its people:
+ *       "Uticans"), a number, or one of the words of src/screen-words.js (days, peoples, faiths, food...). Another word is flagged
+ *       ("words": a local name, another language, a new spelling, a slur or a handle nobody listed), and text in another script too
+ *       ("language": the checks read English only). Only a few words written as names may pass unknown (allowedNames: up to three,
+ *       five letters or more, in a sentence of everyday English, never after "follow" or "message", never made like a handle, never one
+ *       any rule read anything in: "Fenway", "Alfama"). A word it does not know is also read against the slurs spelled another way
+ *       (slurLike: q for g, doubled or dropped letters, plurals, "-lover"...: a listed slur that way is refused, a near one flagged),
+ *       the insults and financial words misspelled and the platforms' names.
+ *   (c) linkLike: nothing reads as a link, an address or a handle with the dot written as a space or left out: a word, a space and a web
+ *       ending ("uticacoin com"), a word, a comma or a dash and one ("mvmoon,com"), one after "visit", "at", "on"... ("Visit mvmoon
+ *       net"), a word for the dot ("mvmoon period net"), letters, a dot and letters ("mvmoon.sbs": any ending), a link host with a space
+ *       or a dash for its dot ("t me", "t-me", "bit ly", "x com"), a slash between words ("x com/uticacoin"), a platform's name, also
+ *       misspelled, split or with a look-alike letter ("Telegram", "teIegram", "you tube"), a short one after "on", "our", "follow"...
+ *       ("on X", "our IG", "on the gram"), a mail provider ("at gmail"), "DM me", a word that glues the city's name to a handle word
  *       ("uticacoin", "visitutica") or letters to digits ("utica22").
- *   (c) the word lists of src/screen-words.js find nothing (slurs BLOCK; every other list flags), compared with a folded form of the text:
+ *   (d) the word lists of src/screen-words.js find nothing (slurs BLOCK; every other list flags), compared with a folded form of the text:
  *       Unicode compatibility forms, letter case, accents and stacked marks, look-alike letters of other scripts, leetspeak (0 o, 1 i,
- *       3 e, 4 a, 5 s, 7 t, @ a, $ s, ! i, | l; never inside a $TICKER or a plain number), separators inside a word ("s.c.a.m"), and
- *       spaces between single letters ("s c a m"). So a slur in a fancy style is still refused (BLOCK) wherever the folding reads it,
- *       and flagged by (a) wherever it does not.
+ *       3 e, 4 a, 5 s, 7 t, @ a, $ s, ! i, | l; never inside a $TICKER or a plain number), separators inside a word ("s.c.a.m",
+ *       "s,c,a,m", a line break), and spaces between single letters ("s c a m"). So a slur in a fancy style is still refused (BLOCK)
+ *       wherever the folding reads it, and flagged by (a) wherever it does not. Besides the lists: hate in ordinary words (hateNear: a
+ *       group of people with a violent word, or "no Jews allowed"), asks about wallets and money (walletAsk: "connect your wallet",
+ *       "send 1 SOL ... back"), returns for holding (moneyPromises: "earn 20% every week"), and official or famous backers ("approved
+ *       by the SEC", "endorsed by Elon Musk").
  * Invisible characters (zero-width, bidi controls, tags, fillers, private use, unassigned), Latin small capitals and phonetic letters,
  * and words that mix Latin with Cyrillic or Greek letters are refused outright ("hidden_chars", BLOCK); the zero-width joiner and the
  * variation selectors are only hidden characters outside an emoji (an emoji is not plain either: it is flagged by (a)). Links, addresses
@@ -37,13 +53,14 @@
  */
 import { BLANK_CHARS, FORMAT_CHARS, cleanText } from "./text.js";
 import * as WORDS from "./screen-words.js";
+import * as VOCAB from "./screen-vocab.js";
 
 export const DESCRIPTION_MIN = 10, DESCRIPTION_MAX = 200, DESCRIPTION_LINES = 3, DESCRIPTION_BYTES = 600;
 export const REASON_MIN = 10, REASON_MAX = 300;
 export const SEVERITY = Object.freeze({
   length: "block", hidden_chars: "block", link: "block", crypto_address: "block", contact: "block", slur: "block",
   street_address: "flag", abuse: "flag", other_city: "flag", brand: "flag", staff: "flag", financial: "flag", spam: "flag",
-  characters: "flag", link_like: "flag", taken_down: "flag",
+  characters: "flag", link_like: "flag", taken_down: "flag", words: "flag", language: "flag", slur_like: "flag", wallet_ask: "flag",
 });
 /** What the founder reads for each issue ({City}: the city's name). */
 export const MESSAGES = Object.freeze({
@@ -56,13 +73,17 @@ export const MESSAGES = Object.freeze({
   slur: "This contains a slur. It can't be used.",
   abuse: "This may be insulting, threatening or sexual. A person will check it if you send it for review.",
   other_city: "This mentions another coin, city or ticker. Your coin can only speak for {City}.",
-  brand: "Coins can't suggest that a company, team or public body is involved. Only send it for review if they really are.",
+  brand: "Coins can't suggest that a company, a famous person, a regulator, a team or a public body is involved or vouches for them. Only send it for review if they really are.",
   staff: "This sounds like it comes from Vicinity or its staff. Only Vicinity speaks for Vicinity.",
-  financial: "This sounds like a promise about price or profit. City coins can't promise returns.",
+  financial: "This sounds like a promise about price, profit or rewards. City coins can't promise returns.",
   spam: "Too many capitals, repeated characters or emoji.",
-  characters: "Only plain letters, numbers and everyday punctuation pass by themselves. This has other characters (a fancy-text style, symbols, emoji or another alphabet), so a person checks it first.",
+  characters: "Only plain letters, numbers and everyday punctuation pass by themselves. This has other characters (a fancy-text style, symbols, emoji or an alphabet your city doesn't use), so a person checks it first.",
   link_like: "This looks like a web address, a link or a social media handle. A person checks it first.",
   taken_down: "Vicinity took this description down before. A person checks it before it can be used again.",
+  words: "This has words our automatic check doesn't know (a local name, another language or an unusual spelling), so a person checks it first.",
+  language: "Our automatic check reads English only, so a person checks text in other languages and scripts first.",
+  slur_like: "A word here may be an offensive word written another way, so a person checks it first.",
+  wallet_ask: "This asks people to do something with their wallet, keys or money (connect a wallet, enter a phrase, send coins, claim tokens). Scams do that, so a person checks it first.",
   error: "We couldn't check your description just now. Nothing changed. Try again in a minute.",
 });
 /** One plain sentence for an issue, with the city's name filled in. */
@@ -100,17 +121,23 @@ export function sha256Sync(str) {
   }
   return Array.from(H, (x) => x.toString(16).padStart(8, "0")).join("");
 }
-const LIST_NAMES = ["SLURS", "ABUSE", "BRANDS", "PUBLIC_BODIES", "FINANCIAL", "STREET_WORDS", "TIE_WORDS", "BODY_TIE_WORDS", "STAFF_WORDS", "STAFF_ALONE", "TLDS", "LINK_HOSTS", "OK_TICKERS",
-  "SPACED_TLDS", "SPACED_HOSTS", "PLATFORMS", "PLATFORM_SHORT", "CONTACT_WORDS", "CONTACT_ME", "HANDLE_SUFFIXES", "HANDLE_PREFIXES"];
+const LIST_NAMES = ["SLURS", "ABUSE", "BRANDS", "PUBLIC_BODIES", "FINANCIAL", "WALLET_ASK", "OFFICIAL_CLAIMS", "STREET_WORDS", "TIE_WORDS", "BODY_TIE_WORDS",
+  "STAFF_WORDS", "STAFF_ALONE", "TLDS", "LINK_HOSTS", "OK_TICKERS", "SPACED_TLDS", "WEB_TLDS", "LINK_LEADS", "DOT_WORDS", "SPACED_HOSTS", "PLATFORMS",
+  "PLATFORM_SHORT", "CONTACT_WORDS", "CONTACT_ME", "HANDLE_SUFFIXES", "HANDLE_PREFIXES", "PROPER_WORDS", "EXTRA_WORDS", "VOCAB_PAIRS", "PAIR_ONLY",
+  "VOCAB_DENY", "DENY_PARTS", "DEMONYM_SUFFIXES", "NAME_GUARD_WORDS", "FOREIGN_SLURS", "GROUP_WORDS", "VIOLENCE_WORDS", "EXCLUSION_AFTER", "COUNTRY_SCRIPTS"];
 /**
  * The matching engine's own version: raised whenever the folding or a rule's code changes what is caught (2: Latin small capitals and
  * other look-alike letters, words split by separators or a space, slur stems, more ways of writing a link or a handle; 3: the
- * allow-list, plainChars and linkLike). It is part of the rules version, so a text that passed under the older engine is screened
- * again, like one that passed under older lists.
+ * allow-list, plainChars and linkLike; 4: the word allow-list knownWords, slurLike, hateNear, walletAsk, moneyPromises, the country's
+ * scripts, every web ending and a dot between any letters). It is part of the rules version, so a text that passed under the older
+ * engine is screened again, like one that passed under older lists.
  */
-const ENGINE = 3;
-/** The serialized lists the rules version is the hash of (with the rule severities: changing what blocks changes the version too). */
-export const listsText = (lists = WORDS) => JSON.stringify({ lists: Object.fromEntries(LIST_NAMES.map((k) => [k, lists[k]])), severity: SEVERITY, engine: ENGINE });
+const ENGINE = 4;
+/**
+ * The serialized lists the rules version is the hash of (with the rule severities: changing what blocks changes the version too; and the
+ * vocabulary's own SHA-256, src/screen-vocab.js, so a new word list or city list re-screens too).
+ */
+export const listsText = (lists = WORDS) => JSON.stringify({ lists: Object.fromEntries(LIST_NAMES.map((k) => [k, lists[k]])), severity: SEVERITY, engine: ENGINE, vocab: VOCAB.VOCAB_SHA256 });
 /** "s1-" and the first 12 hex characters of the SHA-256 of the lists: stored with every screening; test/screen.test.js pins it. */
 export const RULES_VERSION = `s1-${sha256Sync(listsText()).slice(0, 12)}`;
 
@@ -214,8 +241,9 @@ function variants(units, { tickers = [] } = {}) {
 }
 
 const JOIN_MAX = 24; // the longest list entry is shorter: a longer join can match nothing
-const TIGHT = /^[.\-_*·•'’‐‑‒–—]{1,3}$/u; // separators inside a word, with no space: "nig-ger", "f.u.c.k", "fuc'k"
-const LOOSE = /^(?=.* )[ .\-_*·•'’‐‑‒–—]{1,3}$/u; // a space, maybe with separators: "ni gger", "fu - ck"
+// separators inside a word, with no space: "nig-ger", "f.u.c.k", "fuc'k", "n,i,g,g,e,r", "s;c;a;m", a line break ("ni⏎ggers")
+const TIGHT = /^[.\-_*·•'’‐‑‒–—,;:?&%\n]{1,3}$/u;
+const LOOSE = /^(?=.* )[ .\-_*·•'’‐‑‒–—,;:\n]{1,3}$/u; // a space, maybe with separators: "ni gger", "fu - ck", "fu, ck"
 /**
  * The joined words, each as one more word (the parts stay words too), whatever the length of the pieces:
  *   - pieces joined by separators with no space ("s.c.a.m", "nig-ger", "fuc.k", "s_c_a_m", "sc*m"): every stretch of two or more;
@@ -259,7 +287,8 @@ function joined(units) {
     }
   }
   const read = (raw) => (/[a-z]/.test(raw) ? raw.replace(/[013457@$!|]/g, (c) => LEET[c]) : raw).replace(/[@$!|]/g, "");
-  return out.map((x) => ({ w: read(str(x.units)), s: x.s, e: x.e, spaced: x.spaced, parts: x.parts.map((q) => skel(read(q))) })).filter((x) => x.w);
+  // a number written with a comma or a dot ("1,488 people", "3.5") is a number, never a joined word
+  return out.filter((x) => /[a-z]/.test(str(x.units))).map((x) => ({ w: read(str(x.units)), s: x.s, e: x.e, spaced: x.spaced, parts: x.parts.map((q) => skel(read(q))) })).filter((x) => x.w);
 }
 // i and l, and their look-alikes, compare as one letter ("sIut", "kiII")
 const skel = (w) => w.replace(/l/g, "i");
@@ -279,11 +308,12 @@ function compile(list) {
   return c;
 }
 /**
- * A list word, or one with a plural or slang ending: up to three trailing s or z ("kikez", "niggerss"), or "es" after s, x, z, ch or sh
- * ("bitches"; never "spices": that is spice + s, not spic + es).
+ * A list word, or one with a plural or slang ending: up to three trailing s or z ("kikez", "niggerss"), "es" after s, x, z, ch or sh
+ * ("bitches"; never "spices": that is spice + s, not spic + es), or "ies" for a final y ("trannies").
  */
 function listWord(singles, w) {
   if (singles.has(w)) return true;
+  if (w.length > 4 && w.endsWith("ies") && singles.has(`${w.slice(0, -3)}y`)) return true;
   for (let k = 1; k <= 3 && k < w.length - 1; k++) {
     const base = w.slice(0, -k), tail = w.slice(-k);
     if (singles.has(base) && (/^[sz]+$/.test(tail) || (tail === "es" && /(?:[sxz]|ch|sh)$/.test(base)))) return true;
@@ -304,7 +334,7 @@ function matchList(list, toks, joins, own) {
       let ok = true;
       for (let k = 0; k < p.length && ok; k++) {
         const w = seq[i + k], last = k === p.length - 1;
-        ok = w === p[k] || (last && (w === `${p[k]}s` || w === `${p[k]}es`));
+        ok = w === p[k] || (last && (w === `${p[k]}s` || w === `${p[k]}es` || (/[^aeiou]y$/.test(p[k]) && w === `${p[k].slice(0, -1)}ies`)));
       }
       if (ok && !p.every((x, k) => own.has(seq[i + k]))) hits.push({ start: toks[i].s, end: toks[i + p.length - 1].e, word: p.join(" "), at: i, len: p.length });
     }
@@ -369,14 +399,22 @@ const PUNCT = new Set([..."., !?'’‘\"“”«»„‚-‐–—:;()&%…¿¡
 const HARMLESS_COMPAT = new Set(["…", "º", "ª"]);
 /** Punctuation of the scripts that have their own (only for a city written in them). */
 const SCRIPT_PUNCT = { cjk: new Set([..."、。「」『』【】〈〉《》・ー〜，．！？：；（）"]), Arabic: new Set([..."،؛؟"]), Hebrew: new Set([..."־׳״"]), Devanagari: new Set([..."।॥"]) };
-/** The city's own words (its name, region and country, as the city list writes them) and the scripts they are written in. */
-function ownLetters(ctx) {
+/**
+ * The city's own words (its name, region and country, as the city list writes them) and the scripts they are written in, with the
+ * scripts of its country (COUNTRY_SCRIPTS: the city list writes every name in Latin letters, so "Tokyo (東京)" needs Japan's).
+ */
+function ownLetters(ctx, lists = WORDS) {
   const c = (ctx && ctx.city) || {}, chars = new Set(), scripts = new Set(["Latin"]);
   for (const v of [c.name, c.region, c.countryName]) {
     for (const ch of String(v || "").normalize("NFC")) {
       chars.add(ch);
       if (/\p{L}/u.test(ch)) { const sc = scriptOf(ch); if (sc) scripts.add(sc); }
     }
+  }
+  const cc = String(c.country || "").toUpperCase();
+  for (const row of lists.COUNTRY_SCRIPTS) {
+    const [k, v] = row.split(":");
+    if (k === cc && /^[A-Z]{2}$/.test(cc)) for (const sc of v.split(",")) if (SCRIPTS.some(([name]) => name === sc)) scripts.add(sc);
   }
   // Japanese is written with kanji and both kana, Korean with hangul and hanja: a city named in one of them may use all of its script set
   if (["Han", "Hiragana", "Katakana"].some((x) => scripts.has(x))) for (const x of ["Han", "Hiragana", "Katakana"]) scripts.add(x);
@@ -399,8 +437,8 @@ function plainChar(ch, text, i, own) {
   return Boolean(sc && own.scripts.has(sc));
 }
 /** (a) The runs of characters that are not plain for this city (see the header), one issue per run. */
-function plainChars(text, ctx) {
-  const own = ownLetters(ctx), out = [];
+function plainChars(text, ctx, lists = WORDS) {
+  const own = ownLetters(ctx, lists), out = [];
   let run = null, letterOk = false, marks = 0;
   const bad = (s, e) => { if (run && run.end === s) run.end = e; else { run = { code: "characters", start: s, end: e }; out.push(run); } };
   for (const m of text.matchAll(/[\s\S]/gu)) {
@@ -444,28 +482,72 @@ function ownSpans(text, ctx) {
   }
   return out;
 }
+/** The edit distance between a and b is at most 1 (one letter changed, added or left out). */
+function oneEdit(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+const SEP_GAP = /^[ \n]*[,\-_;:‐‑‒–—][ \n]*$/u; // a comma, a dash, a semicolon or a colon for a dot ("mvmoon,com", "t-me", "mvmoon - org")
+const STOP_BEFORE_TLD = new Set(["us", "you", "me", "them", "it", "him", "her", "the", "a", "an", "our", "your", "home", "here", "there", "out", "up", "in", "on", "at", "to"]);
 /**
- * (b) Links and handles that are not written as links (FLAG): see the header. `own`: the city's own words (skeleton form); `ownRaw`: as
- * written; `inOwn(s, e)`: is this span inside the city's own name, region or country as written (a slash in "Biel/Bienne" is the name's).
+ * (c) Links and handles that are not written as links (FLAG): see the header. `own`: the city's own words (skeleton form); `ownRaw`: as
+ * written; `inOwn(s, e)`: is this span inside the city's own name, region or country as written (a slash in "Biel/Bienne" is the name's);
+ * `unknown(t)`: a word the screener does not know (knownWords), which may be a domain's name or a platform's misspelled.
  */
-function linkLike(units, lists, own, ownRaw, inOwn = () => false) {
+function linkLike(units, lists, own, ownRaw, inOwn = () => false, unknown = () => false, known = new Set()) {
   const out = [];
   const add = (s, e) => out.push({ code: "link_like", start: s, end: e });
   const toks = words(units, { leet: false }), folded = str(units);
-  const spaced = (a, b) => /^[ \n]+$/.test(folded.slice(a.j, b.i));
+  const gap = (a, b) => folded.slice(a.j, b.i);
+  const spaced = (a, b) => /^[ \n]+$/.test(gap(a, b));
+  const dotLike = (a, b) => spaced(a, b) || SEP_GAP.test(gap(a, b));
   const isOwn = (t) => own.has(skel(t.w));
-  const tlds = new Set(lists.SPACED_TLDS), platforms = new Set(lists.PLATFORMS), short = new Set(lists.PLATFORM_SHORT);
+  const tlds = new Set(lists.SPACED_TLDS), web = new Set(lists.WEB_TLDS), iana = ianaTlds(), leads = new Set(lists.LINK_LEADS), dots = new Set(lists.DOT_WORDS);
+  const platforms = new Set(lists.PLATFORMS.map(skel)), short = new Set(lists.PLATFORM_SHORT);
   const contact = new Set(lists.CONTACT_WORDS), me = new Set(lists.CONTACT_ME);
   const hosts = [...lists.LINK_HOSTS, ...lists.SPACED_HOSTS].map((h) => h.split(".")).filter((p) => p.length === 2);
+  const glued = new Set(hosts.filter(([a]) => a.length >= 4).map(([a, b]) => a + b));
+  // web endings that are also everyday words ("me", "to", "fun", "live") are read as one only after a lead word ("Visit mvmoon live")
+  const plainWord = new Set(["me", "to", "fun", "live", "top", "club", "store", "shop", "page", "link", "so", "ai", "fi", "info", "site", "online", "app"]);
   for (let k = 0; k < toks.length; k++) {
-    const t = toks[k], prev = k > 0 ? toks[k - 1] : null, next = k + 1 < toks.length ? toks[k + 1] : null;
+    const t = toks[k], prev = k > 0 ? toks[k - 1] : null, prev2 = k > 1 ? toks[k - 2] : null, next = k + 1 < toks.length ? toks[k + 1] : null;
+    const notOwnPair = prev && !(isOwn(prev) && isOwn(t)) && !isOwn(prev);
     // a word, a space, a web ending ("uticacoin com", "x com"); never a number before it ("50 cc") or the city's own words
     if (prev && tlds.has(t.w) && spaced(prev, t) && /[a-z]/.test(prev.w) && !(isOwn(prev) && isOwn(t))) add(prev.s, t.e);
-    // a link host with a space for its dot ("t me", "bit ly", "wa me", "linktr ee")
-    if (prev && spaced(prev, t) && hosts.some(([a, b]) => prev.w === a && t.w === b)) add(prev.s, t.e);
-    // a platform's name; a short one only right after "on", "follow", "join"... ("on X", "join tg")
-    if (platforms.has(t.w) && !isOwn(t)) add(t.s, t.e);
-    if (prev && short.has(t.w) && contact.has(prev.w) && !isOwn(t)) add(prev.s, t.e);
+    if (prev && /[a-z]/.test(prev.w) && notOwnPair && !STOP_BEFORE_TLD.has(prev.w)) {
+      // a word, a comma, a dash or a colon, then a web ending ("mvmoon,com", "mvmoon - org", "moon-io")
+      if (SEP_GAP.test(gap(prev, t)) && web.has(t.w) && !plainWord.has(t.w)) add(prev.s, t.e);
+      // a word nobody knows, then any web ending ("mvmoon net", "mvmoon co", "mvmoon,app")
+      if (dotLike(prev, t) && unknown(prev) && web.has(t.w)) add(prev.s, t.e);
+      // "visit", "go to", "at", "on"... a word, then a web ending ("Visit mvmoon net", "at moon app")
+      if (dotLike(prev, t) && web.has(t.w) && prev2 && (leads.has(prev2.w) || (prev2.w === "to" && k > 2 && toks[k - 3].w === "go"))) add(prev2.s, t.e);
+    }
+    // a word for the dot ("mvmoon period net", "uticacoin punto com"); two everyday words around it are a phrase ("polka dot art")
+    if (prev && next && dots.has(t.w) && /[a-z]/.test(prev.w) && iana.has(next.w) && (unknown(prev) || !known.has(next.w) || !known.has(prev.w))) add(prev.s, next.e);
+    // a link host with a space, a comma or a dash for its dot ("t me", "t-me", "t,me", "bit ly", "wa me", "linktr ee"), or glued ("discordgg")
+    if (prev && dotLike(prev, t) && hosts.some(([a, b]) => prev.w === a && t.w === b)) add(prev.s, t.e);
+    if (glued.has(t.w)) add(t.s, t.e);
+    // a platform's name, with a look-alike letter ("teIegram", "dlscord") or one letter off when it is not a word ("telegrm", "twiter")
+    const sk = skel(t.w);
+    if (!isOwn(t) && (platforms.has(sk) || (unknown(t) && sk.length >= 5 && [...platforms].some((p) => p.length >= 5 && oneEdit(sk, p))))) add(t.s, t.e);
+    // a platform's name split in two or three ("you tube", "face book", "tele gram", "tik tok", "snap chat", "whats app")
+    for (let n = 2; n <= 3 && k + n <= toks.length; n++) {
+      const run = toks.slice(k, k + n);
+      if (!run.every((x, q) => q === 0 || dotLike(run[q - 1], x))) break;
+      if (platforms.has(skel(run.map((x) => x.w).join("")))) add(run[0].s, run[n - 1].e);
+    }
+    // a short one only after "on", "follow", "join", "our"... (three words back at most: "on the gram", "join the Utica group chat")
+    if (short.has(t.w) && !isOwn(t)) {
+      const back = [prev, prev2, k > 2 ? toks[k - 3] : null].filter(Boolean).find((x) => contact.has(x.w));
+      if (back) add(back.s, t.e);
+    }
     // "DM me", "text us"
     if (next && me.has(t.w) && (next.w === "me" || next.w === "us") && spaced(t, next)) add(t.s, next.e);
     if (!isOwn(t) && handleLike(t.w, ownRaw, lists)) add(t.s, t.e);
@@ -475,13 +557,28 @@ function linkLike(units, lists, own, ownRaw, inOwn = () => false) {
     const sp = span(units, m.index, m.index + m[0].length);
     if (!inOwn(sp.start, sp.end)) add(sp.start, sp.end);
   }
+  // letters, a dot and letters with no space after the dot ("mvmoon.sbs", "visit.utica"), whatever the ending: a person looks. Not an
+  // abbreviation ("St.Louis", "Mt.Fuji", "Dr.Who") nor single letters ("U.S.A.", "e.g.", "a.m.")
+  for (const m of dotted(units).tight.matchAll(/(?<![a-z0-9.])([a-z][a-z0-9-]*)\.([a-z][a-z0-9-]+)/g)) {
+    if (m[1].length === 1 || ABBREVIATIONS.has(m[1])) continue;
+    const sp = span(units, m.index, m.index + m[0].length);
+    if (!inOwn(sp.start, sp.end)) add(sp.start, sp.end);
+  }
   return out.filter((x) => !inOwn(x.start, x.end));
 }
+/** Abbreviations written with a dot and no space before a name ("St.Louis", "Mt.Fuji", "Ft.Worth"). */
+const ABBREVIATIONS = new Set(["st", "mt", "ft", "pt", "dr", "mr", "mrs", "ms", "jr", "sr", "no", "nos", "vs", "etc", "ave", "rd", "blvd", "gen", "gov", "prof", "rev",
+  "sgt", "capt", "lt", "col", "co", "inc", "ltd", "corp", "dept", "univ", "approx", "est", "vol", "fig", "ph", "ste", "sta", "mte", "pte"]);
 
+/** Endings that are a web address after "dot" even where they are also a word ("dot net", "dot com"): never "polka dot art". */
+const LINK_ENDINGS = new Set(["com", "net", "org", "info", "biz", "app", "dev", "xyz", "gov", "edu", "mil", "int", "eth", "sol", "io", "co", "me", "tv", "gg", "ly"]);
+/** Every top-level domain IANA lists (src/screen-vocab.js), and the hand-kept list (src/screen-words.js TLDS). */
+let IANA = null;
+const ianaTlds = () => IANA || (IANA = new Set(VOCAB.TLDS.split(" ")));
 const tldSet = (lists) => new Set(lists.TLDS);
 // the gTLDs a "word. com" (a dot, then a space) most likely means; only a flag (it is also how a sentence ends: "Utica. so good")
-const WEB_TLDS = new Set(["com", "net", "org", "io", "xyz", "app", "gg", "co", "me", "ly", "ai", "dev", "sol", "eth", "fun", "site", "online", "shop", "store", "live",
-  "club", "info", "biz", "tv", "cc", "ws", "to", "sh", "so", "vc", "fm"]);
+const DOT_SPACE_TLDS = new Set(["com", "net", "org", "io", "xyz", "app", "gg", "co", "me", "ly", "ai", "dev", "sol", "eth", "fun", "site", "online", "shop", "store", "live",
+  "club", "info", "biz", "tv", "cc", "ws", "to", "sh", "so", "vc", "fm", "sbs", "cfd", "icu", "lol", "wtf", "vip", "top"]);
 /**
  * The folded text with every character a browser or a reader takes for a dot written as one: `full` the full stops (ideographic "。",
  * its half-width form; NFKC already made "．", "﹒" and "․" a dot), `tight` also the middle dots and bullets ("uticacoin·com"), which
@@ -491,23 +588,25 @@ function dotted(units) {
   const full = str(units).replace(/[。]/g, ".");
   return { full, tight: full.replace(/[·⸱・‧∙⋅•]/g, ".") };
 }
-function links(units, lists, text) {
+function links(units, lists, text, known = new Set()) {
   const { full: t, tight: tt } = dotted(units), out = [];
   const add = (m, len = m[0].length, off = 0, severity) => out.push({ code: "link", ...span(units, m.index + off, m.index + off + len), ...(severity ? { severity } : {}) });
   // a scheme (also disguised: "hxxps"), "://", www.
   for (const m of t.matchAll(/https?\s*:|\bh(?:xx|tx|xt)ps?\b|:\s*\/\s*\/|www\s*\.|\bw\s+w\s+w\b/g)) add(m);
-  const tlds = tldSet(lists);
-  // name.tld (a real top-level domain right after the dot), or an obfuscated dot: "name dot com", "name dotcom", "name d0t com", "name[.]com",
-  // "name(dot)com", "name·com", "name。com"
-  for (const m of tt.matchAll(/([a-z0-9][a-z0-9-]*)(\.|\s*\[\s*\.\s*\]\s*|\s*\(\s*\.\s*\)\s*|\s*[[({]\s*d[o0]t\s*[\])}]\s*|\s+d[o0]t\s*)([a-z]{2,})(?![a-z0-9])/g)) {
-    if (tlds.has(m[3]) && !/^\d+$/.test(m[1])) add(m);
+  const tlds = tldSet(lists), iana = ianaTlds();
+  // name.tld: any top-level domain IANA lists right after a dot with no space ("mvmoon.sbs", "utica.io"; "St.Louis" ends in none)
+  for (const m of tt.matchAll(/([a-z0-9][a-z0-9-]*)\.([a-z]{2,})(?![a-z0-9])/g)) if ((iana.has(m[2]) || tlds.has(m[2])) && !/^\d+$/.test(m[1])) add(m);
+  // an obfuscated dot before a common ending (the hand-kept list): "name[.]com", "name(dot)com", "name dot com", "name dotcom",
+  // "name d0t com"; a spaced "dot" only before an ending that is no everyday word ("polka dot art" is a phrase: linkLike reads the rest)
+  for (const m of tt.matchAll(/([a-z0-9][a-z0-9-]*)(\s*\[\s*\.\s*\]\s*|\s*\(\s*\.\s*\)\s*|\s*[[({]\s*d[o0]t\s*[\])}]\s*|\s+d[o0]t\s*)([a-z]{2,})(?![a-z0-9])/g)) {
+    if (tlds.has(m[3]) && !/^\d+$/.test(m[1]) && !(/^\s+d[o0]t\s*$/.test(m[2]) && known.has(m[3]) && m[3].length >= 3 && !LINK_ENDINGS.has(m[3]))) add(m);
   }
   // a dot with a space before it ("uticacoin . com", "uticacoin .com"): a sentence never puts one there
   for (const m of t.matchAll(/([a-z0-9][a-z0-9-]*)\s+\.\s*([a-z]{2,})(?![a-z0-9])/g)) if (tlds.has(m[2]) && !/^\d+$/.test(m[1])) add(m);
   // a dot, a space, then a web ending in small letters ("uticacoin. com"): flagged for a person (a sentence can end like that too)
   for (const m of t.matchAll(/([a-z0-9][a-z0-9-]*)\.\s+([a-z]{2,})(?![a-z0-9])/g)) {
     const at = m.index + m[0].length - m[2].length, first = units[at];
-    if (WEB_TLDS.has(m[2]) && first && /^\p{Ll}/u.test(text.slice(first.s, first.e))) add(m, m[0].length, 0, "flag");
+    if (DOT_SPACE_TLDS.has(m[2]) && first && /^\p{Ll}/u.test(text.slice(first.s, first.e))) add(m, m[0].length, 0, "flag");
   }
   for (const host of lists.LINK_HOSTS) {
     // a host whose first part is a real word ("discord gg", "linktr ee") is a link with a space or a "dot" for its dot too
@@ -601,6 +700,231 @@ function otherCityCoins(toks, original, ctx, own) {
   return out;
 }
 
+/* ---------------------------------------------------------------- (b) the words the screener knows (ENGINE 4) */
+/** The plain words of a phrase, as written (no i/l skeleton): for the vocabulary. */
+const rawWords = (s) => words(fold(String(s || "")), { leet: false }).map((x) => x.w);
+/** A word with its plurals ("kike" "kikes" "kikez", "tranny" "trannies"). */
+const formsOf = (w) => [w, `${w}s`, `${w}z`, ...(/(?:[sxz]|ch|sh)$/.test(w) ? [`${w}es`] : []), ...(/[^aeiou]y$/.test(w) ? [`${w.slice(0, -1)}ies`] : [])];
+const vocabCache = new WeakMap(); // lists -> { known, everyday, pairs }: built once per list set (the first screening of a server)
+/**
+ * The vocabulary. `everyday`: SCOWL's English (src/screen-vocab.js ENGLISH, without any word that has a DENY_PARTS piece in it:
+ * "fuckhead"), PROPER_WORDS and EXTRA_WORDS. `known`: those, and the names of the dictionary (NAMES: "Broadway", "Beatles") and the
+ * place words of the city list (PLACES). Neither has any slur of SLURS or FOREIGN_SLURS in any plural, VOCAB_DENY or the PAIR_ONLY words
+ * (known only in their VOCAB_PAIRS). The lists decide, so a stand-in list set has its own vocabulary.
+ */
+function vocabOf(lists) {
+  let v = vocabCache.get(lists);
+  if (v) return v;
+  const parts = new RegExp(lists.DENY_PARTS.map((p) => p.replace(/[^a-z]/g, "")).filter(Boolean).join("|") || "(?!)");
+  const everyday = new Set(VOCAB.ENGLISH.split(" ").filter((w) => !parts.test(w)));
+  for (const e of [...lists.PROPER_WORDS, ...lists.EXTRA_WORDS]) for (const w of rawWords(e)) everyday.add(w);
+  const known = new Set(everyday);
+  for (const w of `${VOCAB.NAMES} ${VOCAB.PLACES}`.split(" ")) if (w && !parts.test(w)) known.add(w);
+  for (const w of VOCAB.PLACES.split(" ")) if (w) known.add(w); // a place keeps its name ("Scunthorpe")
+  const deny = new Set([...lists.VOCAB_DENY, ...lists.PAIR_ONLY]);
+  for (const e of [...lists.SLURS, ...lists.FOREIGN_SLURS]) { const p = rawWords(e); for (const f of formsOf(p.join(""))) deny.add(f); if (p.length === 1) for (const f of formsOf(p[0])) deny.add(f); }
+  for (const w of deny) { known.delete(w); everyday.delete(w); }
+  v = { known, everyday, pairs: new Set(lists.VOCAB_PAIRS.map((e) => rawWords(e).join(" "))) };
+  vocabCache.set(lists, v);
+  return v;
+}
+const otherScript = (s) => [...s].some((ch) => /\p{L}/u.test(ch) && !/\p{Script=Latin}/u.test(ch));
+/**
+ * (b) Every word must be a known one (see the header). `skip(s, e)`: the city's own name as written, a $TICKER. Answers the issues
+ * ("words", or "language" for a word in another script) and the unknown words { w, s, e } (slurLike reads them, linkLike too).
+ */
+function knownWords(text, units, ctx, lists, skip) {
+  const { known, everyday, pairs } = vocabOf(lists);
+  const ownRaw = ownRawWords(ctx), sufs = lists.DEMONYM_SUFFIXES;
+  const demonym = (w) => { for (const o of ownRaw) if (o.length >= 3 && w.length > o.length && w.startsWith(o) && sufs.includes(w.slice(o.length))) return true; return false; };
+  const isKnown = (w) => known.has(w) || ownRaw.has(w) || demonym(w);
+  const folded = str(units), toks = [];
+  for (const m of folded.matchAll(/[a-z0-9]+/g)) toks.push({ w: m[0], i: m.index, j: m.index + m[0].length, ...((sp) => ({ s: sp.start, e: sp.end }))(span(units, m.index, m.index + m[0].length)) });
+  const joinedBy = (a, b, re) => a && b && re.test(folded.slice(a.j, b.i));
+  // the runs of letters of another script ("Москва", "東京は"): one "language" issue each, whole (a look-alike may fold part of it to A to Z)
+  const scriptRuns = [];
+  for (const m of text.matchAll(/[\p{L}\p{M}]+/gu)) if (otherScript(m[0]) && !skip(m.index, m.index + m[0].length)) scriptRuns.push({ s: m.index, e: m.index + m[0].length });
+  const issues = [], unknown = [], pairSpans = [];
+  let everydayCount = 0;
+  const contact = new Set(lists.NAME_GUARD_WORDS);
+  const flag = (t, k) => {
+    // a word written as a name (capital, then small letters: "Fenway", "Alfama") may be one: nameCandidate, decided in run()
+    const raw = text.slice(t.s, t.e);
+    t.name = k != null && /^\p{Lu}\p{Ll}{2,}$/u.test(raw) && !/[^A-Za-zÀ-ÖØ-öø-ÿ]/.test(raw) && ![k - 1, k - 2, k - 3].some((q) => q >= 0 && contact.has(toks[q].w));
+    unknown.push(t);
+    if (!scriptRuns.some((r) => r.s < t.e && t.s < r.e)) issues.push({ code: "words", start: t.s, end: t.e });
+  };
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    if (skip(t.s, t.e)) continue;
+    if (everyday.has(t.w)) everydayCount++;
+    if (/^\d+$/.test(t.w) || (/\d/.test(t.w) && /[a-z]/.test(t.w) && ORDINAL.test(t.w))) continue;
+    if (t.w.length === 1) {
+      // three or more single letters in a row ("n i g g e r", "s.c.a.m", "U.S.A."): read as one word
+      let q = k;
+      while (q + 1 < toks.length && toks[q + 1].w.length === 1 && /[a-z]/.test(toks[q + 1].w) && /^[^a-z0-9]{1,3}$/.test(folded.slice(toks[q].j, toks[q + 1].i))) q++;
+      if (q - k >= 2 && /[a-z]/.test(t.w)) {
+        const w = toks.slice(k, q + 1).map((x) => x.w).join("");
+        if (!isKnown(w)) flag({ w, i: t.i, j: toks[q].j, s: t.s, e: toks[q].e });
+        k = q;
+      }
+      continue;
+    }
+    if (isKnown(t.w)) continue;
+    const prev = toks[k - 1], next = toks[k + 1], pairGap = /^[ \-‐‑–]{1,2}$/u;
+    if (joinedBy(prev, t, pairGap) && pairs.has(`${prev.w} ${t.w}`)) { pairSpans.push([prev.s, t.e]); continue; }
+    if (joinedBy(t, next, pairGap) && pairs.has(`${t.w} ${next.w}`)) { pairSpans.push([t.s, next.e]); continue; }
+    flag(t, k);
+  }
+  // words of a script that does not fold to A to Z, or only partly (Japanese, Arabic, Thai, Cyrillic...): read by a person
+  for (const r of scriptRuns) issues.push({ code: "language", start: r.s, end: r.e });
+  return { issues, unknown, pairSpans, everydayCount };
+}
+/**
+ * The names a description may carry without a person reading them first (a landmark, a dish, a team: "Fenway", "Alfama", "Primanti"):
+ * only in a sentence of everyday English (five everyday words at least, three for each name), at most NAMES_MAX of them, each written
+ * as a name (a capital, then small letters), never right after "follow", "message", "join"... (a handle), and never one any other rule
+ * read anything in (a slur spelled another way, a platform, a link, a handle, a financial word misspelled). Anything else unknown, a
+ * word in small letters among them, goes to a person.
+ */
+const NAMES_MAX = 3;
+// what a handle or a coin's account is made of ("Mvmoon", "Moonboys", "Gemtoken", "Solcats"): never taken for a name
+const HANDLE_PART = /coin|token|moon|pump|cash|money|swap|meme|crypto|official|finance|bonk|doge|pepe|inu|elon|lambo|gem|degen|chad|^(?:the|real|get|join|visit|my|go|buy|we)|(?:dao|nft|sol|dex|app|bot|dev|xyz|io|hq|tv|fm|fans|army|gang|club|labs|news|boys|bros|cats|dogs|ai)$/;
+function allowedNames(kw, issues, ownRaw) {
+  const ok = (t) => t.name && t.w.length >= 5 && !HANDLE_PART.test(t.w) && ![...ownRaw].some((o) => o.length >= 3 && t.w !== o && (t.w.startsWith(o) || t.w.endsWith(o)))
+    && !issues.some((x) => x.code !== "words" && x.start < t.e && t.s < x.end);
+  const cands = kw.unknown.filter(ok);
+  if (!cands.length || cands.length !== kw.unknown.length || cands.length > NAMES_MAX || kw.everydayCount < 5 || cands.length * 3 > kw.everydayCount) return [];
+  return cands;
+}
+
+/* ---------------------------------------------------------------- slurs, financial words and platforms spelled another way */
+/** A slur's skeleton: q read as g ("niqqer"), ph as f ("phaggot"), doubled letters once ("nigggers", "niiggers"). */
+const slurSkel = (w) => w.replace(/ph/g, "f").replace(/q/g, "g").replace(/(.)\1+/g, "$1");
+const vowelSkel = (w) => w.replace(/[aeiouy]+/g, "*");
+const collapse = (w) => w.replace(/(.)\1+/g, "$1");
+/** The word, and the word without a plural or a slang ending ("trannies" "tranny", "niggerlover" "nigger", "spicboys" "spic"). */
+function stems(w) {
+  const out = new Set([w]);
+  if (w.length > 4 && w.endsWith("ies")) out.add(`${w.slice(0, -3)}y`);
+  for (const suf of ["lovers", "lover", "boys", "boy", "ish", "es", "s", "z"]) if (w.length > suf.length + 2 && w.endsWith(suf)) out.add(w.slice(0, -suf.length));
+  for (const x of [...out]) if (x.length > 3 && /[sz]$/.test(x)) out.add(x.slice(0, -1)); // "niggerslover"
+  return [...out];
+}
+const slurCache = new WeakMap();
+function slurIndex(lists) {
+  let x = slurCache.get(lists);
+  if (x) return x;
+  const exact = new Map(), long = [], foreign = new Set();
+  for (const e of lists.SLURS) { const k = slurSkel(rawWords(e).join("")); if (k) { exact.set(k, e); if (k.length >= 5) long.push(k); } }
+  for (const e of lists.FOREIGN_SLURS) { const w = rawWords(e).join(""); for (const f of formsOf(w)) foreign.add(f); }
+  const fin = lists.FINANCIAL.map(rawWords).filter((p) => p.length === 1 && p[0].length >= 6).map((p) => collapse(p[0]));
+  const abuse = new Set(lists.ABUSE.map(rawWords).filter((p) => p.length === 1).map((p) => slurSkel(p[0])));
+  x = { exact, long, foreign, fin, abuse, singles: compile(lists.SLURS).singles };
+  slurCache.set(lists, x);
+  return x;
+}
+/**
+ * Unknown words read against the slurs spelled another way: its skeleton is a listed slur's (five letters or more: "niqqers",
+ * "phaggots", "trannies", "niggerlover"): REFUSED ("slur"); a near one (a slur inside it, the same letters with other vowels, one letter
+ * left out: "faggits", "niggrs"), a short one, or another language's: FLAGGED ("slur_like"). Also a financial word misspelled
+ * ("guaranteeed": "financial"). The word is flagged as unknown anyway; this says why.
+ */
+function slurLike(unknown, lists, own, rules) {
+  const ix = slurIndex(lists), out = [];
+  for (const t of unknown) {
+    const read = /[a-z]/.test(t.w) ? t.w.replace(/[013457]/g, (c) => LEET[c]) : t.w;
+    if (own.has(skel(read))) continue;
+    const ks = stems(read).map(slurSkel);
+    let code = null;
+    // the skeleton of a listed slur of five letters or more, or a listed slur exactly once q is read as g and ph as f ("niqqa")
+    if (ks.some((k) => k.length >= 5 && ix.exact.has(k)) || listWord(ix.singles, skel(read.replace(/q/g, "g").replace(/ph/g, "f")))) code = "slur";
+    else if (ix.foreign.has(read) || ix.foreign.has(t.w) || ks.some((k) => ix.exact.has(k)) || ks.some((k) => ix.long.some((l) => k.includes(l)
+      || (k.length >= 5 && vowelSkel(k) === vowelSkel(l)) || (k.length === l.length - 1 && oneEdit(k, l))))) code = "slur_like";
+    if (code && rules.has("slur")) out.push({ code, start: t.s, end: t.e });
+    // an insult of the lists spelled another way ("Retardd", "Idiott", "Gypp"): flagged as one
+    else if (rules.has("abuse") && ks.some((k) => k.length >= 3 && ix.abuse.has(k))) out.push({ code: "abuse", start: t.s, end: t.e });
+    const c = collapse(read);
+    if (rules.has("financial") && c.length >= 6 && ix.fin.some((f) => c === f || oneEdit(c, f))) out.push({ code: "financial", start: t.s, end: t.e });
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------- hate, wallet asks, money promises (ENGINE 4) */
+/** The sentence each word is in (a full stop, a question or exclamation mark, a semicolon or a line break ends one). */
+function sentences(toks, units) {
+  const folded = str(units), out = [];
+  let n = 0, last = 0;
+  for (const t of toks) { if (/[.!?;\n]/.test(folded.slice(last, t.i))) n++; out.push(n); last = t.j; }
+  return out;
+}
+/**
+ * Hate written in ordinary words: a group of people (GROUP_WORDS) within four words of a violent or dehumanising word (VIOLENCE_WORDS)
+ * in the same sentence ("gas the Jews", "gays should be stoned"); a group, then an exclusion ("Jews out", "gays go home"); "no Jews
+ * allowed"; a violent word aimed at "them", "all", "every"... ("lynch them all", "hang every Mexican"). FLAG ("abuse").
+ */
+function hateNear(words0, units, lists) {
+  // single letters joined by separators read as one word ("J.e.w.s out", "g-a-s the Jews")
+  const folded = str(units), toks = [];
+  for (let k = 0; k < words0.length; k++) {
+    let q = k;
+    while (q + 1 < words0.length && words0[q].w.length === 1 && words0[q + 1].w.length === 1 && TIGHT.test(folded.slice(words0[q].j, words0[q + 1].i))) q++;
+    toks.push(q > k ? { w: words0.slice(k, q + 1).map((x) => x.w).join(""), s: words0[k].s, e: words0[q].e, i: words0[k].i, j: words0[q].j } : words0[k]);
+    k = q;
+  }
+  const out = [], sent = sentences(toks, units), w = (k) => (k >= 0 && k < toks.length ? toks[k].w : null);
+  const group = new Set(lists.GROUP_WORDS), violent = new Set(lists.VIOLENCE_WORDS), excl = lists.EXCLUSION_AFTER.map(rawWords);
+  const add = (a, b) => out.push({ code: "abuse", start: toks[Math.min(a, b)].s, end: toks[Math.max(a, b)].e });
+  const harmless = (k) => ["hang", "hanging", "hanged"].includes(w(k)) && ["out", "around", "about", "on", "up"].includes(w(k + 1));
+  for (let g = 0; g < toks.length; g++) {
+    if (!group.has(w(g))) continue;
+    for (let d = -4; d <= 4; d++) {
+      const k = g + d;
+      if (d && k >= 0 && k < toks.length && sent[k] === sent[g] && violent.has(w(k)) && !harmless(k)) { add(g, k); break; }
+    }
+    for (const p of excl) if (p.length && p.every((x, q) => w(g + 1 + q) === x && sent[g + 1 + q] === sent[g])) add(g, g + p.length);
+    const no = [g - 1, g - 2].find((k) => w(k) === "no" && sent[k] === sent[g]);
+    const ok = [g + 1, g + 2, g + 3].find((k) => ["allowed", "welcome", "permitted", "wanted"].includes(w(k)) && sent[k] === sent[g]);
+    if (no !== undefined && ok !== undefined) add(no, ok);
+    else if (w(g - 1) === "no") add(g - 1, g); // "no Jews", "no blacks": a group of people turned away
+    if (w(g - 1) === "only" || w(g + 1) === "only") add(w(g - 1) === "only" ? g - 1 : g, w(g + 1) === "only" ? g + 1 : g); // "only whites", "Christians only"
+  }
+  for (let k = 0; k + 1 < toks.length; k++) {
+    if (violent.has(w(k)) && !harmless(k) && ["them", "all", "every", "those", "these", "each"].includes(w(k + 1))) add(k, k + 1);
+  }
+  return out;
+}
+/**
+ * "Send 1 SOL", "deposit some coins", "transfer your tokens"; "connect", "verify", "sync"... within four words of "wallet" ("verify
+ * ownership of your wallet", "connect your Phantom wallet"). WALLET_ASK has the phrases: "seed phrase", "claim free"...
+ */
+function walletAsk(units) {
+  const f = str(units), out = [];
+  const add = (m) => out.push({ code: "wallet_ask", ...span(units, m.index, m.index + m[0].length) });
+  for (const m of f.matchAll(/\b(?:send|sends|sending|transfer|transfers|deposit|deposits|pay|pays)\s+(?:(?:\d[\d.,]*|some|any|all|your|a|an|one|two|three|five|ten|us|me|him|her|them|the|founder)\s+){0,3}(?:sol|solana|usdc|usdt|eth|btc|bitcoin|crypto|coins?|tokens?|money|dollars?|bucks|cash)\b/g)) add(m);
+  for (const m of f.matchAll(/\b(?:connect|connecting|link|linking|validate|validating|verify|verifying|sync|syncing|synchronize|synchronise|rectify|restore|import|unlock|authenticate|activate|register|whitelist|approve|migrate)\b(?:\W+[a-z0-9]+){0,4}?\W+wallets?\b/g)) add(m);
+  return out;
+}
+const REWARD = /\b(?:earn|earns|earned|earning|earnings|yield|yields|stake|staked|staking|reward|rewards|payout|payouts|pay|pays|paid|interest|return|returns|profit|profits|gain|gains|apy|apr|roi|income|bonus|bonuses|dividend|dividends|cashback|holding|holders?)\b/;
+const PERIOD = /\b(?:daily|weekly|monthly|yearly|annually|annual|(?:every|each|per|a)\s+(?:day|week|month|year|hour))\b/;
+/**
+ * Promises of money in ordinary words: a percentage or a period with a reward ("Holders earn 20% every week", "300 percent yearly
+ * yield"), getting more back ("get 2 SOL back"), a price target ("Utica to $1"). FLAG ("financial").
+ */
+function moneyPromises(units) {
+  const f = str(units), out = [];
+  const add = (m) => out.push({ code: "financial", ...span(units, m.index, m.index + m[0].length) });
+  if (REWARD.test(f)) {
+    for (const m of f.matchAll(/\d[\d.,]*\s*(?:%|percent\b|per\s+cent\b|pct\b)/g)) add(m);
+    for (const m of f.matchAll(new RegExp(PERIOD.source, "g"))) add(m);
+  }
+  for (const m of f.matchAll(/\b(?:get|gets|receive|receives|earn|earns)\s+(?:\d[\d.,]*|double|twice|two|three|ten|more)\b[^.!?\n]{0,30}?\bback\b/g)) add(m);
+  for (const m of f.matchAll(/\b(?:to|hit|hits|reach|reaches|worth|at|be|soon)\s+(?:\$\s*\d|\d[\d.,]*\s*(?:dollars?|usd|bucks|cents?)\b)/g)) add(m);
+  // an amount of money with a period ("make $1,000 weekly", "1 SOL a day")
+  if (PERIOD.test(f)) for (const m of f.matchAll(/(?:\$\s*\d[\d.,]*|\b\d[\d.,]*\s*(?:dollars?|usd|usdc|bucks|sol|solana|eth|btc)\b)/g)) add(m);
+  return out;
+}
+
 /* ---------------------------------------------------------------- the pipeline */
 /** The city's own words (name, region, country, ticker): never counted against it. */
 function ownWords(ctx) {
@@ -629,29 +953,40 @@ function run(text, ctx, { rules, lists }) {
   const push = (list) => { for (const x of list) issues.push({ code: x.code, severity: x.severity || SEVERITY[x.code], start: x.start, end: x.end }); };
   const hidden = rules.has("hidden_chars") ? hiddenChars(text) : [];
   push(hidden);
-  // (a) the allow-list: a run of characters that are not plain, unless it is already refused as hidden characters
-  if (rules.has("characters")) push(plainChars(text, ctx).filter((x) => !hidden.some((h) => h.start <= x.start && h.end >= x.end)));
+  // (a) the allow-list of characters: a run of characters that are not plain, unless it is already refused as hidden characters
+  const chars = rules.has("characters") ? plainChars(text, ctx, lists).filter((x) => !hidden.some((h) => h.start <= x.start && h.end >= x.end)) : [];
+  push(chars);
   const units = fold(text);
   const tk = tickers(text, ctx, lists);
   const toks = words(units, { tickers: tk.spans }), joins = [...joined(units), ...variants(units, { tickers: tk.spans })];
   const own = ownWords(ctx);
-  if (rules.has("link")) push(links(units, lists, text));
-  if (rules.has("link_like")) {
-    const spans = ownSpans(text, ctx);
-    push(linkLike(units, lists, own, ownRawWords(ctx), (s, e) => spans.some(([a, b]) => a <= s && e <= b)));
-  }
+  const ownAt = ownSpans(text, ctx);
+  const inOwn = (s, e) => ownAt.some(([a, b]) => a <= s && e <= b), inTicker = (s, e) => tk.spans.some((x) => x.start <= s && e <= x.end);
+  // (b) the allow-list of words: an unknown word is flagged (a character already flagged or refused says it first); the names it may
+  // carry are decided at the end, once every other rule has read them
+  const kw = knownWords(text, units, ctx, lists, (s, e) => inOwn(s, e) || inTicker(s, e));
+  const unknownAt = new Set(kw.unknown.map((t) => `${t.s}:${t.e}`));
+  const { known } = vocabOf(lists);
+  if (rules.has("link")) push(links(units, lists, text, known));
+  // (c) links and handles not written as links
+  if (rules.has("link_like")) push(linkLike(units, lists, own, ownRawWords(ctx), inOwn, (t) => unknownAt.has(`${t.s}:${t.e}`), known));
   if (rules.has("crypto_address")) push(cryptoAddresses(text));
   if (rules.has("contact")) push(contacts(units));
   if (rules.has("street_address")) push(streetAddresses(text, lists));
   const tag = (code, hits) => hits.map((h) => ({ code, start: h.start, end: h.end }));
-  // a slur found only by joining words across a space ("ni gger", but also "go ok") is flagged for a person, never passed
+  // (d) the lists. A slur found only by joining words across a space ("ni gger", but also "go ok") is flagged for a person, never passed
   if (rules.has("slur")) { const hits = matchList(lists.SLURS, toks, joins, own); push(tag("slur", hits.filter((h) => !h.spaced))); push(tag("abuse", hits.filter((h) => h.spaced))); }
-  if (rules.has("abuse")) push(tag("abuse", matchList(lists.ABUSE, toks, joins, own)));
+  push(slurLike(kw.unknown, lists, own, rules));
+  // a word of a known pair is that pair's ("honky tonk" is music, never "honky")
+  const inPair = (h) => kw.pairSpans.some(([a, b]) => a <= h.start && h.end <= b);
+  if (rules.has("abuse")) { push(tag("abuse", matchList(lists.ABUSE, toks, joins, own).filter((h) => !inPair(h)))); push(hateNear(toks, units, lists)); }
+  if (rules.has("wallet_ask")) { push(tag("wallet_ask", matchList(lists.WALLET_ASK, toks, [], own))); push(walletAsk(units)); }
   if (rules.has("other_city")) { push(tk.issues); push(otherCityCoins(toks, text, ctx, own)); }
   if (rules.has("brand")) {
     const ties = new Set(lists.TIE_WORDS.flatMap(phraseWords)), bodyTies = new Set(lists.BODY_TIE_WORDS.flatMap(phraseWords));
     push(tag("brand", matchList(lists.BRANDS, toks, [], own).filter((h) => near(toks, h, 3).some((w) => ties.has(w)))));
     push(tag("brand", matchList(lists.PUBLIC_BODIES, toks, [], own).filter((h) => near(toks, h, 3).some((w) => bodyTies.has(w)))));
+    push(tag("brand", matchList(lists.OFFICIAL_CLAIMS, toks, [], own)));
   }
   if (rules.has("staff")) {
     const staff = new Set(lists.STAFF_WORDS.flatMap(phraseWords));
@@ -659,18 +994,29 @@ function run(text, ctx, { rules, lists }) {
     push(vic.filter((t) => near(toks, { start: t.s, end: t.e }, 3).some((w) => staff.has(w))).map((t) => ({ code: "staff", start: t.s, end: t.e })));
     push(tag("staff", matchList(lists.STAFF_ALONE, toks, [], own)));
   }
-  if (rules.has("financial")) { push(tag("financial", matchList(lists.FINANCIAL, toks, joins, own))); push(financialNumbers(units)); }
+  if (rules.has("financial")) { push(tag("financial", matchList(lists.FINANCIAL, toks, joins, own))); push(financialNumbers(units)); push(moneyPromises(units)); }
   if (rules.has("spam")) push(spam(text));
-  // one issue per code and span, in reading order
+  if (rules.has("words")) {
+    const names = allowedNames(kw, issues, ownRawWords(ctx));
+    push(kw.issues.filter((x) => ![...hidden, ...chars].some((h) => h.start < x.end && x.start < h.end) && !names.some((t) => t.s === x.start && t.e === x.end)));
+  }
+  // one issue per code and span, in reading order; a flag inside a refused link, address or contact says nothing more ("utica.io": link)
   const seen = new Set();
-  return issues.filter((x) => { const k = `${x.code}:${x.start}:${x.end}`; if (seen.has(k)) return false; seen.add(k); return true; })
+  const refused = issues.filter((x) => ["link", "contact", "crypto_address"].includes(x.code) && x.severity === "block");
+  return issues.filter((x) => !(["link_like", "words"].includes(x.code) && refused.some((r) => r.start <= x.start && x.end <= r.end)))
+    .filter((x) => { const k = `${x.code}:${x.start}:${x.end}`; if (seen.has(k)) return false; seen.add(k); return true; })
     .sort((a, b) => a.start - b.start || a.end - b.end || a.code.localeCompare(b.code));
 }
-const ALL = ["hidden_chars", "characters", "link", "link_like", "crypto_address", "contact", "street_address", "slur", "abuse", "other_city", "brand", "staff", "financial", "spam"];
+const ALL = ["hidden_chars", "characters", "words", "link", "link_like", "crypto_address", "contact", "street_address", "slur", "abuse", "wallet_ask", "other_city", "brand",
+  "staff", "financial", "spam"];
+/** The rules each target runs: a ticker is no word of a language (no "words" rule), but a slur spelled another way still refuses it. */
+const RULES_OF = {
+  description: ALL, name: ALL.filter((r) => r !== "spam"), ticker: ALL.filter((r) => r !== "spam" && r !== "words"), reason: ["hidden_chars"],
+};
 const verdict = (issues) => (issues.some((x) => x.severity === "block") ? "block" : issues.length ? "flag" : "pass");
 
 /**
- * Screen `raw` as a `target` ("description", "name", "reason"). `ctx`: { city: { name, region, countryName, country }, ticker,
+ * Screen `raw` as a `target` ("description", "name", "ticker", "reason"). `ctx`: { city: { name, region, countryName, country }, ticker,
  * otherCity?(name) => bool, rulesVersion? (the version the caller expects: another one is an error), lists? (tests: a stand-in for
  * src/screen-words.js) }. Never throws.
  */
@@ -689,8 +1035,8 @@ export function screen(target, raw, ctx = {}) {
       if (cps < DESCRIPTION_MIN || cps > DESCRIPTION_MAX || lines > DESCRIPTION_LINES || bytes > DESCRIPTION_BYTES) issues.push({ code: "length", severity: "block", start: 0, end: text.length });
     } else if (target === "reason") {
       if (cps < REASON_MIN || cps > REASON_MAX) issues.push({ code: "length", severity: "block", start: 0, end: text.length });
-    } else if (target !== "name") throw new Error("unknown target");
-    const rules = new Set(target === "reason" ? ["hidden_chars"] : target === "name" ? ALL.filter((r) => r !== "spam") : ALL);
+    } else if (target !== "name" && target !== "ticker") throw new Error("unknown target");
+    const rules = new Set(RULES_OF[target]);
     issues.push(...run(text, ctx, { rules, lists }));
     return { result: verdict(issues), issues, rulesVersion, text };
   } catch (e) {
@@ -699,6 +1045,8 @@ export function screen(target, raw, ctx = {}) {
 }
 export const screenDescription = (text, ctx) => screen("description", text, ctx);
 export const screenName = (name, ctx) => screen("name", name, ctx);
+/** A proposed ticker: the name's rules but the words one (a ticker is letters, not a word of a language); a slur spelled any way still refuses it. */
+export const screenTicker = (symbol, ctx) => screen("ticker", symbol, ctx);
 export const screenReason = (text, ctx) => screen("reason", text, ctx);
 /** The issues in the founder's words: [{ code, start, end, message }], one sentence per code. */
 export const explained = (issues, cityName) => (issues || []).map((x) => ({ code: x.code, severity: x.severity, start: x.start, end: x.end, message: explain(x.code, cityName) }));

@@ -1,8 +1,8 @@
 // The description screener's allow-list (src/screen.js ENGINE 3): a founder's description passes by itself only when every character is a
 // plain one for the city, nothing reads as a link or a handle, and the word lists find nothing. Everything else is flagged for a person
 // (or refused). The evasion corpus: every string of the verification (NEW review: SEC-1 and SEC-2 residuals) and 44 generated
-// "fancy text" styles applied to 5 slurs and 5 links: none may pass. And what must still pass: ordinary descriptions in English and in
-// the city's own script, for registry cities and for cities named in other scripts.
+// "fancy text" styles applied to 5 slurs and 5 links: none may pass. And what must still pass: ordinary descriptions in English; another
+// language or script goes to a person with the reason that is true (test/screen-wordlist.test.js has the word allow-list's corpora).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { screenDescription, screenName } from "../src/screen.js";
@@ -131,9 +131,9 @@ test("names are screened with the same allow-list (the reviewer sees the flag; a
   assert.equal(screenName("Nigger Town", UTICA).result, "block");
 });
 
-test("ordinary descriptions in English and in the city's own script still pass by themselves", () => {
+test("ordinary English descriptions pass by themselves; another language or script goes to a person, with the reason that is true", () => {
   const english = [
-    "Utica is the Handshake City, home of the half moon cookie and chicken riggies.",
+    "Utica is the Handshake City, home of the half moon cookie and the tomato pie.",
     "Founded in 1797 on the Mohawk River, Utica grew with the Erie Canal.",
     "A coin for the people of Utica: neighbours, makers and the 1st snow of the year!",
     "Utica's parks, its old mills and its friendly corner shops (and the best tomato pie).",
@@ -145,28 +145,37 @@ test("ordinary descriptions in English and in the city's own script still pass b
     "Utica\nThe Handshake City\nSince 1797",
   ];
   for (const t of english) { const r = screenDescription(t, UTICA); assert.equal(r.result, "pass", shown(t, r)); }
-  // registry cities whose own names carry their script's letters (the context the founder's routes give: src/coindefaults.js)
-  const own = [
+  // registry cities as the routes build them (src/cities.js cityRecord: the city list writes every name in Latin letters). Another
+  // language in Latin letters: plain characters, words the checks do not know ("words"); a city of a country that writes in another
+  // script: that script is plain for it (COUNTRY_SCRIPTS), and the checks read English only ("language"), never "characters" (FP-1)
+  const latin = [
     [{ name: "Hải Dương", region: "Hai Duong", countryName: "Vietnam", country: "VN" }, "HAIDUONG", "Hải Dương là thành phố của những người bạn tốt, với món bánh gai nổi tiếng."],
-    [{ name: "Buôn Ma Thuột", region: "Dak Lak", countryName: "Vietnam", country: "VN" }, "BMT", "Buôn Ma Thuột: thủ phủ cà phê của Việt Nam."],
     [{ name: "Łódź", region: "Łódź Voivodeship", countryName: "Poland", country: "PL" }, "LODZ", "Łódź to miasto włókniarzy, filmu i murali. Zapraszamy!"],
-    [{ name: "Kraków", region: "Lesser Poland", countryName: "Poland", country: "PL" }, "KRAKOW", "Kraków – dawna stolica Polski, Wawel i obwarzanki."],
-    [{ name: "Ağdaş", region: "Agdas", countryName: "Azerbaijan", country: "AZ" }, "AGDAS", "Ağdaş şəhərinin sikkəsi: nar bağları və gözəl insanlar."],
     [{ name: "Köln", region: "North Rhine-Westphalia", countryName: "Germany", country: "DE" }, "KOLN", "Köln am Rhein: Dom, Karneval und „Kölsch“. Für alle Kölner."],
-    [{ name: "Zürich", region: "Zurich", countryName: "Switzerland", country: "CH" }, "ZURICH", "Zürich, die Stadt am See – für alle, die hier leben."],
     [{ name: "São Paulo", region: "São Paulo", countryName: "Brazil", country: "BR" }, "SAOPAULO", "São Paulo é a maior cidade do Brasil. Ninguém dorme aqui!"],
-    [{ name: "Brasília", region: "Federal District", countryName: "Brazil", country: "BR" }, "BRASILIA", "Brasília, a 1ª capital planejada: ¿e você, já veio?"],
-    [{ name: "Herāt", region: "Herat", countryName: "Afghanistan", country: "AF" }, "HERAT", "Herāt, the old city of gardens and poets."],
-    [{ name: "Biel/Bienne", region: "Bern", countryName: "Switzerland", country: "CH" }, "BIEL", "Biel/Bienne: zwei Sprachen, eine Stadt. Deux langues, une ville."],
-    // cities named in other scripts: the city's own script passes (with Basic Latin A to Z too)
-    [{ name: "Москва", region: "Москва", countryName: "Россия", country: "RU" }, "MOSCOW", "Москва — столица России. Moscow, the capital, 12 million people."],
-    [{ name: "Αθήνα", region: "Αττική", countryName: "Ελλάδα", country: "GR" }, "ATHENS", "Η Αθήνα είναι η πρωτεύουσα της Ελλάδας."],
-    [{ name: "東京", region: "東京都", countryName: "日本", country: "JP" }, "TOKYO", "東京は日本の首都です。ようこそ、Tokyo!"],
-    [{ name: "กรุงเทพมหานคร", region: "กรุงเทพมหานคร", countryName: "ประเทศไทย", country: "TH" }, "BANGKOK", "กรุงเทพมหานคร เมืองหลวงของประเทศไทย"],
-    [{ name: "القاهرة", region: "القاهرة", countryName: "مصر", country: "EG" }, "CAIRO", "القاهرة هي عاصمة مصر، مدينة الألف مئذنة."],
   ];
-  for (const [city, ticker, t] of own) { const r = screenDescription(t, { city, ticker }); assert.equal(r.result, "pass", `${city.name}: ${shown(t, r)}`); }
-  // ...but another city's script is not plain for Utica (a person looks), and a fancy alphabet is not plain anywhere
-  assert.equal(screenDescription("Москва — столица России.", UTICA).result, "flag");
-  assert.equal(screenDescription("东京 welcomes 几丨ᎶᎶ乇尺丂 today", { city: { name: "东京", region: "东京", countryName: "中国", country: "CN" }, ticker: "TOKYO" }).result, "flag");
+  for (const [city, ticker, t] of latin) {
+    const r = screenDescription(t, { city, ticker });
+    assert.equal(r.result, "flag", `${city.name}: ${shown(t, r)}`);
+    assert.deepEqual([...new Set(r.issues.map((x) => x.code))], ["words"], `${city.name}: ${shown(t, r)}`);
+  }
+  const scripts = [
+    [{ name: "Moscow", region: "Moscow", countryName: "Russia", country: "RU" }, "MOSCOW", "Москва — столица России. Moscow, the capital, 12 million people."],
+    [{ name: "Tokyo", region: "Tokyo", countryName: "Japan", country: "JP" }, "TOKYO", "Tokyo (東京): ramen at midnight, trains on time and neon everywhere."],
+    [{ name: "Tokyo", region: "Tokyo", countryName: "Japan", country: "JP" }, "TOKYO", "東京は日本の首都です。ようこそ、Tokyo!"],
+    [{ name: "Athens", region: "Attica", countryName: "Greece", country: "GR" }, "ATHENS", "Η Αθήνα είναι η πρωτεύουσα της Ελλάδας."],
+    [{ name: "Bangkok", region: "Bangkok", countryName: "Thailand", country: "TH" }, "BANGKOK", "กรุงเทพมหานคร เมืองหลวงของประเทศไทย"],
+    [{ name: "Cairo", region: "Cairo Governorate", countryName: "Egypt", country: "EG" }, "CAIRO", "القاهرة هي عاصمة مصر، مدينة الألف مئذنة."],
+    [{ name: "Seoul", region: "Seoul", countryName: "South Korea", country: "KR" }, "SEOUL", "서울 Seoul: palaces, markets and mountains in the city."],
+  ];
+  for (const [city, ticker, t] of scripts) {
+    const r = screenDescription(t, { city, ticker });
+    assert.equal(r.result, "flag", `${city.name}: ${shown(t, r)}`);
+    assert.deepEqual([...new Set(r.issues.map((x) => x.code))], ["language"], `${city.name}: ${shown(t, r)}`);
+  }
+  // ...but another country's script is not plain for Utica (a person looks), and a fancy alphabet is not plain anywhere
+  assert.deepEqual([...new Set(screenDescription("Москва — столица России.", UTICA).issues.map((x) => x.code))], ["characters"]);
+  const fancy = screenDescription("東京 welcomes 几丨ᎶᎶ乇尺丂 today", { city: { name: "Tokyo", region: "Tokyo", countryName: "Japan", country: "JP" }, ticker: "TOKYO" });
+  assert.equal(fancy.result, "flag");
+  assert.ok(fancy.issues.some((x) => x.code === "characters"), shown("東京 welcomes 几丨ᎶᎶ乇尺丂 today", fancy));
 });

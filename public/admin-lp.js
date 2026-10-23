@@ -100,6 +100,16 @@
   }
   const reasonList = (reasons) => { const ul = el("ul", "lp-reasons"); for (const r of reasons) ul.append(el("li", null, r)); return ul; };
   /**
+   * A coin's description as the owner approves it (BATCH-1): the words, and whose they are. A founder's own words passed the automatic
+   * checks without a person reading them; Vicinity's are the city list's sentence.
+   */
+  function describe(x) {
+    const wrap = el("span", "lp-desc");
+    const tag = el("span", `tag ${x.descriptionBy === "founder" ? "tag--warn" : "tag--ok"} lp-desc__by`, x.descriptionBy === "founder" ? "The founder's own words" : "Vicinity's sentence");
+    wrap.append(tag, el("q", "lp-desc__text", x.description || ""));
+    return wrap;
+  }
+  /**
    * The approval's own arguments, read back from the transaction's bytes by the site (summary entry approve_launch, .fields): they
    * must be the card's name, ticker, founder and city, or nothing is offered. Shown big, because the wallet does not show them.
    */
@@ -116,7 +126,10 @@
       fact(dl, "Coin name", f.name);
       fact(dl, "Ticker", `$${f.symbol}`);
       fact(dl, "Founder wallet (only it can launch)", addr(f.founder));
-      if (c.ready) fact(dl, "Picture and description (the coin's metadata, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`);
+      if (c.ready) {
+        fact(dl, "Picture (the coin's metadata, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`);
+        if (c.ready.description != null) fact(dl, "Description (the coin's metadata, for ever)", describe(c.ready));
+      }
       fact(dl, "Can launch until", `${new Date(f.expiresAt).toLocaleString()} (${f.expiresAt.slice(0, 16).replace("T", " ")} UTC)`);
       wrap.append(dl, el("p", "muted small", "Check the name and the founder wallet once more. Your wallet will not show them: it only shows the accounts and the SOL."));
       return { node: wrap };
@@ -366,9 +379,11 @@
     if (seenApprove.size + [...seenRevoke].filter((x) => !seenApprove.has(x)).length !== (t.cities || []).length) return "more cities than it says";
     return null;
   }
+  /** Ticked by default: every row but one whose description is the founder's own words (the owner reads it, then ticks it: BATCH-1). */
+  const tickedFirst = (r) => r.action === "revoke" || r.descriptionBy !== "founder";
   function roundRow(r, onToggle) {
     const li = el("li", "lp-round__row");
-    const box = el("input"); box.type = "checkbox"; box.checked = true; box.id = `lp-round-${r.action}-${r.cityId}`;
+    const box = el("input"); box.type = "checkbox"; box.checked = tickedFirst(r); box.id = `lp-round-${r.action}-${r.cityId}`;
     box.setAttribute("aria-describedby", `${box.id}-why`);
     box.addEventListener("change", () => onToggle(r, box.checked));
     const lab = el("label", "lp-check lp-round__pick"); lab.htmlFor = box.id;
@@ -380,6 +395,7 @@
     const founder = el("span", "mono lp-addr", `${r.handle ? `@${r.handle} · ` : ""}${r.founderMasked || "—"}`); founder.setAttribute("title", r.founder || "");
     fact(dl, "Founder", founder);
     if (r.contentHash) { const v = el("span", "mono", `Version ${r.version || versionOf(r.contentHash)}`); v.setAttribute("title", r.contentHash); fact(dl, "Coin", v); }
+    if (r.description != null && r.action !== "revoke") fact(dl, "Description (in the coin's metadata for ever)", describe(r));
     if (r.approval) fact(dl, "On chain now", `“${r.approval.name}” ($${r.approval.symbol}) for ${r.approval.founderMasked}, until ${new Date(r.approval.expiresAt).toLocaleString()}`);
     li.append(dl);
     const why = el("p", "muted small", r.why || ""); why.id = `${box.id}-why`; li.append(why);
@@ -417,7 +433,7 @@
       const fs = el("fieldset", "lp-round__group");
       fs.append(el("legend", null, `${title} (${g[key].length})`), el("p", "muted small", intro));
       const ul = el("ul", "lp-plain lp-round__rows");
-      for (const row of g[key]) { picked.set(row.cityId, row); ul.append(roundRow(row, toggle)); }
+      for (const row of g[key]) { if (tickedFirst(row)) picked.set(row.cityId, row); ul.append(roundRow(row, toggle)); }
       fs.append(ul);
       body.append(fs);
     }
@@ -438,7 +454,9 @@
     if (!g.approve.length && !g.renew.length && !g.revoke.length) body.append(el("p", "muted", "Nothing to sign today."));
     const box = el("div", "lp-step__box");
     sync();
-    if (picked.size) body.append(el("p", "muted small", "Untick a city to leave it out of today's round; it comes back in the next one. Founders are told only that their launch opens after your next approval round, never a time."), go);
+    const own = [...g.approve, ...g.renew].filter((x) => !tickedFirst(x)).length;
+    if (own) body.append(el("p", "lp-warn", `${own} cit${own === 1 ? "y has" : "ies have"} a description in the founder's own words. It passed the automatic checks, but no person has read it, and it goes into the coin's metadata for ever. Read it, then tick the city.`));
+    if (picked.size || own) body.append(el("p", "muted small", "Untick a city to leave it out of today's round; it comes back in the next one. Founders are told only that their launch opens after your next approval round, never a time."), go);
     body.append(box);
   }
   /** Build the round from the ticked rows, show every transaction, then sign (all at once when the wallet can, else one at a time). */
