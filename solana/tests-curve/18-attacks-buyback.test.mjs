@@ -9,10 +9,13 @@
 // hold through K runs of a seeded backlog against Theorem M_K (a loss below K*,
 // the bound at every K); X26 the crank called at every interval (timing changes
 // only how many coins are burned); X61 a hostile crank caller; HR-1 the
-// platform's key, credited b_P of its own legs, which V8 and V11 do not count.
+// platform's key, credited b_P of its own legs, which V8 and V11 do not count; R9-PF-1 a buyback share the fixed
+// per-run cap cannot keep up with, which V1 to V11 accept and the deploy checklist now reports (O36).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { address } from '@solana/kit';
 import { World, S, expectFail, mintInfo, offlineKey, LAMPORTS } from './helpers.mjs';
+import { checkDeployPreconditions, checklistAddresses } from '../scripts/vcurve/preflight.mjs';
 
 const T = S.DEFAULT_TERMS;
 const D = S.BPS;
@@ -369,5 +372,63 @@ test('HR-1 the platform\'s key is credited b_P of its own legs, which V8 and V11
     else assert.ok(pnl > 0n, `FEE_RECIPIENT gains from a single run (${pnl}): outside V8's bound, so the operating rule of 8.4`);
   }
   console.log(`HR-1 single-run sandwich under (0, 120, 0, 1, 1): ${out.join(', ')}`);
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- R9-PF-1: the buyback share against the per-run cap
+test('R9-PF-1 (review round 9) one run spends at most depth * t / (C * D) whatever the buyback share, so under (0, 0, 0, 0, 250), which passes V1 to V11, the keeper keeps up with 4% of the depth per interval instead of config #0\'s third, and the graduating buy alone leaves a backlog above u* (config #0: about 3 caps); the deploy checklist reports such a config (8.4\'s operating rule; the program accepts it, open owner decision O36)', async () => {
+  const w = await World.create();
+  const heavy = { ...S.DEFAULT_CONFIG, liquidityBps: 0n, platformBps: 0n, founderBps: 0n, holdersBps: 0n, buybackBps: 250n };
+  const o1 = { ...S.DEFAULT_CONFIG, liquidityBps: 0n, platformBps: 70n, founderBps: 50n, holdersBps: 50n, buybackBps: 80n };
+  assert.equal(S.configRule(heavy), null, 'V1 to V11 pass');
+  assert.equal(S.configRule(o1), null, 'O1\'s buyback alternative passes V1 to V11');
+  // the keep-up per interval, as a fraction of the depth: t / (C * b_B)
+  assert.deepEqual(S.buybackKeepUp(S.DEFAULT_CONFIG), { buybackBps: 30n, totalFeeBps: 250n, keepUp: { num: 250n, den: 750n }, withinRule: true });
+  assert.deepEqual(S.buybackKeepUp(heavy), { buybackBps: 250n, totalFeeBps: 250n, keepUp: { num: 250n, den: 6250n }, withinRule: false });
+  assert.deepEqual(S.buybackKeepUp(o1).keepUp, { num: 250n, den: 2000n });
+  assert.equal(S.buybackKeepUp(o1).withinRule, false);
+  assert.deepEqual(S.buybackKeepUp({ ...S.DEFAULT_CONFIG, buybackBps: 0n, liquidityBps: 80n }), { buybackBps: 0n, totalFeeBps: 250n, keepUp: null, withinRule: true });
+  assert.equal(S.buybackKeepUp({ ...S.DEFAULT_CONFIG, buybackBps: 31n, liquidityBps: 49n }).withinRule, false, 'one basis point past config #0');
+
+  const snapshot = () => {
+    const A = checklistAddresses({ programId: w.programId, cluster: 'mainnet' });
+    const keys = ['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]);
+    const list = (program) => w.svm.getProgramAccounts(address(program)).map((a) => ({ address: String(a.address), owner: String(program), lamports: BigInt(a.lamports), data: Buffer.from(a.data) }));
+    return { accounts: Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)])), legacyAccounts: list(S.CLUSTERS.mainnet.legacyProgram), curveAccounts: list(w.programId) };
+  };
+  const throughput = () => {
+    const r = checkDeployPreconditions({ ...snapshot(), vault: w.admin.address, programId: w.programId });
+    return { problems: r.problems.filter((x) => x.code === 'CONFIG_BUYBACK_THROUGHPUT'), warnings: r.warnings.filter((x) => x.code === 'CONFIG_BUYBACK_THROUGHPUT') };
+  };
+  assert.deepEqual(throughput(), { problems: [], warnings: [] }, 'config #0 is within the rule');
+  const configId = await w.addConfig(heavy);
+
+  // the graduating buy of 100 SOL: its buyback share alone, against the depth and the per-run cap
+  const at = [];
+  for (const [cfg, cityId, symbol, params] of [[0, 1_970n, 'KEEPA', S.DEFAULT_CONFIG], [configId, 1_971n, 'KEEPB', heavy]]) {
+    const h = await w.launchCoin({ cityId, symbol, configId: cfg });
+    const others = await w.signer(5_000n);
+    await w.buy(others, h, 100n * LAMPORTS, { label: `${symbol}: others graduate the coin` });
+    const c = w.coinView(h);
+    const terms = S.termsFromParams(params);
+    assert.equal(c.phase, S.Phase.Pool, `${symbol} graduated`);
+    const dep = S.depth(terms, S.coinState(c));
+    at.push({ symbol, backlogPpm: (c.buybackPending * 1_000_000n) / dep, caps: c.buybackPending / S.buybackCap(terms, S.coinState(c)) });
+  }
+  const [base, big] = at;
+  assert.ok(base.backlogPpm < 5_000n && base.caps <= 4n, `config #0: ${base.backlogPpm} ppm of depth, ${base.caps} caps`);
+  assert.ok(big.backlogPpm > 20_420n, `(0, 0, 0, 0, 250): ${big.backlogPpm} ppm of depth, above u* (2.04%)`);
+  assert.ok(big.caps >= 25n, `(0, 0, 0, 0, 250): ${big.caps} caps`);
+
+  // before round 9 the checklist was silent about it; now an enabled config outside the rule is not ready, a disabled one a warning
+  let r = throughput();
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0].message, new RegExp(`config #${configId} \\(buyback 250 of 250 bps\\) lets a keeper that runs every interval keep up only with volume below 4\\.0% of the depth per interval \\(config #0: 33\\.3%\\)`));
+  await w.send([w.ix.setLaunchConfigEnabled({ admin: w.admin.address, configId, enabled: false })], [w.admin], 'the admin disables the config');
+  r = throughput();
+  assert.equal(r.problems.length, 0);
+  assert.equal(r.warnings.length, 1);
+  assert.match(r.warnings[0].message, /it is disabled, but coins launched under it keep its split/);
+  console.log(`R9-PF-1 backlog after the graduating buy: config #0 ${base.backlogPpm} ppm (${base.caps} caps), (0, 0, 0, 0, 250) ${big.backlogPpm} ppm (${big.caps} caps)`);
   await w.finish();
 });

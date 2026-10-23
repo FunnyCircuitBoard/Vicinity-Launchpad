@@ -217,7 +217,7 @@ export class World {
     this.frozen = new Map();
     this.cu = {};
     this.txs = 0;
-    this.history = []; // every transaction sent, as an RPC would keep it (rpcStub's getSignaturesForAddress, getTransaction)
+    this.history = []; // every transaction sent, as an RPC would keep it (rpcStub's getSignaturesForAddress, getTransaction, getBlock)
     this.haltAllLoaded = false;
     this.checks = process.env.VCURVE_INVARIANTS !== 'off';
     // I22: the liveness probe runs after every successful transaction (VCURVE_PROBE=end: only at the end of each test)
@@ -760,8 +760,8 @@ export const SOL_ = (x) => BigInt(Math.round(Number(x) * 1e9));
  * A JSON-RPC stub serving a World's accounts, clock and transaction history, for the scripts' real command lines
  * (scripts/vcurve): the methods they call (getMultipleAccounts, getAccountInfo, getProgramAccounts with memcmp filters,
  * getSlot, getBlockTime, getLatestBlockhash (the World's own, so a printed transaction can be signed and sent as it is),
- * getSignaturesForAddress, getTransaction (base64), sendTransaction (run in the World, with the checker) and
- * getSignatureStatuses). `lie(address, account)` may return another account (or null) for an address, as a malicious or
+ * getSignaturesForAddress, getTransaction (base64), getBlock (base64, full: every transaction the World sent in that
+ * slot; review R9-TOOLS-2), sendTransaction (run in the World, with the checker) and getSignatureStatuses). `lie(address, account)` may return another account (or null) for an address, as a malicious or
  * compromised RPC would (reviews R7-BA-1, R7-4); `rpc(request)` may return a whole answer for any method (anything but
  * undefined; `{ drop: true }` for sendTransaction answers the signature without sending; review R8-DIFF-1, R8-OPS-2);
  * `before(request)` is awaited before a request is answered (a transaction landing between two RPCs' reads, review
@@ -799,6 +799,14 @@ export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, 
       let list = w.history.filter((h) => h.signature && h.keys.includes(String(addr))).reverse();
       if (o.before) { const i = list.findIndex((h) => h.signature === o.before); list = i < 0 ? [] : list.slice(i + 1); }
       result = list.slice(0, o.limit ?? 1000).map((h) => ({ signature: h.signature, slot: Number(h.slot), err: h.err ? { stub: h.err } : null, memo: null, blockTime: Number(h.blockTime), confirmationStatus: 'confirmed' }));
+    } else if (m.method === 'getBlock') {
+      const at = Number(m.params[0]);
+      if (at > slot) return { jsonrpc: '2.0', id: m.id, error: { code: -32004, message: `Block not available for slot ${at}` } };
+      const txs = w.history.filter((h) => h.signature && Number(h.slot) === at);
+      result = {
+        blockHeight: at, blockTime: Number(w.now()), parentSlot: Math.max(0, at - 1), blockhash: String(w.svm.latestBlockhash()), previousBlockhash: String(w.svm.latestBlockhash()),
+        transactions: txs.map((h) => ({ transaction: [h.wire.toString('base64'), 'base64'], meta: { err: h.err ? { stub: h.err } : null, fee: 5000, innerInstructions: [], loadedAddresses: { writable: [], readonly: [] }, logMessages: [] }, version: 'legacy' })),
+      };
     } else if (m.method === 'getTransaction') {
       const h = w.history.find((x) => x.signature === m.params[0]);
       result = h ? { slot: Number(h.slot), blockTime: Number(h.blockTime), transaction: [h.wire.toString('base64'), 'base64'], meta: { err: h.err ? { stub: h.err } : null, fee: 5000, logMessages: [] }, version: 'legacy' } : null;

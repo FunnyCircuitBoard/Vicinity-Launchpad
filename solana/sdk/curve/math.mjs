@@ -589,6 +589,30 @@ export function cheapestAttackerCostBps(termsIn) {
 }
 
 /**
+ * The keep-up factor of the operating rule of 8.4 on a config's buyback share (7.2; review R9-PF-1, open owner decision
+ * O36): `C * b_B <= BUYBACK_KEEP_UP_FACTOR * t`, so a keeper running every interval keeps up with at least a third of
+ * the depth in volume per interval, as under config #0 (25 * 30 = 750 = 3 * 250, exactly at the edge).
+ */
+export const BUYBACK_KEEP_UP_FACTOR = 3n;
+/**
+ * How far the buyback keeper can keep up with a config's buyback share (7.2; review R9-PF-1). One run spends at most
+ * `depth * t / (C * D)`, whatever `b_B`, while the bucket accrues `b_B / D` of every trade, so a keeper that runs every
+ * interval keeps up only while the volume per interval stays below `depth * t / (C * b_B)`. Returns `{ buybackBps,
+ * totalFeeBps, keepUp, withinRule }`: `keepUp` that fraction of the depth as `{ num: t, den: C * b_B }` (null without a
+ * buyback share: nothing to keep up with); `withinRule` whether `C * b_B <= BUYBACK_KEEP_UP_FACTOR * t` (config #0: a
+ * third of the depth per interval; (0, 0, 0, 0, 250): 4%; O1's buyback alternative (0, 70, 50, 50, 80): 12.5%). 7.2's
+ * binding rate and burst, and O25's figures, scale by 30 / b_B at t = 250. The program does not enforce the rule (it is
+ * not one of V1 to V11; O36): the deploy checklist reports every config outside it (`CONFIG_BUYBACK_THROUGHPUT`).
+ */
+export function buybackKeepUp(pIn) {
+  const t = totalFeeBps(pIn);
+  const bB = BigInt(pIn.buybackBps);
+  if (bB === 0n) return { buybackBps: 0n, totalFeeBps: t, keepUp: null, withinRule: true };
+  const den = BUYBACK_CAP_DIVISOR * bB;
+  return { buybackBps: bB, totalFeeBps: t, keepUp: { num: t, den }, withinRule: den <= BUYBACK_KEEP_UP_FACTOR * t };
+}
+
+/**
  * The margin, in basis points, that the buyback runs inside the victim's sandwich are worth to the attacker (5.15;
  * reviews SDK4-4, KR-1): `ceil(2t / C)` per run when the config has a buyback share, else 0. A due `buyback_burn` is
  * permissionless, so the attacker can place one between the victim's trade and his back-run; it spends at most

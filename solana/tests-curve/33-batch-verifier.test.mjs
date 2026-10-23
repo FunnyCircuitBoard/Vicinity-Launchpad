@@ -18,6 +18,8 @@
 // approver that is not a wallet key is refused (R8-DIFF-6). The verification of round 8: the coins, which every trade
 // rewrites, are compared between the RPCs by existence and owner only, so a trade between the two reads stops nothing
 // (R8-NEW-1).
+// Review round 9: confirm and the alarm read the publication's own block (getBlock at its published slot), so a flood of
+// transactions naming LaunchBatch no longer hides it, and a transaction not found is never called a theft (R9-TOOLS-2).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -31,7 +33,7 @@ import { World, S, SOL, rpcStub, expectFail } from './helpers.mjs';
 import {
   verifyListFile, checkStoredBatch, batchAddresses, allAddresses, parseArgs, changeLines, recordLive, archiveEntry, confirmPublication,
   decodePageTransaction, checkPageTransaction, messageHash, holderCandidateEntries, rpcProvider, rpcUrlsProblem, writeArchiveEntry, readArchive,
-  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses,
+  archiveKey, compareChainViews, CLOCK_SYSVAR, presenceOnlyAddresses, landedPublicationHashes,
 } from '../scripts/vcurve/batch.mjs';
 
 const snapshot = (w, entries) => Object.fromEntries(allAddresses(batchAddresses(entries, { programId: w.programId })).map((k) => [k, w.accountInfo(k)]));
@@ -1056,6 +1058,113 @@ test('R8-NEW-1 (verification of round 8) a trade landing between the two RPCs\' 
   } finally {
     await first.close(); await second.close();
     sc.done(); sc2.done();
+  }
+  await w.finish();
+});
+
+// ---------------------------------------------------------------- review round 9
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const bs58 = (bytes) => {
+  let n = 0n; for (const b of bytes) n = n * 256n + BigInt(b);
+  let t = ''; while (n > 0n) { t = B58[Number(n % 58n)] + t; n /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; t = `1${t}`; }
+  return t;
+};
+
+test('R9-TOOLS-2 (review round 9) confirm and the alarm read the publication\'s own block: anyone flooding LaunchBatch\'s signature history past 20,000 entries made confirm fail (TX_NOT_FOUND, "page the guardian members") and the next verify call the owner\'s own publication a theft; now the flood changes nothing, and a transaction that is not found is never called a theft', async () => {
+  const w = await World.create();
+  const approver = await w.initBatchPath();
+  const fs = []; for (let i = 0; i < 4; i++) fs.push(await w.signer(20n));
+  const sc = scratch();
+  let flood = false; let hide = false;
+  // the flood: 20,000 signatures newer than every real one, as cheap transactions listing LaunchBatch read-only leave
+  // them (about 0.1 SOL in fees, failed ones included), served first by getSignaturesForAddress as an RPC serves them
+  const floodSigs = Array.from({ length: 20_000 }, (_, i) => `flood${i}`);
+  const history = (m) => {
+    const [addr, o = {}] = m.params;
+    const row = (signature, slot, err) => ({ signature, slot, err, memo: null, blockTime: Number(w.now()), confirmationStatus: 'confirmed' });
+    const top = Number(w.svm.getClock().slot) + 1_000;
+    let list = [...floodSigs.map((x) => row(x, top, null)), ...w.history.filter((h) => h.signature && h.keys.includes(String(addr))).reverse().map((h) => row(h.signature, Number(h.slot), h.err ? { stub: h.err } : null))];
+    if (o.before) { const i = list.findIndex((x) => x.signature === o.before); list = i < 0 ? [] : list.slice(i + 1); }
+    return list.slice(0, o.limit ?? 1000);
+  };
+  // an RPC that lacks the publication's transaction: the block it serves carries none
+  const emptyBlock = (m) => ({ blockHeight: Number(m.params[0]), blockTime: Number(w.now()), parentSlot: Number(m.params[0]) - 1, blockhash: String(w.svm.latestBlockhash()), previousBlockhash: String(w.svm.latestBlockhash()), transactions: [] });
+  const opts = { rpc: (m) => (m.method === 'getSignaturesForAddress' && flood ? history(m) : m.method === 'getBlock' && hide ? emptyBlock(m) : undefined) };
+  const rpc = await rpcStub(w, opts); const rpc2 = await rpcStub(w, { host: '127.0.0.2', ...opts });
+  const unread = await rpcStub(w, { host: '127.0.0.3', status: (m) => (m.method === 'getBlock' ? 503 : undefined) });
+  const rpcs = ['--rpc', rpc.url, '--rpc', rpc2.url];
+  const args = [...rpcs, '--approver', String(approver.address), '--program-id', String(w.programId), '--archive', sc.archive];
+  const confirm = (seq, root, r = rpcs) => cli(['confirm', String(seq), root, ...r, '--archive', sc.archive, '--program-id', String(w.programId)], sc.env);
+  try {
+    const A = { cityId: 9901n, founder: fs[0], symbol: 'FA' }; const B = { cityId: 9902n, founder: fs[1], symbol: 'FB' };
+    const C = { cityId: 9903n, founder: fs[2], symbol: 'FC' }; const D = { cityId: 9904n, founder: fs[3], symbol: 'FD' };
+    await publishConfirmed(w, approver, sc, rpcs, 'f1.json', listFile(w, [A, B], 1n));
+    w.warpTo(w.launchBatch().latest.validFrom);
+    // the owner verifies batch 2, signs exactly the printed transaction, and it lands; then the flood
+    const L2 = listFile(w, [A, B, C], 2n);
+    let c = await cli(['verify', sc.put('f2.json', L2), ...args], sc.env);
+    assert.equal(c.code, 0, c.out);
+    await signPrinted(w, approver, c.out, 'batch 2: the printed publication');
+    flood = true;
+    // before round 9: exit 1, "PROBLEM TX_NOT_FOUND ... if it persists, page the guardian members"
+    c = await confirm(2, L2.root);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, /^confirmed: .* written by the transaction you verified \(message hash \S+\)/m);
+    assert.ok(rpc.calls.includes('getBlock') && rpc2.calls.includes('getBlock'), 'the block was read on both RPCs');
+
+    // batch 3 verified, signed and landed, not yet confirmed; both RPCs then serve its block without the transaction
+    w.warpTo(w.launchBatch().latest.validFrom);
+    const L3 = listFile(w, [A, B, C, D], 3n);
+    c = await cli(['verify', sc.put('f3.json', L3), ...args], sc.env);
+    assert.equal(c.code, 0, c.out);
+    const verifiedHash = /message hash (\S+):/.exec(c.out)[1];
+    await signPrinted(w, approver, c.out, 'batch 3: the printed publication');
+    hide = true;
+    // before round 9: "the transaction that wrote it is another one (message hash none found): a republication by
+    // someone holding the approver key ... so the key is stolen: have a guardian member clear it with halt now"
+    c = await cli(['verify', sc.put('f4.json', listFile(w, [A, B, C, D], 4n)), ...args], sc.env);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM LATEST_NOT_ARCHIVED: .* it has the list, window and signer of a list you verified .* but the transaction that wrote it was not found on the RPCs read: retry in a minute, or read it through a third provider; not finding it proves nothing\. If you signed exactly that transaction, confirm it once it is found: node scripts\/vcurve\/batch\.mjs confirm 3 /);
+    assert.doesNotMatch(c.out, /another one|so the key is stolen/);
+    c = await confirm(3, L3.root);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM TX_NOT_FOUND: no successful transaction in the block of slot \d+ carries this publication on the RPCs read: retry in a minute, or run confirm through a third provider; not finding it proves nothing/);
+    assert.doesNotMatch(c.out, /page the guardian members/);
+    assert.match(c.out, /^1 problem\(s\): retry in a minute, or read the chain through a third provider/m);
+    // an RPC that cannot serve the block is named, and is no verdict either
+    c = await confirm(3, L3.root, ['--rpc', rpc.url, '--rpc', unread.url]);
+    assert.equal(c.code, 1, c.out);
+    assert.match(c.out, /PROBLEM TX_UNREAD: the block of slot \d+ \(the publication's\) was not read on RPC 2 \(127\.0\.0\.3:\d+\): .*503/);
+    assert.doesNotMatch(c.out, /page the guardian members|stolen/);
+    // the block served again: the publication is found despite the flood, and it is the owner's transaction
+    hide = false;
+    c = await confirm(3, L3.root);
+    assert.equal(c.code, 0, c.out);
+    assert.match(c.out, new RegExp(`^confirmed: .* written by the transaction you verified \\(message hash ${verifiedHash}\\)`, 'm'));
+
+    // the pieces: a publication carried by an inner instruction (a call through another program) is found too, as the
+    // transaction around it; a block holding no successful one gives none
+    const record = w.launchBatch().latest;
+    const pubData = Buffer.from(w.ix.publishLaunchBatch({ approver: approver.address, seq: record.seq, root: Buffer.from(record.root), leafCount: record.leafCount, validFrom: record.validFrom, validUntil: record.validUntil }).data);
+    const outer = w.history.find((h) => !h.err && h.keys.includes(String(w.programId)) && h.keys.includes(String(w.P.launchBatch())) && h.slot !== record.publishedSlot);
+    const outerTx = web3.VersionedTransaction.deserialize(outer.wire);
+    const programIndex = outerTx.message.staticAccountKeys.findIndex((k) => k.toBase58() === String(w.programId));
+    const block = (inner, err = null) => ({ blockHeight: 1, blockTime: 1, parentSlot: 0, blockhash: String(w.svm.latestBlockhash()), previousBlockhash: String(w.svm.latestBlockhash()),
+      transactions: [{ transaction: [outer.wire.toString('base64'), 'base64'], meta: { err, fee: 5000, innerInstructions: [{ index: 0, instructions: [{ programIdIndex: programIndex, accounts: [], data: bs58(inner) }] }], loadedAddresses: { writable: [], readonly: [] }, logMessages: [] }, version: 'legacy' }] });
+    let crafted = block(pubData);
+    const craftedStub = await rpcStub(w, { host: '127.0.0.4', rpc: (m) => (m.method === 'getBlock' ? crafted : undefined) });
+    try {
+      const at = { launchBatch: w.P.launchBatch(), record, programId: w.programId };
+      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [messageHash(outerTx.message.serialize())]);
+      crafted = block(pubData, { InstructionError: [0, 'Custom'] });
+      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'a failed transaction wrote nothing');
+      crafted = block(Buffer.concat([pubData, Buffer.from([0])]));
+      assert.deepEqual(await landedPublicationHashes(craftedStub.url, at), [], 'only the exact publication');
+    } finally { await craftedStub.close(); }
+  } finally {
+    await rpc.close(); await rpc2.close(); await unread.close();
+    sc.done();
   }
   await w.finish();
 });

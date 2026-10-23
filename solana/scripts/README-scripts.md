@@ -128,7 +128,11 @@ while the batch verifier cannot check a publication made through Squads (review
 R8-DIFF-6); an approver multisig whose members include the guardian, the admin
 vault, any vault of the guardian's or the vault's multisig or any other program
 address, or whose config authority is neither none nor the admin vault, is
-refused, and a threshold of 1 is a warning (review R8-DIFF-3).
+refused, and a threshold of 1 is a warning (review R8-DIFF-3). Every
+`LaunchConfig` must keep a buyback share the keeper can keep up with as under
+config #0, `C * b_B <= 3t` (8.4's operating rule; the program accepts more, open
+owner decision O36): an enabled config outside it is not ready
+(`CONFIG_BUYBACK_THROUGHPUT`), a disabled one is a warning (review R9-PF-1).
 `--proposed-guardian`, `--proposed-payout-authority`,
 `--proposed-payout-destination` and `--proposed-launch-approver` check a key
 before the proposal that sets it is signed.
@@ -164,7 +168,11 @@ list that removes or changes an entry of the batch in force is warned that the
 batch keeps running until the new list's valid_from (review R8-OPS-1).
 `confirm` keeps a list as a baseline only when the transaction that wrote it
 is the one the owner verified, by its message hash, on every RPC (review
-R8-DIFF-2). The archive's MAC key is `~/.vicinity-curve/archive.key`, never a
+R8-DIFF-2); it reads that transaction from the block of the record's
+`published_slot`, so no flood of transactions naming LaunchBatch can hide it, and
+a transaction not found (`TX_NOT_FOUND`) or a block an RPC cannot serve
+(`TX_UNREAD`) is a reason to retry or read through a third provider, never a
+theft; the alarm of `verify` says the same (review R9-TOOLS-2). The archive's MAC key is `~/.vicinity-curve/archive.key`, never a
 file inside an archive folder, and must be 32 bytes; every run names the
 folder and the key's fingerprint and warns when the folder is not the one used
 last (review R8-DIFF-5). An approver that is not a wallet key is refused
@@ -188,8 +196,14 @@ Every RPC call has a timeout (`--timeout`, seconds, default 8): an RPC that
 fails or does not answer is reported, the stop goes through the other at once
 (each blockhash's variants are sent the moment it arrives), and the run then
 ends with `PROBLEM RPC_FAILED` (exit 1), never a success on one RPC's word; the
-print-only mode prints the variants on every blockhash obtained. RPCs are
-named by host only, never by their full URL.
+print-only mode prints the variants on every blockhash obtained. Everything an
+RPC returns is checked on its own: a multisig transaction index with no room for
+the variants below 2^64 (`RPC_BAD_INDEX`) or a blockhash that is not 32 bytes in
+base58 is that RPC's failure, and the other RPC's variants are still printed or
+sent (review R9-TOOLS-1). When both RPCs answer and disagree on the stop, the
+rounds end once one shows it with the member's transaction confirmed on both,
+and the run ends with `PROBLEM RPC_DISAGREE` (check through a third provider;
+review R9-TOOLS-3). RPCs are named by host only, never by their full URL.
 Each transaction carries a compute-unit limit (150,000) and price
 (`--priority-fee`, micro-lamports per unit, default 1,000,000, doubled each
 round up to 50,000,000; review R8-DIFF-7). With `--keypair <file>` it signs

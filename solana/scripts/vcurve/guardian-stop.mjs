@@ -26,7 +26,13 @@
 // stopping. Each RPC is asked on its own, every call within `--timeout` seconds (default 8): an RPC that fails (an HTTP
 // 503) or does not answer is reported and the stop goes ahead through the one that answers; each RPC's blockhash is
 // used the moment it arrives and its variants are sent through every RPC at once, so no send waits for a bad RPC
-// (the residual of review R8-OPS-2). Each round's report names every RPC's state. Each transaction carries a
+// (the residual of review R8-OPS-2). Everything an RPC returns is checked on its own (review R9-TOOLS-1): a multisig
+// transaction index with no room for the variants below 2^64, or a blockhash that is not 32 bytes in base58, is that
+// RPC's failure (reported by name), and an exception from one RPC's data is caught where that RPC's work runs, so it
+// never stops the other RPC's variants from being printed or sent. When both RPCs answer and disagree on the stop, the
+// rounds end once one shows it and one of this member's transactions is confirmed on both (`PROBLEM RPC_DISAGREE`;
+// a liar alone that shows the stop and calls every transaction confirmed never ends them; review R9-TOOLS-3). Each
+// round's report names every RPC's state. Each transaction carries a
 // compute-unit limit and price (`--priority-fee` micro-lamports per compute unit, doubled each round), outside the
 // vault message, so a thief paying priority fees for the multisig's next index does not win the slot for nothing
 // (review R8-DIFF-7).
@@ -40,8 +46,8 @@
 //   on every blockhash the RPCs gave.
 // The keypair is read from the file to sign and is never printed; an RPC is named by its host only (an API key in its
 // path or query is never printed). Exit status 0 when both RPCs show the stop (and, after sending, one of this member's
-// transactions is confirmed), 1 when they do not or one of them failed or did not answer (the stop is then sent
-// through the other, and the output says what that one shows), 2 on a usage error.
+// transactions is confirmed), 1 when they do not, disagree, or one of them failed or did not answer (the stop is then
+// sent through the other, and the output says what each one shows), 2 on a usage error.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import web3 from '@solana/web3.js';
@@ -53,6 +59,8 @@ const { PublicKey } = web3;
 const enc = new TextEncoder();
 const key = (a) => new PublicKey(String(a?.address ?? a));
 const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
+/** The largest u64: a Squads transaction index is one, and the variants' indices must stay at or below it. */
+const MAX_U64 = 2n ** 64n - 1n;
 
 /** Anchor discriminators (`sha256("global:<name>")[..8]`) of the Squads v4 instructions the stop uses. */
 export const SQUADS_IX = Object.freeze({
@@ -210,6 +218,21 @@ const base58 = (bytes) => {
   for (const b of bytes) { if (b !== 0) break; t = `1${t}`; }
   return t;
 };
+/** The bytes of a base58 string, or null when it is not one. */
+const unbase58 = (text) => {
+  let n = 0n;
+  for (const ch of text) { const i = B58.indexOf(ch); if (i < 0) return null; n = n * 58n + BigInt(i); }
+  const out = [];
+  while (n > 0n) { out.unshift(Number(n % 256n)); n /= 256n; }
+  for (const ch of text) { if (ch !== '1') break; out.unshift(0); }
+  return Uint8Array.from(out);
+};
+/** Whether an RPC's blockhash is one: a string of 32 bytes in base58, written canonically (review R9-TOOLS-1). */
+export function validBlockhash(h) {
+  if (typeof h !== 'string' || h.length < 32 || h.length > 44) return false;
+  const bytes = unbase58(h);
+  return Boolean(bytes) && bytes.length === 32 && base58(bytes) === h;
+}
 const sameAccount = (x, y) => (!x || !y ? !x === !y : x.owner === y.owner && x.data.equals(y.data));
 
 // ---------------------------------------------------------------- the RPCs (reviews R8-OPS-2 and its residual)
@@ -244,7 +267,27 @@ export function summarizeViews(views, stop) {
     views, answered, failed: views.map((v, i) => (v.ok ? null : i)).filter((i) => i !== null), all: answered.length === views.length,
     agree: answered.every((v) => v.raw.every((a, i) => sameAccount(a, answered[0].raw[i]))),
     shown: answered.length > 0 && answered.every((v) => v.launchpad && stopDone(v, stop)),
+    // review R9-TOOLS-3: at least one answered view shows it (with `all && !shown`, the two RPCs disagree on the stop)
+    someShown: answered.some((v) => v.launchpad && stopDone(v, stop)),
   };
+}
+/**
+ * The transaction indices the variants cover (review R9-TOOLS-1): for each RPC's latest view (`known[i]`, or null), the
+ * next `variants` indices after the multisig's `transaction_index` as that RPC shows it, so one lying RPC cannot move
+ * every variant off the real index; at most `variants` per RPC. A view whose multisig does not decode, or whose index
+ * leaves no room for `variants` more below 2^64, is ignored (`ignored`: `{ i, why }`), never thrown on. Returns
+ * `{ indices (sorted bigints), ignored }`.
+ */
+export function nextIndices(known, variants) {
+  const out = new Set(); const ignored = [];
+  known.forEach((v, i) => {
+    if (!v) return;
+    let n;
+    try { n = decodeSquadsMultisig(v.multisigAccount).transactionIndex; } catch (e) { ignored.push({ i, why: `no Squads multisig (${short(e)})` }); return; }
+    if (typeof n !== 'bigint' || n < 0n || n + BigInt(variants) > MAX_U64) { ignored.push({ i, why: `shows the multisig at transaction index ${n}, which leaves no room for ${variants} more below 2^64` }); return; }
+    for (let k = 1n; k <= BigInt(variants); k++) out.add(n + k);
+  });
+  return { indices: [...out].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)), ignored };
 }
 /** One RPC's state as the tool reports it. */
 export function viewLine(v, label, stop) {
@@ -314,16 +357,17 @@ async function main(argv) {
   // and never holds the others (its residual: a 503 used to end the run before anything was sent, a silent RPC to hang it)
   const read = async () => summarizeViews(await Promise.all(connections.map((c) => withTimeout(readOne(c), ms).then((v) => ({ ok: true, ...v }), (e) => ({ ok: false, error: short(e) })))), stop);
   const report = (s) => s.views.forEach((v, i) => console.log(viewLine(v, labels[i], stop)));
-  /** One of `sigs` confirmed without error on any RPC that answers (each asked at once, within the timeout). */
-  const confirmedOf = async (sigs) => {
-    if (!sigs.length) return null;
+  /**
+   * Which of `sigs` each RPC reports confirmed without error (each asked at once, within the timeout): per RPC a list,
+   * or null when it failed. `any`: one confirmed on some RPC; `every`: one confirmed on every RPC (review R9-TOOLS-3).
+   */
+  const confirmations = async (sigs) => {
+    if (!sigs.length) return { any: null, every: null };
     const chunks = []; for (let i = 0; i < sigs.length; i += 256) chunks.push(sigs.slice(i, i + 256));
-    const per = await Promise.all(connections.map((c) => withTimeout(Promise.all(chunks.map((x) => c.getSignatureStatuses(x).then((r) => r.value))), ms).then((x) => x.flat(), () => null)));
-    for (const st of per) {
-      const i = st ? st.findIndex((x) => x && !x.err && (x.confirmationStatus === 'confirmed' || x.confirmationStatus === 'finalized')) : -1;
-      if (i >= 0) return sigs[i];
-    }
-    return null;
+    const ok = (x) => Boolean(x) && typeof x === 'object' && !x.err && (x.confirmationStatus === 'confirmed' || x.confirmationStatus === 'finalized');
+    const per = await Promise.all(connections.map((c) => withTimeout(Promise.all(chunks.map((x) => c.getSignatureStatuses(x).then((r) => r.value))), ms)
+      .then((x) => { const st = x.flat(); return sigs.filter((_, i) => ok(st[i])); }, () => null)));
+    return { any: per.find((l) => l?.length)?.[0] ?? null, every: sigs.find((sig) => per.every((l) => l?.includes(sig))) ?? null };
   };
   const sleep = (t) => new Promise((ok) => { setTimeout(ok, t); });
 
@@ -332,7 +376,11 @@ async function main(argv) {
   if (!s.answered.length) { console.log('PROBLEM: neither RPC answered: nothing can be built; run the stop again at once through two other providers, and tell the other members (8.4 step 5)'); return 1; }
   if (!s.agree) console.log('warning RPC_DISAGREE: the two RPCs return different accounts (the multisig, the Launchpad or LaunchBatch): one of them is lying or behind; the stop goes ahead, and counts only when both show it');
   if (s.failed.length) console.log(`warning RPC_FAILED: ${names(s.failed)} failed or did not answer: the stop goes ahead through the RPC that answers, and counts only when both show it (review R8-OPS-2)`);
-  const pres = s.answered.map((v) => (v.launchpad ? stopPreconditions({ multisig: o.multisig, multisigAccount: v.multisigAccount, member, launchpad: v.launchpad, vaultIndex: o.vaultIndex }) : ['vicinity_curve\'s Launchpad was not found']));
+  // each RPC's view is checked on its own; whatever its data throws is that view's problem (review R9-TOOLS-1)
+  const pres = s.answered.map((v) => {
+    if (!v.launchpad) return ['vicinity_curve\'s Launchpad was not found'];
+    try { return stopPreconditions({ multisig: o.multisig, multisigAccount: v.multisigAccount, member, launchpad: v.launchpad, vaultIndex: o.vaultIndex }); } catch (e) { return [`the preconditions could not be checked: ${short(e)}`]; }
+  });
   if (pres.every((p) => p.length)) { for (const p of pres[0]) console.log(`PROBLEM: ${p}`); return 1; }
   if (s.all && s.shown) { console.log('both RPCs show the stop already (another member\'s, or an earlier one): nothing sent'); return 0; }
   if (s.shown) console.log(`the RPC that answers shows the stop already, but ${names(s.failed)} failed or did not answer: the stop is sent anyway (a repeated stop changes nothing)`);
@@ -347,45 +395,63 @@ async function main(argv) {
     }))) };
   });
   const sigs = new Set();
-  let unproven = false;
-  for (let round = 1; round <= o.rounds && !unproven; round++) {
-    // the next few indices as each RPC sees the multisig, so that one lying RPC's index cannot move every variant off the real one
-    const indices = [...new Set(known.filter(Boolean).flatMap((v) => {
-      let n; try { n = decodeSquadsMultisig(v.multisigAccount).transactionIndex; } catch { return []; }
-      return Array.from({ length: o.variants }, (_, k) => String(n + 1n + BigInt(k)));
-    }))].map(BigInt).sort((x, y) => (x < y ? -1 : 1));
-    if (!indices.length) { console.log('PROBLEM: no RPC that answered shows the guardian multisig: nothing can be built'); return 1; }
+  // the rounds end early when one RPC alone shows the stop with the member's transaction confirmed and the other failed
+  // (R8-OPS-2 residual), or when both answer, disagree on the stop, and both confirm the member's transaction (R9-TOOLS-3)
+  let ended = false;
+  for (let round = 1; round <= o.rounds && !ended; round++) {
+    // review R9-TOOLS-1: the next few indices as each RPC sees the multisig, each RPC's checked on its own, so that one
+    // lying RPC's index can neither move every variant off the real one nor overflow them
+    const { indices, ignored } = nextIndices(known, o.variants);
+    for (const x of ignored) console.log(`warning RPC_BAD_INDEX: ${labels[x.i]} ${x.why}: its view is not used for the indices`);
+    if (!indices.length) { console.log('PROBLEM: no RPC that answered shows the guardian multisig at a usable transaction index: nothing can be built'); return 1; }
     const microLamports = roundPriorityFee(o.priorityFee, round);
+    const hashOf = (r, i) => {
+      if (validBlockhash(r?.blockhash)) return r.blockhash;
+      throw new Error(`${labels[i]} gave no blockhash: not a blockhash (32 bytes in base58)`);
+    };
     if (!signer) {
-      // print only: the variants on every blockhash an RPC gave, so that one lying RPC's blockhash cannot spoil them all
-      const got = await Promise.all(connections.map((c) => withTimeout(c.getLatestBlockhash('confirmed'), ms).then((x) => x.blockhash, (e) => ({ error: short(e) }))));
+      // print only: the variants on every blockhash an RPC gave, so that one lying RPC's blockhash cannot spoil them all;
+      // each group is built on its own, so an error in one never hides another (review R9-TOOLS-1)
+      const got = await Promise.all(connections.map((c, i) => withTimeout(c.getLatestBlockhash('confirmed'), ms).then((x) => {
+        try { return hashOf(x, i); } catch { return { error: 'not a blockhash (32 bytes in base58)' }; }
+      }, (e) => ({ error: short(e) }))));
       got.forEach((g, i) => { if (typeof g !== 'string') console.log(`${labels[i]}: no blockhash: ${g.error}`); });
       const groups = blockhashGroups(got);
-      if (!groups.size) { console.log('PROBLEM: neither RPC gave a blockhash: nothing can be printed; run it again'); return 1; }
+      let printedGroups = 0;
       for (const [blockhash, from] of groups) {
+        let text;
+        try {
+          text = variantsFor(blockhash, indices, microLamports).map(({ index, tx }) => `index ${index}: message hash ${messageHash(tx.serializeMessage())}\n${tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64')}`);
+        } catch (e) { console.log(`blockhash from ${names(from)}: the variants could not be built: ${short(e)}`); continue; }
         console.log(`blockhash ${blockhash} (from ${names(from)}):`);
-        for (const { index, tx } of variantsFor(blockhash, indices, microLamports)) {
-          console.log(`index ${index}: message hash ${messageHash(tx.serializeMessage())}\n${tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64')}`);
-        }
+        for (const t of text) console.log(t);
+        printedGroups++;
       }
+      if (!printedGroups) { console.log('PROBLEM: neither RPC gave a blockhash the variants could be built on: nothing can be printed; run it again'); return 1; }
       console.log(`unsigned, with a compute-unit limit of ${STOP_COMPUTE_UNITS} at ${microLamports} micro-lamports per unit: sign every variant with the member key and send them together within a minute through two RPCs of different providers (only the one at the multisig's next index executes; a variant on a blockhash the chain does not know never lands)`);
       return 0;
     }
     // each RPC's blockhash is used as soon as it arrives: its variants are signed and sent through every RPC at once, so
-    // no send waits for an RPC that fails or does not answer
+    // no send waits for an RPC that fails or does not answer; whatever one RPC's data throws is that RPC's failure and
+    // never rejects the other's work (review R9-TOOLS-1)
     const seen = new Map(); const noHash = []; let variants = 0;
     const sends = connections.map(() => ({ ok: 0, n: 0, error: null }));
-    await Promise.all(connections.map((c, i) => withTimeout(c.getLatestBlockhash('confirmed'), ms).then(async ({ blockhash }) => {
+    await Promise.all(connections.map((c, i) => withTimeout(c.getLatestBlockhash('confirmed'), ms).then(async (r) => {
+      const blockhash = hashOf(r, i);
       if (seen.has(blockhash)) { seen.get(blockhash).push(i); return; }
       seen.set(blockhash, [i]);
-      const raws = variantsFor(blockhash, indices, microLamports).map(({ tx }) => { tx.sign(signer); sigs.add(base58(tx.signature)); return tx.serialize(); });
+      let raws;
+      try {
+        raws = variantsFor(blockhash, indices, microLamports).map(({ tx }) => { tx.sign(signer); return { raw: tx.serialize(), sig: base58(tx.signature) }; });
+      } catch (e) { seen.delete(blockhash); throw new Error(`${labels[i]}'s blockhash: the variants could not be built: ${short(e)}`); }
+      for (const x of raws) sigs.add(x.sig);
       variants += raws.length;
-      await Promise.all(raws.flatMap((raw) => connections.map((c2, j) => withTimeout(c2.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 3 }), ms)
+      await Promise.all(raws.flatMap(({ raw }) => connections.map((c2, j) => withTimeout(c2.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 3 }), ms)
         .then(() => { sends[j].ok++; sends[j].n++; }, (e) => { sends[j].n++; sends[j].error = short(e); }))));
-    }, (e) => { noHash.push(`${labels[i]} gave no blockhash: ${short(e)}`); })));
+    }, (e) => { throw new Error(`${labels[i]} gave no blockhash: ${short(e)}`); }).catch((e) => { noHash.push(short(e)); })));
     for (const x of noHash) console.log(`round ${round}: ${x}`);
     if (!seen.size) {
-      console.log(`round ${round}: neither RPC gave a blockhash`);
+      console.log(`round ${round}: no RPC gave a blockhash the variants could be built on`);
       await sleep(1_000); s = await read(); remember(s);
       continue;
     }
@@ -395,25 +461,37 @@ async function main(argv) {
     while (Date.now() < until) {
       await sleep(1_000);
       s = await read(); remember(s);
-      const mine = s.shown ? await confirmedOf([...sigs]) : null;
-      if (s.all && s.shown && mine) { report(s); console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine} is confirmed`); return 0; }
+      const mine = s.someShown ? await confirmations([...sigs]) : { any: null, every: null };
+      if (s.all && s.shown && mine.any) { report(s); console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine.any} is confirmed`); return 0; }
       // the RPC that answers shows it with this member's transaction confirmed, the other does not answer: no further
       // round makes it surer, and one RPC alone is never proof
-      if (s.shown && mine) { unproven = true; break; }
+      if (!s.all && s.shown && mine.any) { ended = true; break; }
+      // both answer, one shows the stop, and both confirm this member's transaction: the stop executed, the other RPC
+      // lies or lags; a further round would only repeat it (review R9-TOOLS-3). One RPC's confirmation alone ends nothing
+      if (s.all && s.someShown && mine.every) { ended = true; break; }
     }
     if (s.all && s.shown) break;
   }
-  if (!unproven) s = await read();
+  if (!ended) s = await read();
   report(s);
-  const mine = s.shown ? await confirmedOf([...sigs]) : null;
-  if (s.all && s.shown && mine) { console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine} is confirmed`); return 0; }
+  const mine = s.someShown ? await confirmations([...sigs]) : { any: null, every: null };
+  if (s.all && s.shown && mine.any) { console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine.any} is confirmed`); return 0; }
   const answeredNames = names(s.views.map((v, i) => (v.ok ? i : null)).filter((i) => i !== null));
   if (s.shown && !s.all) {
-    console.log(`PROBLEM RPC_FAILED: ${answeredNames} shows the stop${mine ? ` and this member's transaction ${mine} confirmed` : ', but none of this member\'s transactions confirmed'}, and ${names(s.failed)} failed or did not answer: one RPC is no proof (it may lie); check LaunchBatch (halted, both records cleared) through a third provider and tell the other members (8.4 step 5; review R8-OPS-2)`);
+    console.log(`PROBLEM RPC_FAILED: ${answeredNames} shows the stop${mine.any ? ` and this member's transaction ${mine.any} confirmed` : ', but none of this member\'s transactions confirmed'}, and ${names(s.failed)} failed or did not answer: one RPC is no proof (it may lie); check LaunchBatch (halted, both records cleared) through a third provider and tell the other members (8.4 step 5; review R8-OPS-2)`);
     return 1;
   }
   if (s.shown) {
     console.log('PROBLEM: both RPCs show the stop, but none of this member\'s transactions is confirmed on them: it is another member\'s stop, or the RPCs are not to be trusted; check LaunchBatch through a third provider and tell the other members (8.4 step 5)');
+    return 1;
+  }
+  if (s.all && s.someShown) {
+    // review R9-TOOLS-3: both answered and they disagree on the stop
+    const showing = s.views.map((v, i) => (v.launchpad && stopDone(v, stop) ? i : null)).filter((i) => i !== null);
+    const notShowing = s.views.map((_, i) => i).filter((i) => !showing.includes(i));
+    const tx = mine.every ? `this member's transaction ${mine.every} is confirmed on both RPCs`
+      : mine.any ? `this member's transaction ${mine.any} is confirmed on one RPC only` : 'none of this member\'s transactions is confirmed';
+    console.log(`PROBLEM RPC_DISAGREE: ${names(showing)} shows the stop and ${names(notShowing)} does not; ${tx}: one of them is lying or behind; check LaunchBatch (halted, both records cleared) through a third provider and tell the other members (8.4 step 5; review R9-TOOLS-3)`);
     return 1;
   }
   console.log(`PROBLEM: the stop is not on chain after every round (as ${s.all ? 'both RPCs show it' : `${answeredNames || 'no RPC'} shows it; ${names(s.failed)} failed or did not answer`}): another member, the owner (clear with the approver key) or the admin must act (8.4 step 5)`);

@@ -6,8 +6,8 @@ entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review rou
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
-entries 83 to 90 review round 7, entries 91 to 96 review round 8, and entries 97 and 98 the
-verification of round 8). The
+entries 83 to 90 review round 7, entries 91 to 96 review round 8, entries 97 and 98 the
+verification of round 8, and entries 99 to 102 review round 9). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2944,7 +2944,8 @@ the next day's changes hid his entry. Reproduced; low (the owner had to confirm 
   republication must then land within minutes of the owner's run.
 * `confirm` reads, from every RPC, the successful transactions in the record's `published_slot` that carry exactly its
   `publish_launch_batch` (`landedPublicationHashes`: `getSignaturesForAddress(LaunchBatch)`, then `getTransaction` in
-  base64, the message taken byte for byte after the signatures), and keeps the list only when the pending entry's
+  base64, the message taken byte for byte after the signatures; since review round 9, entry 100, the block of the
+  `published_slot` itself, which no flood of the account's history can hide), and keeps the list only when the pending entry's
   message hash is among them (`NOT_YOUR_TRANSACTION`, `TX_NOT_FOUND`; the RPCs must name the same transactions). A
   republication is another message (another blockhash at least), so it is never confirmed. The owner must therefore
   sign exactly the transaction whose hash he was shown (a wallet that adds a compute-unit price makes another message:
@@ -3017,7 +3018,8 @@ reproduced in litesvm).
   shows unmet does not keep the member from stopping (a warning says the RPCs disagree). When both show the stop but
   none of the member's transactions is confirmed after the rounds, the tool says so (exit 1): another member's stop, or
   RPCs not to be trusted. (Completed by the verification of round 8, entry 98: each RPC within a timeout, so one that
-  fails or does not answer never holds the stop.)
+  fails or does not answer never holds the stop; and by review round 9, entries 99 and 101: every value an RPC returns
+  checked on its own, and two RPCs that disagree on the stop reported as such.)
 * Each transaction starts with `SetComputeUnitLimit(150,000)` (a stop measured about 90,000 units) and
   `SetComputeUnitPrice` (`--priority-fee`, micro-lamports per unit, default 1,000,000, about 0.00015 SOL per
   transaction, doubled each round up to 50,000,000), outside the vault message, so the stop itself is unchanged.
@@ -3129,3 +3131,158 @@ send by the honest one, and the tool exits 1 with `RPC_FAILED`; signed through t
 the same within seconds (before: no output); both failing is a `PROBLEM` at once; `withTimeout`, `rpcLabel` (the host
 only), `summarizeViews` (proof needs every RPC) and `blockhashGroups`. The suites' JSON-RPC stub gained `before`
 (awaited before it answers) and `status` (an HTTP status, or 'silent'), and closes the connections it holds.
+
+### 99. Every index and blockhash an RPC returns is checked on its own by the guardian stop (8.4 step 5, T85, 14.1; review R9-TOOLS-1)
+
+**Spec.** NOTES 95 and 98 and the tool's header: "one lying or failing RPC can neither report a stop that is not on
+chain nor drop the stop unseen".
+
+**Issue.** Entry 98 covered an RPC that fails or does not answer, not one that answers with bad data. The variants
+covered the union of every RPC's next indices with no bound, so a lying RPC that served the real multisig account with
+`transaction_index` (offset 78) set to u64::MAX put 2^64 and above into the union, and the PDA of every variant threw
+(`RangeError: The value of "value" is out of range`); a lying `getLatestBlockhash` of `0OIl` threw in `tx.sign`
+("Non-base58 character") inside the shared `Promise.all`, and `main`'s rejection ran `process.exit(1)`, cutting the
+honest RPC's sends still in flight; the print-only loop had no per-group `try`, so a liar named first hid the honest
+group. Neither error named an RPC. Reproduced at bcb04c0 with the real CLI against the real Squads v4 program: the index
+liar named first or second, print-only and signed, exit 1, no `sendTransaction` reached the honest RPC, `LaunchBatch`
+not halted; the blockhash liar named first the same; named second, the honest group was printed (or partly sent)
+before the exit 1. Low (the reviewer's medium lowered by the verifier: the run fails loudly, the attacker needs the
+approver key and a lying provider, and the owner's and the admin's clears remain).
+
+**Choice.** Treat every value from an RPC as untrusted, per RPC:
+* `nextIndices(known, variants)`: each RPC's latest view contributes its own next `variants` indices (at most that many
+  per RPC, so the union stays bounded at two RPCs times `--variants`). A view whose multisig does not decode, or whose
+  index leaves no room for `variants` more below 2^64, is set aside and reported (`warning RPC_BAD_INDEX: RPC n (host)
+  shows the multisig at transaction index ...: its view is not used for the indices`). A window around the lowest index
+  was considered and not built: a liar reporting a low index would then push the honest RPC's index out of it.
+* `validBlockhash(h)`: a string that decodes from base58 to exactly 32 bytes and re-encodes to itself. Any other
+  answer is that RPC's failure (`RPC n (host) gave no blockhash: not a blockhash (32 bytes in base58)`), never echoed.
+* Each RPC's work runs in its own `try`: its preconditions, its blockhash's build, signatures and sends (signed mode),
+  each blockhash group (print-only). An error is reported with the RPC's name and never rejects the other RPC's work,
+  and `main` returns only after every send has settled, so no exit cuts a send in flight.
+A liar's other values were already harmless: its accounts are decoded in `try`, and its view counts for the stop only
+together with the other RPC's (entries 95, 98).
+
+Tests. `34-guardian-stop` R9-TOOLS-1 (the real CLI, the index liar and the blockhash liar each named first and second,
+print-only with `--variants 2` and signed with `--rounds 1`): every run exits 0, the honest RPC's two variants are
+printed for the next indices (the index liar's none), the liar is named (`RPC_BAD_INDEX`, "not a blockhash"), the
+signed run sends through the honest RPC, both RPCs show the stop and the member's transaction is confirmed, and the
+real `LaunchBatch` is halted (the admin lifts it and the thief republishes between runs). Before the change the first
+run exited 1 with the `RangeError`. `validBlockhash` (the World's blockhash; `0OIl`, empty, 44 ones, one character too
+many, non-strings) and `nextIndices` (two views, at most two per RPC; a view at 2^64 - 2 and a view with no multisig set
+aside; the last two indices a u64 holds).
+
+### 100. `confirm` and the alarm read the publication's own block; a transaction not found is never a theft (8.4 step 3, T89, 14.1; review R9-TOOLS-2)
+
+**Spec.** Entry 93: `confirm` reads "the successful transactions in the record's `published_slot`"; the round-8 code
+paged back through `getSignaturesForAddress(LaunchBatch)` "until that slot is passed".
+
+**Issue.** The paging stopped after 20 pages of 1,000 signatures and returned none. Anyone, with no key, can send
+20,000 cheap transactions that list `LaunchBatch` read-only (about 0.1 SOL in base fees; failed ones count too), newest
+first in the history: the owner's `confirm` of his own publication then failed (`TX_NOT_FOUND`: "if it persists, page
+the guardian members"), and the next `verify` took the empty list for another transaction ("a republication by someone
+holding the approver key ... so the key is stolen: have a guardian member clear it with halt now"). Following the tool,
+the owner and the guardian halt the honest batch, and batch launches stay off until the admin's time-locked
+`set_launch_approver`. The same false verdict followed any other empty answer (an RPC with pruned history). Reproduced
+through the real CLI with real flood transactions in litesvm; a flood of 200 did not trigger it. Low.
+
+**Choice.**
+* `landedPublicationHashes` reads the block of the record's `published_slot` once (`getBlock`, base64, transaction
+  details `full`, version 0, `confirmed`, no rewards) and keeps the successful transactions (`meta.err` exactly null)
+  that name `LaunchBatch` and carry exactly the record's `publish_launch_batch` as an instruction of this program, at
+  the top level or as an inner instruction (a publication through another program, which the round-8 code missed;
+  their message hash is the outer transaction's). The account's history no longer matters. A mainnet block in full is a
+  few megabytes, read once per `confirm`.
+* An RPC that cannot serve the block (an error, HTTP status, no block) is `TX_UNREAD`, naming the RPC by host; no
+  transaction found is `TX_NOT_FOUND`. Both mean retry in a minute, or read through a third provider; `confirm` ends with
+  that advice instead of paging anyone. In `verify`, the alarm for a live record with the window of a verified list
+  says "the transaction that wrote it was not found on the RPCs read: retry in a minute, or read it through a third
+  provider; not finding it proves nothing. If you signed exactly that transaction, confirm it once it is found ... If you
+  did not sign it, the approver key is stolen", and `TX_UNREAD` or `RPC_DISAGREE` on the landed transaction is printed
+  with it (the run gives no transaction either way). "The transaction that wrote it is another one ... the key is
+  stolen" is kept for a transaction found with another message hash.
+* `rpcCall` fails on an HTTP error status instead of parsing its body.
+The alternative of paging until the slot is passed was not built: it reads the whole flood each time.
+
+Tests. `33-batch-verifier` R9-TOOLS-2 (the real CLI, two stubs whose `getSignaturesForAddress` serves 20,000 newer
+signatures first): batch 2, verified, signed as printed and landed, is confirmed (before: `TX_NOT_FOUND`, exit 1); with
+both RPCs serving batch 3's block without its transaction, the next `verify` says "was not found ... proves nothing"
+and never "another one" or "so the key is stolen", and `confirm` says `TX_NOT_FOUND` with the retry tail and pages no
+one; an RPC answering `getBlock` with HTTP 503 is `TX_UNREAD` naming it; served again, batch 3 is confirmed by its
+message hash. `landedPublicationHashes` against a crafted block: the publication as an inner instruction of another
+transaction is found as that transaction's hash; a failed transaction and other data are not. The suites' JSON-RPC
+stub serves `getBlock` (every transaction the World sent in that slot).
+
+### 101. Two RPCs that disagree on the stop end the rounds once both confirm the member's transaction, and are reported (8.4 step 5, T85, 14.1; review R9-TOOLS-3)
+
+**Spec.** Entries 95 and 98: the stop is proven only when both RPCs show it and one of the member's transactions is
+confirmed; a stop shown by the RPC that answers while the other failed ends the rounds (`RPC_FAILED`).
+
+**Issue.** When both RPCs answered but disagreed (one serving `LaunchBatch` as it stood before the stop), the loop never
+ended early: every round sent a full set of variants at a doubled price, each landing as a repeated stop with its rent,
+and the final verdict tested only "every RPC answered" and printed "the stop is not on chain after every round (as both
+RPCs show it)", next to a line saying one RPC shows it. Reproduced (`--rounds 2`: round 2 sent four more variants, the
+multisig index went from 0 to 2, exit 1 with that text, the member paid 12,974,080 lamports, the stop on chain). Info.
+
+**Choice.**
+* `confirmations(sigs)` asks each RPC on its own and returns `any` (one of the member's transactions confirmed on some
+  RPC, as before) and `every` (one confirmed on every RPC). The rounds end when both RPCs answer, one shows the stop and
+  `every` holds: a successful stop transaction executes the stop, so an RPC that confirms it but does not show the stop
+  lies or lags, and another round would only repeat the stop. The review proposed ending on one RPC's confirmation, as
+  the `RPC_FAILED` branch does; that was not built for this case, because a liar that shows the stop and calls every
+  signature confirmed would then end the rounds after round 1 even when the honest RPC's sends had not landed (a thief
+  taking each index), the case the rounds exist for. With `every` required, such a liar ends nothing.
+* The verdict: `PROBLEM RPC_DISAGREE: RPC x (host) shows the stop and RPC y (host) does not; this member's transaction
+  ... is confirmed on both RPCs` (or "on one RPC only", or "none ... is confirmed") ": one of them is lying or behind;
+  check LaunchBatch (halted, both records cleared) through a third provider and tell the other members" (exit 1). "As
+  both RPCs show it" is printed only when both answered and neither shows the stop.
+`summarizeViews` gains `someShown`.
+
+Tests. `34-guardian-stop` R9-TOOLS-3: the review's stale RPC, `--rounds 2`: one round, one stop executed (the multisig
+index up by one), `RPC_DISAGREE` naming both RPCs with the member's transaction confirmed on both, no "as both RPCs show
+it" (before: round 2 sent again and that text). Then a liar that serves a halted `LaunchBatch`, calls every signature
+confirmed and drops every send, with an honest RPC that drops round 1's two sends: round 2 is sent and the stop lands
+(exit 0), so one RPC's word never ends the rounds.
+
+### 102. The buyback share against the fixed per-run cap: 8.4's operating rule; open owner decision O36 (5.13, 7.2, 8.4, T76, O1, O25, O36, 14.1; review R9-PF-1)
+
+**Spec.** 7.2: "the cap binds above about 28 SOL of volume per minute at pool open", "a burst of about 266 SOL (curve
+start) or 607 SOL (pool open)" creates the break-even backlog; O25: "mitigated by ... a keeper that spends every
+interval"; O1: moving the liquidity share to buyback needs "no code change" while V8, V10 and V11 pass.
+
+**Issue.** Those figures are config #0's (`b_B` = 30). One run spends at most `depth * t / (C*D)`, independent of
+`b_B`, while the bucket accrues `b_B` of every trade, so a keeper that runs every interval keeps up only while the volume
+per interval stays below `depth * t / (C * b_B)`: a third of the depth under config #0, 12.5% under O1's buyback
+alternative (0, 70, 50, 50, 80) and 4% under (0, 0, 0, 0, 250), both of which V1 to V11 accept. On the production build,
+with the section-9 checker after every transaction (the verifier's run): under (0, 0, 0, 0, 250) the graduating buy alone
+left 2.56% of depth pending (above `u*`, 2.04%); at 8 SOL per minute with the keeper every 150 slots the backlog reached
+3.64% of depth after 30 minutes, and an outsider who bought 5 SOL and held through 36 runs gained 1.8%; at 20 SOL per
+minute, 6.88% and +7.7% after 65 runs. Config #0 on the same schedules: no backlog, the outsider -4.9%. No funds are
+stolen or locked; the gain is a bounded dilution of the buyback lift, O25's class, under a config the owner must add.
+Low.
+
+**Choice.** No change to which fee splits the program accepts: the task's rule for this round is that no fee value or
+fee-share rule changes, and a bound on `b_B` decides which fee splits a config may have (entry 56 treated HR-1, the same
+kind of finding, the same way: O29). So:
+* 7.2 states the general rate `depth * t / (C * b_B)` per interval and scales config #0's binding rate and burst by
+  `30 / b_B` at `t = 250` (b_B = 80: about 10.5 SOL per minute and a 228 SOL burst at pool open; b_B = 250: about 3.4 SOL
+  per minute and 73 SOL); 5.13 notes that V1 to V11 do not bound it; O25 is signed off for configs within config #0's
+  keep-up only; O1's buyback variant needs O36.
+* 8.4 gains an operating rule: the admin adds no config with `C * b_B > 3t` (`K_B` = 3, config #0's keep-up of a third of
+  the depth per interval, config #0 exactly at the edge, 750 = 750). The SDK's `buybackKeepUp(params)` gives `keepUp`
+  (`{ num: t, den: C * b_B }`, the fraction of the depth) and `withinRule`; the deploy checklist reads every
+  `LaunchConfig` and reports an enabled one outside the rule as not ready (`CONFIG_BUYBACK_THROUGHPUT`, "disable it ...
+  unless the owner has decided O36 for it") and a disabled one as a warning (coins launched under it keep its split).
+* **Open owner decision O36**: a rule V12 in `validate_config`, `C * b_B <= K_B * t` with `K_B` = 3 (refuses O1's buyback
+  alternative) or 8 (keeps it, 12.5% of the depth per interval, with 7.2 and O25 restated for it), with a new error
+  appended, through the crate, the program, the SDK port, the Appendix A model and the golden vectors; or a per-run cap
+  scaled by `b_B`, which changes the step of V8, V11 and Theorem M_K. Either changes the program binary, unchanged since
+  round 6.
+
+Tests. `18-attacks-buyback` R9-PF-1 (on chain, the checker on): (0, 0, 0, 0, 250) and (0, 70, 50, 50, 80) pass V1 to V11;
+`buybackKeepUp` gives a third for config #0 (within the rule), 1/25 and 1/8 for the other two (outside), and outside
+for `b_B` = 31; after a graduating 100 SOL buy the coin under (0, 0, 0, 0, 250) holds 2.56% of depth pending (25 caps)
+against config #0's 0.31% (3 caps); the checklist, silent before the config is added (and before this round about any
+config), reports it as not ready, and as a warning once the admin disables it. `sdk/curve/math.test.mjs`: the rule at
+the edge, one basis point past it, with a smaller total fee, and without a buyback share. The long reproduction (30
+minutes of trading and the outsider's hold) is the verifier's; this test pins the mechanism and the check.

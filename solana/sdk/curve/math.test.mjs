@@ -220,3 +220,23 @@ test('the port refuses inputs the Rust types cannot hold', () => {
   assert.throws(() => M.state({ ...M.stateAtLaunch(0n), phase: 2 }), RangeError);
   assert.throws(() => M.state({ ...M.stateAtLaunch(0n), buyVolume: M.U128_MAX + 1n }), RangeError);
 });
+
+test('buybackKeepUp: the volume per interval a keeper running every interval keeps up with, t / (C * b_B) of the depth, and 8.4\'s operating rule C * b_B <= 3t (7.2; review R9-PF-1, O36)', () => {
+  const at = (shares) => M.buybackKeepUp({ ...M.DEFAULT_CONFIG, ...shares });
+  assert.equal(M.BUYBACK_KEEP_UP_FACTOR, 3n);
+  // config #0: a third of the depth, exactly at the edge of the rule
+  assert.deepEqual(at({}), { buybackBps: 30n, totalFeeBps: 250n, keepUp: { num: 250n, den: 750n }, withinRule: true });
+  // the review's config and O1's buyback alternative pass V1 to V11 but not the rule
+  const heavy = { liquidityBps: 0n, platformBps: 0n, founderBps: 0n, holdersBps: 0n, buybackBps: 250n };
+  assert.equal(M.configRule({ ...M.DEFAULT_CONFIG, ...heavy }), null);
+  assert.deepEqual(at(heavy).keepUp, { num: 250n, den: 6250n });
+  assert.equal(at(heavy).withinRule, false);
+  assert.equal(at({ liquidityBps: 0n, platformBps: 70n, founderBps: 50n, holdersBps: 50n, buybackBps: 80n }).withinRule, false);
+  assert.equal(at({ liquidityBps: 49n, buybackBps: 31n }).withinRule, false);
+  // a smaller total fee shrinks the cap with it: 3t / C is the most b_B may be
+  assert.equal(at({ liquidityBps: 0n, platformBps: 50n, founderBps: 20n, holdersBps: 20n, buybackBps: 10n }).withinRule, true);
+  assert.equal(at({ liquidityBps: 0n, platformBps: 50n, founderBps: 20n, holdersBps: 20n, buybackBps: 11n }).withinRule, true);
+  assert.equal(at({ liquidityBps: 0n, platformBps: 40n, founderBps: 20n, holdersBps: 20n, buybackBps: 11n }).withinRule, false);
+  // no buyback share: nothing to keep up with
+  assert.deepEqual(at({ liquidityBps: 80n, buybackBps: 0n }), { buybackBps: 0n, totalFeeBps: 250n, keepUp: null, withinRule: true });
+});

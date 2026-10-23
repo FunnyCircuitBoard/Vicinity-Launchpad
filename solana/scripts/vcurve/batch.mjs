@@ -32,9 +32,11 @@
 //   confirm <seq> <root>: the owner, within minutes of each publication he signed (8.4 step 3). The stored `latest` must
 //     be exactly a list in `pending/` (number, root, leaf count, window, the current approver as publisher), not
 //     cleared, and the transaction that wrote it must be the one he verified, by its message hash, on every RPC (review
-//     R8-DIFF-2); only then does the list move to `signed/`, the next day's baseline. Several pending lists for that
-//     number (one he refused) are refused unless `--discard-others` moves them to `refused/`. Any difference: page the
-//     guardian.
+//     R8-DIFF-2), read from the block of the record's `published_slot`, so no flood of transactions naming LaunchBatch can
+//     hide it (review R9-TOOLS-2); only then does the list move to `signed/`, the next day's baseline. A transaction not
+//     found (or a block an RPC cannot serve) is a reason to retry or read through a third provider, never a theft.
+//     Several pending lists for that number (one he refused) are refused unless `--discard-others` moves them to
+//     `refused/`. Any other difference: page the guardian.
 //   check <list or archive file>: the monitor, after a publication. The stored `latest` record must be the file's batch:
 //     its number, root and leaf count (and, for an archive entry the owner exported, its window and approver), a window
 //     the program would have accepted, published by the current approver; with `--rpc` twice both RPCs must agree
@@ -205,7 +207,9 @@ const asEntries = (xs, kind) => (xs ?? []).map((x) => { try { const e = x?.list?
  * any (a list he verified and then refused, or signed and did not confirm), and never suggests a way around the alarm.
  * `landed` (the message hashes of the transactions that wrote the record, read from every RPC, or undefined when not
  * read) decides whether the record with a verified window is the transaction he verified (review R8-DIFF-2): a
- * republication by someone else has another message, and then `confirm` is not suggested.
+ * republication by someone else has another message, and then `confirm` is not suggested. No transaction found (`[]`),
+ * or one the RPCs could not read (`null`), is never taken for a republication (review R9-TOOLS-2): only a transaction
+ * found with another message hash is.
  */
 function notConfirmedMessage(r, prepared, what, landed) {
   const exact = prepared.find((e) => sameArchived(e, r));
@@ -214,6 +218,12 @@ function notConfirmedMessage(r, prepared, what, landed) {
   const stop = 'have a guardian member clear it with halt now (guardian-stop.mjs --clear, 8.4 step 5)';
   if (exact) {
     const verified = `a list you verified (prepared ${exact.raw.preparedAt ? iso(exact.raw.preparedAt) : 'earlier'}, window ${iso(exact.record.validFrom)} to ${iso(exact.record.validUntil)}, message hash ${exact.raw.messageHash ?? 'not kept'})`;
+    if (landed === null || (Array.isArray(landed) && !landed.length)) {
+      const why = landed === null ? 'could not be established on the RPCs read (an RPC did not serve its block, or they disagree: see above)' : 'was not found on the RPCs read';
+      return `${head}: it has the list, window and signer of ${verified}, but the transaction that wrote it ${why}: `
+        + 'retry in a minute, or read it through a third provider; not finding it proves nothing. '
+        + `If you signed exactly that transaction, confirm it once it is found: node scripts/vcurve/batch.mjs confirm ${r.seq} ${toHex(r.root)}. If you did not sign it, the approver key is stolen: ${stop} (review R9-TOOLS-2)`;
+    }
     if (Array.isArray(landed) && !landed.includes(exact.raw.messageHash)) {
       return `${head}: it has the list, window and signer of ${verified}, but the transaction that wrote it is another one (message hash ${landed.join(', ') || 'none found'}): `
         + `a republication by someone holding the approver key, not the transaction you verified, so the key is stolen: ${stop} (review R8-DIFF-2)`;
@@ -558,7 +568,8 @@ export function checkPageTransaction(tx, publish, { approver }) {
  * successful transactions that wrote this record, read from every RPC by `landedPublicationHashes`) must hold the
  * pending list's message hash: the same list and window published by anyone else is another message (another
  * blockhash), so a thief's republication of a refused list is never confirmed (review R8-DIFF-2); the CLI always reads
- * it, and only a caller that leaves it undefined skips the check. Returns `{ problems, entry, others, already }`.
+ * it, and only a caller that leaves it undefined skips the check. None found is `TX_NOT_FOUND`, a reason to retry, never
+ * a theft (review R9-TOOLS-2). Returns `{ problems, entry, others, already }`.
  */
 export function confirmPublication({ seq, root, pending = [], archive = [], accounts, landed, discardOthers = false, programId = CURVE_PROGRAM_ID, cluster = 'mainnet' }) {
   const problems = [];
@@ -583,7 +594,7 @@ export function confirmPublication({ seq, root, pending = [], archive = [], acco
   if (entry && landed !== undefined) {
     const mine = entry.raw.messageHash;
     if (!mine) bad('NO_MESSAGE_HASH', 'the list you verified was kept without the message hash of its transaction, so the transaction that wrote it cannot be compared: verify it again and sign the new transaction');
-    else if (!landed?.length) bad('TX_NOT_FOUND', `no successful transaction at slot ${L.publishedSlot} carries this publication on the RPCs read: retry in a minute; if it persists, page the guardian members`);
+    else if (!landed?.length) bad('TX_NOT_FOUND', `no successful transaction in the block of slot ${L.publishedSlot} carries this publication on the RPCs read: retry in a minute, or run confirm through a third provider; not finding it proves nothing (review R9-TOOLS-2)`);
     else if (!landed.includes(mine)) {
       bad('NOT_YOUR_TRANSACTION', `batch ${want} was written by the transaction with message hash ${landed.join(', ')}, not the one you verified (${mine}): the same list and window published by someone holding the approver key, so the key is stolen: have a guardian member clear it with halt now (guardian-stop.mjs --clear, 8.4 step 5; review R8-DIFF-2)`);
     }
@@ -766,9 +777,21 @@ function base58(bytes) {
   for (const b of bytes) { if (b !== 0) break; s = `1${s}`; }
   return s;
 }
+/** The bytes of a base58 string, or null when it is not one. */
+function unbase58(text) {
+  let n = 0n;
+  for (const ch of String(text)) { const i = B58.indexOf(ch); if (i < 0) return null; n = n * 58n + BigInt(i); }
+  const out = [];
+  while (n > 0n) { out.unshift(Number(n % 256n)); n /= 256n; }
+  for (const ch of String(text)) { if (ch !== '1') break; out.unshift(0); }
+  return Buffer.from(out);
+}
+/** An RPC as the verifier names it: its number and host, never its path or query (where an API key lives). */
+const rpcName = (url, i) => { let host = '?'; try { host = new URL(String(url)).host; } catch { /* by number only */ } return `RPC ${i + 1} (${host})`; };
 /** One JSON-RPC call (the raw encodings web3.js does not expose). */
 async function rpcCall(url, method, params) {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
   const j = await res.json();
   if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
   return j.result;
@@ -781,35 +804,46 @@ const publishData = (r) => {
 };
 /**
  * The message hashes of the successful transactions that wrote the stored `record` (review R8-DIFF-2), read from one RPC:
- * those in the record's `published_slot` that name `LaunchBatch` and carry exactly its `publish_launch_batch` (number,
- * root, leaf count and window). Pages back through `getSignaturesForAddress` until that slot is passed.
+ * those in the block of the record's `published_slot` (getBlock, base64, every transaction) that carry exactly its
+ * `publish_launch_batch` (number, root, leaf count and window) as an instruction of this program, at the top level or
+ * as an inner instruction (a call through another program), and name `LaunchBatch`. One read of the publication's own
+ * block, whatever the length of LaunchBatch's history: the round-8 version paged back through at most 20,000 of its
+ * signatures, which anyone could flood past (review R9-TOOLS-2). Throws when the RPC does not serve the block.
  */
 export async function landedPublicationHashes(url, { launchBatch, record, programId = CURVE_PROGRAM_ID }) {
   const want = publishData(record);
+  const block = await rpcCall(url, 'getBlock', [Number(record.publishedSlot), { encoding: 'base64', transactionDetails: 'full', maxSupportedTransactionVersion: 0, commitment: 'confirmed', rewards: false }]);
+  if (!block || !Array.isArray(block.transactions)) throw new Error(`getBlock: no block at slot ${record.publishedSlot}`);
+  const ours = (program, data) => program === String(programId) && Boolean(data) && Buffer.from(data).equals(want);
   const out = new Set();
-  let before;
-  for (let page = 0; page < 20; page++) {
-    const sigs = await rpcCall(url, 'getSignaturesForAddress', [String(launchBatch), { limit: 1000, commitment: 'confirmed', ...(before ? { before } : {}) }]);
-    for (const s of sigs) {
-      if (BigInt(s.slot) !== record.publishedSlot || s.err) continue;
-      const tx = await rpcCall(url, 'getTransaction', [s.signature, { encoding: 'base64', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
-      if (!tx || tx.meta?.err || BigInt(tx.slot) !== record.publishedSlot) continue;
-      const wire = Buffer.from(tx.transaction[0], 'base64');
-      const d = decodePageTransaction(wire.toString('base64'), { programId });
-      if (d.instructions.some((ix) => ix.program === String(programId) && Buffer.from(ix.data).equals(want))) out.add(messageHash(d.messageBytes));
-    }
-    if (sigs.length < 1000 || BigInt(sigs[sigs.length - 1].slot) < record.publishedSlot) break;
-    before = sigs[sigs.length - 1].signature;
+  for (const t of block.transactions) {
+    if (!t?.meta || t.meta.err !== null || !Array.isArray(t.transaction)) continue;
+    let d;
+    try { d = decodePageTransaction(t.transaction[0], { programId }); } catch { continue; }
+    const loaded = t.meta.loadedAddresses ?? {};
+    const keys = [...d.keys, ...(loaded.writable ?? []), ...(loaded.readonly ?? [])].map(String);
+    if (!keys.includes(String(launchBatch))) continue;
+    const top = d.instructions.some((ix) => ours(ix.program, ix.data));
+    const inner = (Array.isArray(t.meta.innerInstructions) ? t.meta.innerInstructions : []).some((g) => (Array.isArray(g?.instructions) ? g.instructions : [])
+      .some((ii) => ours(keys[ii?.programIdIndex], typeof ii?.data === 'string' ? unbase58(ii.data) : null)));
+    if (top || inner) out.add(messageHash(d.messageBytes));
   }
   return [...out].sort();
 }
-/** `landedPublicationHashes` from every RPC, compared: `{ hashes, problems }`. */
+/**
+ * `landedPublicationHashes` from every RPC, compared: `{ hashes, problems }`. An RPC that cannot serve the block is
+ * `TX_UNREAD`, named by host (review R9-TOOLS-2); RPCs naming different transactions are `RPC_DISAGREE`.
+ */
 async function readLanded(urls, args) {
-  const views = await Promise.all(urls.map((u) => landedPublicationHashes(u, args)));
-  if (views.some((v) => v.join() !== views[0].join())) {
-    return { hashes: null, problems: [{ code: 'RPC_DISAGREE', message: `the RPCs name different transactions as the one that wrote batch ${args.record.seq} (${views.map((v) => v.join(', ') || 'none').join(' and ')}): one of them is lying or behind` }] };
+  const views = await Promise.all(urls.map((u) => landedPublicationHashes(u, args).then((h) => ({ h }), (e) => ({ error: String(e?.message ?? e).split('\n')[0].slice(0, 160) }))));
+  const unread = views.map((v, i) => (v.error ? `${rpcName(urls[i], i)}: ${v.error}` : null)).filter(Boolean);
+  if (unread.length) {
+    return { hashes: null, problems: [{ code: 'TX_UNREAD', message: `the block of slot ${args.record.publishedSlot} (the publication's) was not read on ${unread.join('; ')}: retry in a minute, or read it through a third provider; this proves nothing either way (review R9-TOOLS-2)` }] };
   }
-  return { hashes: views[0], problems: [] };
+  if (views.some((v) => v.h.join() !== views[0].h.join())) {
+    return { hashes: null, problems: [{ code: 'RPC_DISAGREE', message: `the RPCs name different transactions as the one that wrote batch ${args.record.seq} (${views.map((v) => v.h.join(', ') || 'none').join(' and ')}): one of them is lying or behind` }] };
+  }
+  return { hashes: views[0].h, problems: [] };
 }
 
 // ---------------------------------------------------------------- the command line
@@ -879,6 +913,10 @@ async function main(argv) {
   const page = (n) => console.log(`${n} problem(s): page the guardian members; have one clear the batch with halt (guardian-stop.mjs --clear) if it is not the one you signed (8.4)`);
   const report = (problems, tail) => { for (const p of problems) console.log(`PROBLEM ${p.code}: ${p.message}`); tail(problems.length); return 1; };
   const retry = (n) => console.log(`${n} problem(s): retry; if the RPCs keep disagreeing, page the guardian members (8.4)`);
+  // review R9-TOOLS-2: a transaction not found, or a block an RPC cannot serve, is a reason to retry, never a theft
+  const notFound = (n) => console.log(`${n} problem(s): retry in a minute, or read the chain through a third provider (a transaction not found proves nothing; review R9-TOOLS-2)`);
+  const NOT_FOUND = new Set(['TX_NOT_FOUND', 'TX_UNREAD']);
+  const tailOf = (problems, other) => (problems.every((p) => NOT_FOUND.has(p.code)) ? notFound : other);
   const dontSign = (n) => console.log(`${n} problem(s): do not sign`);
   const open = (dir) => {
     try { const x = openArchive(dir, programId); for (const l of x.lines) console.log(l); return x.arch; } catch (e) {
@@ -900,10 +938,10 @@ async function main(argv) {
     if (!r.problems.length && r.entry && L) {
       // review R8-DIFF-2: the transaction that wrote the record must be the one he verified, on every RPC
       const landedView = await readLanded(o.rpc, { launchBatch: P.launchBatch(), record: L, programId });
-      if (landedView.problems.length) return report(landedView.problems, retry);
+      if (landedView.problems.length) return report(landedView.problems, tailOf(landedView.problems, retry));
       r = confirmPublication({ ...args, landed: landedView.hashes });
     }
-    if (r.problems.length) return report(r.problems, page);
+    if (r.problems.length) return report(r.problems, tailOf(r.problems, page));
     if (!r.already) {
       const path = writeArchiveEntry(dir, 'signed', `${L.seq}-${toHex(L.root)}.json`, archiveEntry({ kind: 'signed', file: r.entry.raw.list, record: { ...r.entry.record },
         extra: { preparedAt: r.entry.raw.preparedAt, messageHash: r.entry.raw.messageHash, publishedAt: L.publishedAt, confirmedAt: BigInt(Math.floor(Date.now() / 1000)) } }));
@@ -960,20 +998,23 @@ async function main(argv) {
     correct: Boolean(o.correct), pageWindow: Boolean(pageTx), validFrom: pageTx ? pageTx.publish.validFrom : o.validFrom, validUntil: pageTx ? pageTx.publish.validUntil : o.validUntil, programId, cluster,
   };
   let r = verifyListFile(args);
+  const landedProblems = [];
   if (r.needLanded.length) {
     // review R8-DIFF-2: a live record with the window of a pending list: the transaction that wrote it decides what the alarm says
+    // a transaction that cannot be read or compared is reported, and the alarm then says it was not found (never a
+    // theft; review R9-TOOLS-2)
     const landed = new Map();
     for (const rec of r.needLanded) {
       const x = await readLanded(o.rpc, { launchBatch: P.launchBatch(), record: rec, programId });
-      if (x.problems.length) return report(x.problems, dontSign);
+      landedProblems.push(...x.problems);
       landed.set(String(rec.seq), x.hashes);
     }
     r = verifyListFile({ ...args, landed });
   }
   for (const w of r.warnings) console.log(`warning ${w.code}: ${w.message}`);
-  for (const p of r.problems) console.log(`PROBLEM ${p.code}: ${p.message}`);
+  for (const p of [...landedProblems, ...r.problems]) console.log(`PROBLEM ${p.code}: ${p.message}`);
   for (const line of changeLines(r)) console.log(line);
-  if (!r.publish) { dontSign(r.problems.length); return 1; }
+  if (!r.publish || landedProblems.length) { dontSign(r.problems.length + landedProblems.length); return 1; }
   const p = r.publish;
   let hash; let text = null;
   if (pageTx) {

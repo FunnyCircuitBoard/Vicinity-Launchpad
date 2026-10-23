@@ -11,6 +11,11 @@
 //     halt must not wait for the admin's time lock; review R5-CONS-1), and is
 //     neither the payout key nor the payout wallet, config #0 exists (a
 //     warning when its fields differ from the default config #0);
+//   * every LaunchConfig's buyback share is one the keeper can keep up with
+//     as under config #0 (8.4's operating rule, `C * b_B <= 3 * t`; review
+//     R9-PF-1, owner decision O36): an enabled config outside it is a
+//     problem (disable it, or the owner decides O36), a disabled one a
+//     warning (its coins keep the split);
 //   * vicinity_rewards: the registry's admin is the vault with no transfer
 //     pending (OPS-1; approve_launch and launch also refuse otherwise), the
 //     program's upgrade authority is the vault;
@@ -80,7 +85,7 @@ import web3 from '@solana/web3.js';
 import {
   ADDRESSES, CLUSTERS, CURVE_PROGRAM_ID, DEFAULT_CONFIG, LEGACY_LAUNCHPAD_DISCRIMINATOR, LEGACY_LAUNCHPAD_LEN, LEGACY_LAUNCHES_PAUSED_AT,
   LEGACY_ADMIN_AT, LEGACY_PENDING_ADMIN_AT, curvePdas, findPda, decodeLaunchpad, decodeLaunchConfig, decodeCurveCoin,
-  decodeApproval, accountType, configParamsOf,
+  decodeApproval, accountType, configParamsOf, buybackKeepUp,
 } from '../../sdk/curve/index.mjs';
 
 const { PublicKey } = web3;
@@ -405,6 +410,21 @@ export function checkDeployPreconditions(opts) {
         bad('GUARDIAN_IS_ADMIN', `the guardian ${lp.guardian} is the admin, the vault or the proposed admin: its halt would wait for the admin's time lock, so the fast brake of 8.3 would not exist (8.1, 8.4, review R5-CONS-1)`);
       }
     }
+  }
+  // review R9-PF-1: the per-run cap is depth * t / (C * D) whatever b_B, so a config with a large buyback share builds a
+  // backlog above u* at ordinary volume although the keeper runs every interval (7.2, O25); 8.4's operating rule
+  // keeps every config within config #0's keep-up (a third of the depth per interval), the program does not (O36)
+  for (const a of curveAccounts) {
+    if (accountType(a, { programId }) !== 'LaunchConfig') continue;
+    let c;
+    try { c = decodeLaunchConfig(a, { programId }); } catch { continue; }
+    const k = buybackKeepUp(configParamsOf(c));
+    if (k.withinRule) continue;
+    const pct = ((Number(k.keepUp.num) * 100) / Number(k.keepUp.den)).toFixed(1);
+    const text = `config #${c.configId} (buyback ${c.buybackBps} of ${c.totalFeeBps} bps) lets a keeper that runs every interval keep up only with volume below ${pct}% of the depth per interval (config #0: 33.3%): `
+      + `a backlog above u* then forms at ordinary volume and O25's figures do not hold for its coins (7.2, 8.4, O36; review R9-PF-1)`;
+    if (c.enabled) bad('CONFIG_BUYBACK_THROUGHPUT', `${text}; disable it (set_launch_config_enabled false) unless the owner has decided O36 for it`);
+    else warn('CONFIG_BUYBACK_THROUGHPUT', `${text}; it is disabled, but coins launched under it keep its split`);
   }
   if (upgradeAuthorityOf(get('curveProgramData')) !== vault) bad('CURVE_UPGRADE_AUTHORITY', `vicinity_curve's upgrade authority is ${upgradeAuthorityOf(get('curveProgramData'))}, not the vault`);
   let config0 = null;
