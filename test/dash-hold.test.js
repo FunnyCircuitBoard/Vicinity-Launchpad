@@ -1,4 +1,6 @@
-// The dashboard's first-paint hold and its ways out (the final site-wide check of 18 Oct 2026: SW-1, SW-2, EDGE-1..4).
+// The dashboard's first-paint hold and its ways out (the final site-wide check of 18 Oct 2026: SW-1, SW-2, EDGE-1..4; the final
+// verification: FS-1, the hold's clock counts from DOMContentLoaded and a late answer never brings the placeholders back; HDR-1, the
+// header's hold has the same way out; EDGE1-R, the page left for /connect stays held until it has left).
 // theme.js (in <head>, before the first paint) marks what this browser remembers; style.css then holds the page: a returning member's
 // public roles wait for /api/me, a tabbed-dashboard browser shows its placeholders, the page is a screen tall. dashboard.js lifts the hold
 // with what takes its place. These tests RUN the pieces: theme.js on the real built page (pagedom.js), the stylesheets' own rules on that
@@ -79,7 +81,7 @@ test("the first paint, run (theme.js on the real page, style.css's rules on its 
 });
 
 /* ---------- EDGE-1: every way out of the hold that does not depend on dashboard.js ---------- */
-test("the hold always ends on real content (review EDGE-1): a page script that failed to load or threw, a promise nobody caught, no answer within 5 s, and Back to a page that left while held all give the roles back and drop the placeholders; a picture that failed to load does not", () => {
+test("the hold always ends on real content (review EDGE-1): a page script that failed to load or threw, a promise nobody caught, no answer 12 s after the page's scripts ran, or scripts that never finish loading (20 s) give the roles back and drop the placeholders; a picture that failed to load does not", () => {
   const held = { out: "none", skel: "shown", roles: "none", screenTall: true };
   const stored = { [ACCOUNT]: "1", [KEY]: "1" };
   for (const script of ["/site.js", "/wallets.js", "/dashboard.js"]) {
@@ -101,17 +103,18 @@ test("the hold always ends on real content (review EDGE-1): a page script that f
   }
   {
     const p = firstPaint("dashboard.html", { stored });
-    p.advance(4999);
-    assert.deepEqual(p.paint(), held, "/api/me slow: still held at 4.999 s");
+    p.advance(2000); p.fire(p.doc, "DOMContentLoaded"); // the page's scripts have run: dashboard.js has asked
+    p.advance(11999);
+    assert.deepEqual(p.paint(), held, "/api/me slow: still held 11.999 s after the scripts ran");
     p.advance(1);
-    assert.deepEqual(p.paint(), { out: "none", ...REAL }, "no answer at 5 s: the roles");
+    assert.deepEqual(p.paint(), { out: "none", ...REAL }, "no answer 12 s after they ran: the roles");
   }
   {
     const p = firstPaint("dashboard.html", { stored });
-    p.fire(p.win, "pageshow", { persisted: false });
-    assert.deepEqual(p.paint(), held, "a normal load is not a way out");
-    p.fire(p.win, "pageshow", { persisted: true }); // Back to a page the browser kept, left while it was held (the pending sign-in's redirect)
-    assert.deepEqual(p.paint(), { out: "none", ...REAL }, "brought back by Back: the roles");
+    p.advance(19999);
+    assert.deepEqual(p.paint(), held, "scripts still loading at 19.999 s (DOMContentLoaded waits for them): held");
+    p.advance(1);
+    assert.deepEqual(p.paint(), { out: "none", ...REAL }, "scripts that never finish loading: the roles at 20 s");
   }
   {
     const p = firstPaint("dashboard.html", { stored });
@@ -122,20 +125,183 @@ test("the hold always ends on real content (review EDGE-1): a page script that f
   // a guest's held room gives way the same way (no answer: the roles at the top, not under a screen of nothing)
   {
     const p = firstPaint("dashboard.html", { stored: {} });
-    p.advance(5000);
+    p.fire(p.doc, "DOMContentLoaded"); p.advance(12000);
     assert.deepEqual(p.paint(), { out: "none", ...REAL }, "a guest, no answer");
   }
   // once dashboard.js has decided, the way out does nothing: the placeholders it shows while the tabbed code loads stay
   {
     const p = firstPaint("dashboard.html", { stored });
     p.$("#dash-skel").hidden = false; p.$("#dash-out").classList.remove("is-pending"); // dashboard.js: tabbed, in one task
-    p.advance(5000); p.fire(p.win, "error"); p.fire(p.win, "pageshow", { persisted: true });
+    p.fire(p.doc, "DOMContentLoaded"); p.advance(20000); p.fire(p.win, "error"); p.fire(p.win, "pageshow", { persisted: true }); p.advance(20000);
     assert.deepEqual(p.paint(), { out: "none", skel: "shown", roles: "none", screenTall: true }, "the dashboard's own placeholders, untouched");
   }
   // every page carries theme.js; one without the dashboard is left alone
   {
     const p = firstPaint("token.html", { stored });
-    assert.doesNotThrow(() => { p.advance(5000); p.fire(p.win, "error"); p.fire(p.win, "pageshow", { persisted: true }); });
+    assert.doesNotThrow(() => { p.fire(p.doc, "DOMContentLoaded"); p.advance(20000); p.fire(p.win, "error"); p.fire(p.win, "pageshow", { persisted: true }); p.advance(20000); });
+  }
+});
+
+/* ---------- FS-1: the clock counts the answer, not the page's download ---------- */
+test("the hold's clock (final check FS-1): 12 s from DOMContentLoaded, when dashboard.js has asked, so a slow network's download of the page's scripts never counts (DevTools Slow 3G: DOMContentLoaded at 12.68 s, the old 5 s clock from <head> fired before dashboard.js ran); 20 s from <head> while the scripts still load; Back to a page left while held starts it again", () => {
+  const stored = { [ACCOUNT]: "1", [KEY]: "1" };
+  const held = { out: "none", skel: "shown", roles: "none", screenTall: true }, given = { out: "none", ...REAL };
+  // Slow 3G, cold: the scripts finish at 12.68 s; the answer is then on its way, and the clock counts from there
+  {
+    const p = firstPaint("dashboard.html", { stored });
+    p.advance(12680);
+    assert.deepEqual(p.paint(), held, "12.68 s, the scripts just ran: held (the old clock had given up at 5 s)");
+    p.fire(p.doc, "DOMContentLoaded");
+    p.advance(7320);
+    assert.deepEqual(p.paint(), held, "20 s from <head>: the cap no longer counts once the scripts have run");
+    p.advance(4679);
+    assert.deepEqual(p.paint(), held, "24.679 s: 11.999 s after the scripts ran");
+    p.advance(1);
+    assert.deepEqual(p.paint(), given, "24.68 s: 12 s after the scripts ran, no answer: the roles");
+  }
+  // a healthy but slow answer (a member's holder list rebuilt over RPC, 8 s at most): 6 s or 11 s after the page's scripts ran, held
+  for (const ms of [6000, 11000]) {
+    const p = firstPaint("dashboard.html", { stored });
+    p.advance(1500); p.fire(p.doc, "DOMContentLoaded"); p.advance(ms);
+    assert.deepEqual(p.paint(), held, `${ms / 1000} s after the scripts ran: still held`);
+  }
+  // Back to a page left while held (its answer still on its way): the clock starts again from the moment it shows, and the clock
+  // from before no longer counts
+  {
+    const p = firstPaint("dashboard.html", { stored });
+    p.fire(p.doc, "DOMContentLoaded"); p.advance(11000);
+    p.fire(p.win, "pageshow", { persisted: false });
+    assert.deepEqual(p.paint(), held, "a normal load is not a way out");
+    p.fire(p.win, "pageshow", { persisted: true });
+    assert.deepEqual(p.paint(), held, "brought back by Back: still held, not the roles at once");
+    p.advance(1000);
+    assert.deepEqual(p.paint(), held, "12 s after the scripts ran: the old clock was replaced");
+    p.advance(10999);
+    assert.deepEqual(p.paint(), held);
+    p.advance(1);
+    assert.deepEqual(p.paint(), given, "12 s after it showed again, no answer: the roles");
+  }
+});
+
+/** What fills the top of the dashboard: the dashboard, the signed-out page, the placeholders, the roles (under a guest's held room), or nothing. */
+const phase = (doc) => {
+  if (!doc.querySelector("#dash-main").hidden) return "dashboard";
+  const p = paint(doc);
+  if (p.out === "shown") return "signed-out";
+  if (p.skel === "shown") return "placeholders";
+  if (p.roles === "shown") return p.out === "unseen" ? "held-room+roles" : "roles";
+  return "blank";
+};
+/** The dashboard opened with theme.js and the stylesheets' rules, its /api/me answering after `meDelay`: the phases the top of the page goes through until `until` (ms), each with the page time it began. */
+async function timeline(opts, until = 24000) {
+  const p = await openDashboard({ ua: UA.iphone, theme: true, v2Delay: 800, ...opts });
+  const seen = [[phase(p.doc), p.now]];
+  while (p.now < until) {
+    await p.advance(50);
+    const now = phase(p.doc);
+    if (now !== seen.at(-1)[0]) seen.push([now, p.now]);
+  }
+  return { p, phases: seen.map((x) => x[0]), at: Object.fromEntries(seen.map(([k, t]) => [k, t])) };
+}
+
+test("a late answer never brings the roles back after the placeholders, or the placeholders back after the roles (final check FS-1: 'placeholders -> roles -> placeholders -> dashboard', a guest's two full-screen jumps, CLS 1.86): theme.js, dashboard.js, dashboard-v2.js and the stylesheets' rules run together, /api/me answering at 6 s, 14 s or never", async () => {
+  const signedOut = { ok: true, signedIn: false, dashboardV2: true };
+  const runs = [
+    // [who, storage, /api/me, its delay, the phases]
+    // answered at 6 s (the old 5 s clock fired first): held until the answer, then what it opens; the placeholders while the tabbed code loads
+    ["tabbed, answered at 6 s", { [ACCOUNT]: "1", [KEY]: "1" }, memberMe(), 6000, ["placeholders", "dashboard"]],
+    ["account only, answered at 6 s", { [ACCOUNT]: "1" }, memberMe(), 6000, ["blank", "placeholders", "dashboard"]],
+    ["a guest, answered at 6 s", {}, signedOut, 6000, ["held-room+roles", "signed-out"]],
+    // answered after the clock (12 s from the scripts): the roles, then straight to what the answer opens, never the placeholders again
+    ["tabbed, answered at 14 s", { [ACCOUNT]: "1", [KEY]: "1" }, memberMe(), 14000, ["placeholders", "roles", "dashboard"]],
+    ["account only, answered at 14 s", { [ACCOUNT]: "1" }, memberMe(), 14000, ["blank", "roles", "dashboard"]],
+    ["a guest, answered at 14 s", {}, signedOut, 14000, ["held-room+roles", "roles", "signed-out"]],
+    // never answered: the roles, and they stay
+    ["tabbed, never answered", { [ACCOUNT]: "1", [KEY]: "1" }, memberMe(), Infinity, ["placeholders", "roles"]],
+  ];
+  for (const [who, storage, me, meDelay, want] of runs) {
+    const { phases, at } = await timeline({ storage, me, meDelay });
+    assert.deepEqual(phases, want, who);
+    const roles = phases.indexOf("roles");
+    if (roles >= 0) {
+      assert.equal(at.roles, 12000, `${who}: the roles at 12 s after the page's scripts ran, not before`);
+      assert.ok(!phases.slice(roles).includes("placeholders"), `${who}: never the placeholders after the roles`);
+    }
+    if (meDelay === 6000) assert.equal(phases.includes("roles"), false, `${who}: never the roles`);
+  }
+  // theme.js gave up before dashboard.js ran (its 20 s cap: scripts that took longer to load): dashboard.js does not raise the
+  // placeholders again over the roles; the answer goes from the roles to the dashboard
+  {
+    const { p, phases } = await timeline({ storage: { [ACCOUNT]: "1", [KEY]: "1" }, me: memberMe(), meDelay: 3000, atDefer: (doc) => {
+      doc.querySelector("#dash-out").classList.remove("is-pending"); doc.querySelector("#dash-skel").hidden = true; // theme.js giveUp()
+    } });
+    assert.deepEqual(phases, ["roles", "dashboard"], "the cap fired first: the roles, then the dashboard");
+    assert.equal(p.$("#dash-skel").hidden, true);
+  }
+});
+
+/* ---------- EDGE1-R: the page left for /connect ---------- */
+test("a sign-in in progress (final check EDGE1-R): the page stays held while it leaves for /connect (never the public roles at the top for as long as the navigation takes), lets go once it has left, and a page Back brings back shows the roles", async () => {
+  for (const storage of [{ [ACCOUNT]: "1", [KEY]: "1" }, { [ACCOUNT]: "1" }]) {
+    const p = await openDashboard({ ua: UA.iphone, theme: true, storage, me: { ok: true, signedIn: false, pending: true, dashboardV2: true } });
+    assert.deepEqual(p.assigned, ["/connect"]);
+    const tabbed = KEY in storage;
+    assert.deepEqual(paint(p.doc), { out: "none", skel: tabbed ? "shown" : "none", roles: "none", screenTall: true }, "on the way out: held as it was");
+    const fire = (type, init) => { for (const l of p.win.listeners.filter((x) => x.type === type)) l.fn.call(p.win, newEvent(type, init)); };
+    fire("pagehide", { persisted: true });
+    assert.deepEqual(paint(p.doc), { out: "none", ...REAL }, "left: unheld (what the back/forward cache keeps)");
+    fire("pageshow", { persisted: true }); await p.advance(30000);
+    assert.deepEqual(paint(p.doc), { out: "none", ...REAL }, "brought back by Back: the roles");
+  }
+});
+
+/* ---------- HDR-1: the header's hold has the same way out ---------- */
+test("the header's hold ends too (final check HDR-1): a returning browser that is signed out gets Log in when site.js did not load or threw, or its answer never comes (12 s after the page's scripts, 20 s while they load); another script's failure, or an answer already given, change nothing; a guest's header is never touched", () => {
+  const stored = { [ACCOUNT]: "1" };
+  const header = (p) => [look(p.$("[data-account]")), look(p.$("[data-account-avatar]"))];
+  const HELD = ["none", "unseen"], LOGIN = ["shown", "none"];
+  for (const file of ["token.html", "dashboard.html", "index.html"]) {
+    {
+      const p = firstPaint(file, { stored });
+      assert.deepEqual(header(p), HELD, `${file}: held before the answer`);
+      p.fire(p.doc, "DOMContentLoaded"); p.advance(11999);
+      assert.deepEqual(header(p), HELD, `${file}: still held 11.999 s after the scripts ran`);
+      p.advance(1);
+      assert.deepEqual(header(p), LOGIN, `${file}: no answer: Log in, and the avatar's room goes`);
+    }
+    {
+      const p = firstPaint(file, { stored });
+      p.advance(20000);
+      assert.deepEqual(header(p), LOGIN, `${file}: scripts that never finish loading: Log in at 20 s`);
+    }
+    {
+      const p = firstPaint(file, { stored });
+      p.fire(p.$('script[src="/site.js"]'), "error");
+      assert.deepEqual(header(p), LOGIN, `${file}: site.js did not load: Log in at once`);
+    }
+    {
+      const p = firstPaint(file, { stored });
+      p.fire(p.win, "error", { filename: "https://vicinity.city/site.js", message: "boom" });
+      assert.deepEqual(header(p), LOGIN, `${file}: site.js threw: Log in at once`);
+    }
+    {
+      const p = firstPaint(file, { stored });
+      p.fire(p.$('script[src="/swap.js"]'), "error"); p.fire(p.win, "error", { filename: "https://vicinity.city/swap.js" }); p.fire(p.win, "unhandledrejection");
+      assert.deepEqual(header(p), HELD, `${file}: another script failed: site.js still answers, nothing flashes`);
+    }
+    {
+      const p = firstPaint(file, { stored });
+      p.$("[data-account]").hidden = true; p.$("[data-account-avatar]").hidden = false; // site.js: a member, the avatar
+      p.fire(p.doc, "DOMContentLoaded"); p.advance(30000); p.fire(p.$('script[src="/site.js"]'), "error");
+      assert.deepEqual(header(p), ["none", "shown"], `${file}: the member's avatar stays`);
+      assert.equal(p.$("[data-account]").classList.contains("is-shown"), false);
+    }
+    {
+      const p = firstPaint(file, { stored: {} });
+      p.fire(p.doc, "DOMContentLoaded"); p.advance(30000);
+      assert.deepEqual(header(p), LOGIN, `${file}: a guest: Log in from the first paint`);
+      assert.deepEqual([p.$("[data-account]").classList.contains("is-shown"), p.$("[data-account-avatar]").classList.contains("is-off")], [false, false], `${file}: a guest's header untouched`);
+    }
   }
 });
 
@@ -154,11 +320,13 @@ test("dashboard.js: whatever throws on the way, the page is not left held (revie
   asTheme(b);
   assert.deepEqual(paint(b.doc), { out: "none", ...REAL }, "a broken answer: the roles");
   assert.equal(logged.length, 2);
-  // a sign-in in progress: off to /connect, and the page left behind is not held (Back brings it back as it was)
+  // a sign-in in progress: off to /connect, and the page left behind is not held (Back brings it back as it was; held until it has
+  // left: EDGE1-R below)
   const c = await openDashboard({ ua: UA.iphone, storage: stored, me: { ok: true, signedIn: false, pending: true, dashboardV2: true }, globals });
   asTheme(c);
   assert.deepEqual(c.assigned, ["/connect"]);
-  assert.deepEqual(paint(c.doc), { out: "none", ...REAL }, "the redirect: unheld");
+  for (const l of c.win.listeners.filter((x) => x.type === "pagehide")) l.fn.call(c.win, newEvent("pagehide", { persisted: true }));
+  assert.deepEqual(paint(c.doc), { out: "none", ...REAL }, "the redirect, once the page has left: unheld");
   assert.equal(logged.length, 2, "(nothing went wrong there)");
 });
 

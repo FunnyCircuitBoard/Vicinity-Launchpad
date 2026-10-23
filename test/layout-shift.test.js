@@ -42,11 +42,11 @@ test("signed-out dashboard: a guest's page holds the signed-out room from the fi
   assert.match(start, /unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;/, "signed out: shown in the place it held, in the same task (no frame in between)");
   // a member on a browser with no hint (the first visit after signing in): the room is held until something of theirs takes it, never
   // given back first (that made #roles jump up, then down again: CLS 0.97 at 1280x900 instead of one shift)
-  assert.match(start, /if \(tabbed\) \{ \$\("#dash-skel"\)\.hidden = false; unhold\(\); \}/, "the tabbed dashboard's placeholders take it");
+  assert.match(start, /if \(tabbed\) \{ if \(held\) \$\("#dash-skel"\)\.hidden = false; unhold\(\); \}/, "the tabbed dashboard's placeholders take it (unless theme.js gave up waiting: then the roles stay until the dashboard, test/dash-hold.test.js)");
   assert.match(start, /if \(!d\.user\.home\) \{ unhold\(\); onboard\(d\); return; \}/, "or the first steps");
   assert.match(start, /unhold\(\);\n\s+\$\("#dash-main"\)\.hidden = false;/, "or the dashboard itself");
-  assert.match(start, /if \(d\.pending \|\| d\.proof\) \{ unhold\(\); location\.assign\("\/connect"\); return; \}/, "or the page left for /connect (Back brings it back unheld: review EDGE-1)");
-  assert.equal((start.match(/unhold\(\)/g) || []).length, 5, "and nowhere else (a start that throws gives it back too: test/dash-hold.test.js)");
+  assert.match(start, /if \(d\.pending \|\| d\.proof\) \{ window\.addEventListener\("pagehide", unhold\); location\.assign\("\/connect"\); return; \}/, "or the page left for /connect, once it has left (Back brings it back unheld: review EDGE-1, EDGE1-R)");
+  assert.equal((start.match(/unhold\(\)/g) || []).length, 4, "and nowhere else (a start that throws gives it back too: test/dash-hold.test.js)");
   assert.match(read("public/polish-dash.css"), /@media \(prefers-reduced-motion: no-preference\) \{ \.dash-out\.is-pending \.dpv__frame, \.dash-out\.is-pending \.dpv__frame > \* \{ animation: none; \} \}/,
     "the example rises in when it shows, not behind the curtain");
 });
@@ -84,7 +84,7 @@ test("a returning member's dashboard: the first paint is never the public rules 
   assert.ok(out.classList.contains("is-pending") && out.hidden && skel.hidden, "pending and hidden in the markup");
   // and dashboard.js shows the same placeholders for the same key, then decides (nothing changed there)
   const js = read("public/dashboard.js");
-  assert.match(js, /try \{ if \(localStorage\.getItem\(V2_KEY\) === "1"\) \$\("#dash-skel"\)\.hidden = false; \} catch \{\}/);
+  assert.match(js, /try \{ if \(localStorage\.getItem\(V2_KEY\) === "1" && out\.classList\.contains\("is-pending"\)\) \$\("#dash-skel"\)\.hidden = false; \} catch \{\}/, "(while the page is still held)");
   assert.match(js, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true;/, "not the tabbed dashboard: the placeholders go, in the same task as unhold");
 });
 

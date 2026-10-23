@@ -433,10 +433,25 @@ test("a notched iPhone in a full-screen web view (review UX-2): the phone header
   assert.match(pdash, /\[data-page="dashboard"\] \.dv2-skel \.skel--tabs \{ height: 60px; margin: 6px calc\(8px - var\(--wrap-pad, 16px\)\) 0; border-radius: 16px; \}/, "the placeholder strip follows the header in the page too");
 });
 
-test("the phone tab bar is strong glass (review UX-6): page text scrolling under it never ghosts through its labels, like the dashboard's opaque strip and the scrolled header", () => {
+test("the phone tab bar is opaque (review UX-6, owner: no see-through bars): page text scrolling under it never reads through its labels, in either theme, like the dashboard's strip", () => {
   const style = read("public/style.css");
   const bar = style.match(/@media \(max-width: 900px\) \{\n  \.tabbar \{ display: grid;[^}]*\}/)[0];
-  assert.match(bar, /background: var\(--glass-bg-strong\);/);
-  assert.doesNotMatch(bar, /background: var\(--glass-bg\);/);
-  assert.match(style, /\.site-header\.is-scrolled \{ background: var\(--glass-bg-strong\); \}/, "the same glass as the scrolled header");
+  // the strip's recipe (polish-dash.css): the strong glass colour laid on the page's own colour (an image layer over a colour, so the
+  // colour under it is always the opaque page colour), and no backdrop blur. The glass alone (.86 dark, .92 light, 18 px blur) let
+  // "Your Vicinity coins" and "$0.56 total, live" read through the labels in the dark theme
+  assert.match(bar, /background: linear-gradient\(var\(--glass-bg-strong\), var\(--glass-bg-strong\)\), var\(--bg\); -webkit-backdrop-filter: none; backdrop-filter: none;/);
+  assert.doesNotMatch(bar, /background: var\(--glass-bg(-strong)?\);|backdrop-filter: var\(--glass-blur\)/, "never the see-through glass");
+  const strip = pdash.match(/\.dv2 \.dtabs \{ top: calc[^}]*\}/)[0];
+  assert.match(strip, /background: linear-gradient\(var\(--glass-bg-strong\), var\(--glass-bg-strong\)\), var\(--bg\); -webkit-backdrop-filter: none; backdrop-filter: none;/, "the same recipe as the strip");
+  // the page colour is opaque in both themes, and no other rule paints the bar (only forced colours: Canvas)
+  for (const [, bg] of style.matchAll(/\n  --bg: (#[0-9A-Fa-f]{6});/g)) assert.match(bg, /^#[0-9A-Fa-f]{6}$/);
+  assert.equal((style.match(/\n  --bg: #[0-9A-Fa-f]{6};/g) || []).length, 2, "dark and light");
+  const barBody = bar.slice(bar.indexOf(".tabbar {") + 9, -1);
+  for (const f of ["style.css", "polish.css", "polish-dash.css"]) {
+    // every other rule for the bar itself (not its links or its pill): none paints it, but forced colours' Canvas
+    for (const m of read(`public/${f}`).matchAll(/([^{}\n]*\.tabbar(?![_\w-])(?! a)[^{}\n]*)\{([^}]*)\}/g)) {
+      if (m[2] === barBody || /\bCanvas\b/.test(m[2])) continue;
+      assert.doesNotMatch(m[2], /background|backdrop-filter/, `${f}: ${m[1].trim()}`);
+    }
+  }
 });

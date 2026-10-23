@@ -221,12 +221,13 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 @media (max-width: 440px) { .account-btn [data-account-label] { display: inline-block; max-width: max(3.2em, calc(100vw - 232px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } }
 
 /* ---------- the phone tab bar: Home, Launchpad, Map, Token, Me ----------
-   Strong glass along the bottom edge (the scrolled header's, and as calm as the dashboard's strip: page text scrolling under it never
-   ghosts through its labels, in either theme); the page you are on has its label in full colour, its icon in the accent and a small accent pill above it
-   (.tabbar__ind, which glides to the new tab during a page transition: view-transition-name tab-ind) */
+   Opaque along the bottom edge, like the dashboard's strip (polish-dash.css): the strong glass colour laid on the page's own colour, no
+   backdrop blur, so page text scrolling under it never reads through its labels, in either theme. The page you are on has its label in
+   full colour, its icon in the accent and a small accent pill above it (.tabbar__ind, which glides to the new tab during a page
+   transition: view-transition-name tab-ind) */
 .tabbar { display: none; }
 @media (max-width: 900px) {
-  .tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: var(--glass-bg-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 1px 0 var(--glass-border); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); view-transition-name: tabbar; }
+  .tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: linear-gradient(var(--glass-bg-strong), var(--glass-bg-strong)), var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: inset 0 1px 0 var(--glass-border); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); view-transition-name: tabbar; }
   .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 12px; color: var(--muted); text-decoration: none; font-size: .75rem; font-weight: 600; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .tabbar a svg { width: 24px; height: 24px; }
   .tabbar a[aria-current="page"] { color: var(--text); }
@@ -1223,7 +1224,7 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
    /api/me answers, the public roles section waits, so a returning member's first paint is never the rules at the top of the page, then a
    jump (CLS 0.93 at 390 px). A browser whose last visit was the tabbed dashboard (theme.js data-dash-v2) shows its placeholders from the
    first paint. Both give way when dashboard.js drops .is-pending (in the same task as what takes their place), or when theme.js does
-   because dashboard.js never will (a script that failed or threw, no answer within 5 s, Back to a page that had left); the roles also wait
+   because dashboard.js never will (a script that failed or threw, no answer 12 s after the page's scripts ran); the roles also wait
    while the placeholders show (the tabbed dashboard folds them into its Profile tab). Meanwhile the page is at least a screen tall, so the
    footer waits below the fold instead of jumping down from mid-screen when the page fills in */
 :root[data-dash-v2] .dash-out.is-pending ~ #dash-skel[hidden] { display: block !important; }

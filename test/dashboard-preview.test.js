@@ -173,7 +173,7 @@ test("preview(): arms the preview, then plays each piece once when it is on scre
 
 test("dashboard.js calls preview() only for someone signed out, just before #dash-out is shown (a member never gets it)", () => {
   assert.equal((js.match(/\bpreview\(\);/g) || []).length, 1, "called once");
-  assert.match(js, /if \(!d\.signedIn\) \{\n\s+if \(d\.pending \|\| d\.proof\) \{ unhold\(\); location\.assign\("\/connect"\); return; \}[^\n]*\n\s+unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;\n\s+\}/);
+  assert.match(js, /if \(!d\.signedIn\) \{\n(?:\s+\/\/[^\n]*\n)*\s+if \(d\.pending \|\| d\.proof\) \{ window\.addEventListener\("pagehide", unhold\); location\.assign\("\/connect"\); return; \}\n\s+unhold\(\);\n\s+preview\(\);\n\s+out\.hidden = false; return;\n\s+\}/);
   assert.match(js, /if \(!box \|\| window\.V\.reduced \|\| !\("IntersectionObserver" in window\)\) return;/);
 });
 

@@ -2070,21 +2070,27 @@
     // signed-out page's room, unseen, so the roles under it never jump down when it shows (on a computer they dropped 839 px)
     const out = $("#dash-out");
     guestCta(); W.onChange(guestCta); // the signed-out page's button (#dash-out shows only for a visitor; a wallet app's wallet can turn up a moment late)
-    try { if (localStorage.getItem(V2_KEY) === "1") $("#dash-skel").hidden = false; } catch {}
+    // (only while the page is held: once theme.js has given up waiting, the roles are on screen and stay until what replaces them)
+    try { if (localStorage.getItem(V2_KEY) === "1" && out.classList.contains("is-pending")) $("#dash-skel").hidden = false; } catch {}
     const d = await api("/api/me");
     const unhold = () => out.classList.remove("is-pending"); // the held room gives way, in the same task as what takes its place
+    // still held when the answer came? theme.js gives up after a while (a slow answer, a slow network): then the roles have shown, and a
+    // late answer goes from them straight to what it opens, never back to the placeholders (roles, placeholders, then the dashboard)
+    const held = out.classList.contains("is-pending");
     const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
     // the tabbed dashboard's key: forgotten on a real answer that will not show it (the switch is off, or nobody is signed in here: a guest
     // on a browser a member once used gets no member placeholders next time); an answer that failed (500, 401, offline) says nothing
     if (!tabbed) { $("#dash-skel").hidden = true; if (d._status === 200 && (d.dashboardV2 !== true || !d.signedIn)) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
-      if (d.pending || d.proof) { unhold(); location.assign("/connect"); return; } // (unheld: a page Back brings back shows the roles)
+      // a sign-in in progress: off to /connect, held as it is until the page is left (never the roles at the top for as long as the
+      // navigation takes); the page Back brings back is unheld, so it shows the roles
+      if (d.pending || d.proof) { window.addEventListener("pagehide", unhold); location.assign("/connect"); return; }
       unhold();
       preview();
       out.hidden = false; return;
     }
     // a member: the tabbed dashboard's placeholders while its code loads (in the room a guest's page held: a first visit after signing in)
-    if (tabbed) { $("#dash-skel").hidden = false; unhold(); }
+    if (tabbed) { if (held) $("#dash-skel").hidden = false; unhold(); }
     me = d;
     // ?welcome=1 (the account was just made), ?linked=1 (the wallet was just linked) and ?google= (back from adding Google sign-in) are
     // moments, not places: read once, then taken off the address bar

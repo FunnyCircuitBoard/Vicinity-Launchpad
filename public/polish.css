@@ -47,7 +47,7 @@ input, select, textarea { min-height: 44px; }
    dashboard's Notifications tab only (one count on the screen, where it leads). A browser that has shown a member here holds back
    "Log in" and keeps the avatar's room (unseen, never a Tab stop) before the first answer (theme.js data-guest), so the header never
    flashes a Log in it then takes back and nothing in it moves when the avatar shows. Only once theme.js has run (data-theme): without
-   JavaScript nobody answers, and Log in stays. The !important beats style.css's [hidden] { display: none !important } (the same pattern
+   JavaScript nobody answers, and Log in stays; and theme.js shows Log in itself when site.js did not load or threw, or never answers. The !important beats style.css's [hidden] { display: none !important } (the same pattern
    as its .dash-out.is-pending). */
 .hdr-avatar { position: relative; flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; margin: 0 -2px 0 0; border: 0; border-radius: 50%; background: none; color: var(--text); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .hdr-avatar[hidden] { display: none; }
