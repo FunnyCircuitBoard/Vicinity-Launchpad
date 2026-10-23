@@ -5,8 +5,8 @@ revision 2, commit ee62c31; revision 3 folds every entry in, and its Appendix C 
 entries 42 to 48 answer review round 1 of the build, entries 49 to 51 review round 2, 52 to 56
 review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 records the
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
-tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval, and
-entries 83 to 90 review round 7). The
+tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
+entries 83 to 90 review round 7, and entries 91 to 96 review round 8). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2621,6 +2621,10 @@ root cause reported without the window as low (R7-3).
   `signed/` is ever a baseline, and an entry matches a stored record only with its number, root, leaf count, window
   and publisher (`sameArchived`): a thief re-publishing a refused list cannot reproduce the verifier's window unless
   he publishes within ten minutes of the owner's run and guesses the second, and even then the list is not confirmed.
+  (Corrected by review R8-DIFF-2, entry 93: that held only for the verifier's own window. In the `--tx` flow the
+  website chose the window, any one the program accepts, so a thief who read or ran the site could republish a refused
+  list with exactly the verified window hours later, and the alarm then suggested `confirm`. Since round 8 the page's
+  window must be the default one, and `confirm` compares the transaction that wrote the record with the one verified.)
 * `confirm <seq> <root>` (`confirmPublication`), run within minutes of each publication the owner signed: the
   stored `latest` must be exactly a pending entry with that number and root (window and publisher included), by
   the current approver, in a window the program accepts, not cleared, the path not halted; only then is the entry
@@ -2656,7 +2660,8 @@ those of a forged previous holding E made the forged file the baseline, and E wa
 
 **Choice.** Every `--rpc` must be a provider the website does not operate or relay (8.4, 14.1, the scripts' README).
 `--rpc` may be given twice (two different URLs); the CLI reads `Launchpad` and `LaunchBatch` from both and stops at
-`RPC_DISAGREE` when they differ. With an empty archive (or `--no-archive`) and anything published, the chain view
+`RPC_DISAGREE` when they differ. (Extended by reviews R8-DIFF-1 and R8-DIFF-4, entry 92: every account, the clock and
+the pending approvals are compared, `check` reads both RPCs, and the two must be different providers, not two URLs.) With an empty archive (or `--no-archive`) and anything published, the chain view
 must be confirmed by two RPCs (`ONE_RPC`, a problem); with an archive, one RPC is a warning. And a file never hides
 an entry any more: with no confirmed list, every entry of the new list is listed as added and the file's entries
 (the live batch's) are printed in full ("not a list this computer confirmed"); the file serves to show what can
@@ -2761,7 +2766,7 @@ stop lands (a vault transaction is created at `transaction_index + 1`), making i
 the next few indices at once (`--variants`, default 4) and repeats (`--rounds`); a variant beyond the index the stop
 lands at executes a second, harmless clear. Each index the thief takes costs him the rent of a vault transaction he
 cannot close (about 0.002 SOL; the multisig's stale index moves only with a config change, which only the vault can
-make), and he must win every slot of the window. The owner's clear with his restored approver key and the admin's
+make), and he must win every slot of the window (a race the stop now enters with a compute-unit price, entry 95). The owner's clear with his restored approver key and the admin's
 remain; O34's clear-only keys would leave nothing to race and stay the owner's decision. The CLI signs with a member
 keypair file (`--keypair`, never printed) and sends, or prints the unsigned transactions and their message hashes
 (`--member`). 8.1, 8.4 step 5, 8.6, O30, O34, O35 and T85 are corrected.
@@ -2846,3 +2851,204 @@ The round-6 verification left a file in the default archive (`~/.vicinity-curve/
 without `--archive`); the archive layout of entry 83 ignores such files (no `pending/` or `signed/` folder, no MAC).
 Every CLI run of the suites now names a scratch archive and sets `VICINITY_BATCH_ARCHIVE` to a scratch folder, and
 `33-batch-verifier` asserts that nothing was written to the default archive.
+
+### 91. The correction of a batch in force is built and checked by the verifier (8.4 step 5, 8.6, O33; review R8-OPS-1)
+
+**Spec.** 8.4 step 5: an entry wrong or a seat lost in the batch in force: "`[clear_launch_batch(halt = false),
+publish_launch_batch(corrected)]` in one transaction by the owner". Step 2: the owner signs the website's transaction
+only after `verify --tx` has found it to be exactly the verified publication.
+
+**Issue.** `verify` built only a lone publication, and `checkPageTransaction` took the first instruction of the program
+for the publication: the prescribed `[clear, publish]` was refused (`TX_NOT_VERIFIED`, `TX_OTHER_INSTRUCTION`). The
+owner could sign the website's correction unchecked (R7-CONF-1's gap reopened: a compromised page could put another
+root in it) or sign the verifier's lone publication, which leaves the batch in force, the bad entry included, running
+until the corrected list's `valid_from`, about 12 hours. Reproduced; low (the safe path, the approver's clear and then a
+verified publication, worked with the tools of the time).
+
+**Choice.** The review's fix, both parts:
+* `verify --correct` builds `[clear_launch_batch(halt = false), publish_launch_batch]`, the approver its only signer
+  and fee payer, prints its message hash and keeps it as pending (`clears: true`). The changes are shown as they stand
+  once the clear has landed: every entry of the list is a new approval, and each live stored record the clear ends is
+  printed for reference with its changes (the removed entry among them); those records hold no ticker any more, and
+  `NO_PREVIOUS` / `NO_IN_FORCE` do not apply (nothing of theirs can launch after the clear). The alarms
+  (`LATEST_NOT_ARCHIVED`, `IN_FORCE_NOT_ARCHIVED`) still stop it: a stored batch nobody confirmed is a stolen key,
+  which needs a halt, not the approver's correction. With nothing live, `--correct` is a warning (`NOTHING_TO_CLEAR`).
+* `checkPageTransaction` accepts exactly the verified instructions of the program in order: the clear, then the
+  publication under `--correct`; the publication alone otherwise. A page transaction that clears without `--correct`
+  is `TX_CLEAR_NOT_ASKED` (run again with `--correct`, which shows the changes after the clear); one that does not
+  clear under `--correct` is `TX_NO_CLEAR`; another order, a repeated instruction, a halting clear (`TX_NOT_VERIFIED`:
+  a halt would refuse the publication itself) or another authority (`TX_ACCOUNTS`) is refused.
+* Without `--correct`, a list that removes or changes an entry of the batch in force (the stored `latest` in force, or
+  `previous` while `latest` is pending) is warned: `STILL_IN_FORCE`, those entries can still launch as the batch lists
+  them until this list's `valid_from`; run again with `--correct` to stop them now.
+8.4 step 5 names `verify --correct`.
+
+Tests. `33-batch-verifier` R8-OPS-1 (the real CLI): batch 1 (A, B, BAD) verified, signed exactly as printed and
+confirmed, in force; a plain verify of L2 (A, B) warns `STILL_IN_FORCE`; the page's `[clear, publish]` is
+`TX_CLEAR_NOT_ASKED` without `--correct` and accepted with it, the changes after the clear and the cleared batch 1
+(`- CBAD`) printed with its hash; the clear's order, halt, repetition and authority refused; `verify --correct`'s own
+transaction, signed as printed: batch 1 cleared, nothing in force, BAD's launch refused (`BatchCleared`), `confirm`
+passes, A launches at L2's `valid_from` and BAD still cannot. Against the round-7 verifier the test fails at
+`STILL_IN_FORCE` (and `--correct` is an unknown option).
+
+### 92. Every account, the clock and the pending approvals from every RPC; `check` too; two RPCs are two providers (8.4, 14.1; reviews R8-DIFF-1, R8-DIFF-4)
+
+**Spec.** 8.4 step 2 (round 7): on a first use two RPCs, "compared account for account"; NOTES 84 compared only
+`Launchpad` and `LaunchBatch`.
+
+**Issue.** The clock (`getBlockTime`), the pending approvals (`getProgramAccounts`) and every city's accounts came from
+the first `--rpc` alone. A liar that answered the true `Launchpad` and `LaunchBatch` but a clock past a thief's batch
+turned `LATEST_NOT_ARCHIVED` into a warning ("it is expired and can let nobody launch"), so the owner signed while the
+thief's batch stayed in force; it could equally hide a pending approval holding a ticker, or a listed city's coin; on a
+first use it removed `NO_PREVIOUS`. A `null` block time crashed the run. And `check` accepted a second `--rpc` and never
+read it, while two URLs of one provider (a trailing slash, another key) counted as two. Reproduced; low and info.
+
+**Choice.**
+* The clock is the Clock sysvar, read in the same `getMultipleAccounts` call as the accounts it judges, from every RPC
+  (`compareChainViews`): the clocks must be within 60 seconds (`RPC_CLOCK_DISAGREE`) and the earlier is used (an
+  earlier time keeps records live longer and moves the default window earlier, never past what the program allows);
+  every account (`Launchpad`, `LaunchBatch`, configs, each city's and each holder city's accounts) must be the same on
+  every RPC (`RPC_DISAGREE`, naming the accounts); the pending approvals must be the same set on every RPC. Any
+  disagreement stops the run (retry, and do not sign until they agree). `getBlockTime` is no longer used.
+* `check` and `confirm` read every RPC the same way.
+* Two `--rpc` must be two providers: their IP addresses, or the last two labels of their host names, differ
+  (`rpcProvider`); `https://x.example` and `https://x.example/`, or `mainnet.helius-rpc.com` and
+  `rpc.helius-rpc.com`, are one. A public suffix such as `co.uk` makes two providers under it look like one, which
+  errs on the side of refusing. Every `--rpc` must be http or https.
+
+Tests. `33-batch-verifier` R8-DIFF-1 (the real CLI, a liar on 127.0.0.2): a liar hiding the pending approval that
+holds DTICK, or the coin of a listed city, is `RPC_DISAGREE`; the review's case (batch 1 confirmed, the thief's batch 2
+in force 30 hours, the liar's clock past its end) is `RPC_CLOCK_DISAGREE` and no transaction, while two honest RPCs
+give `LATEST_NOT_ARCHIVED` and a clock 30 seconds behind is accepted; `compareChainViews` (tolerance, earliest clock,
+a missing account, no clock). R8-DIFF-4: `check` with the liar first is `RPC_DISAGREE` and reads the second RPC; the
+same-provider pairs are refused for `verify` and `check`. Against the round-7 verifier the approvals case printed a
+transaction and `check` reported "the stored batch is the list".
+
+### 93. The page's window is the default one; `confirm` and the alarm compare the transaction that wrote a record (8.4 steps 2 and 3, T89; review R8-DIFF-2)
+
+**Spec.** NOTES 83: "a thief re-publishing a refused list cannot reproduce the verifier's window unless he publishes
+within ten minutes of the owner's run and guesses the second".
+
+**Issue.** In the `--tx` flow (14.1's normal path) the website chose the window: any the program accepts (from 12 to
+48 hours ahead, up to 48 hours long) was verified and archived as pending. A thief who reads or runs the site and
+holds the approver key republished a refused list with exactly that window up to about 36 hours later; the next
+`verify` took the exact-match branch and told the owner to run `confirm`, which made the thief's list a baseline, and
+the next day's changes hid his entry. Reproduced; low (the owner had to confirm a list he refused).
+
+**Choice.** Both parts of the review's fix:
+* `verify --tx` accepts only the default window: `valid_from` at most 20 minutes past `now + 12 hours` (the SDK's 10
+  minutes and 10 more for the page's clock and the owner's delay) and 36 hours long (`TX_WINDOW_NOT_DEFAULT`). A
+  republication must then land within minutes of the owner's run.
+* `confirm` reads, from every RPC, the successful transactions in the record's `published_slot` that carry exactly its
+  `publish_launch_batch` (`landedPublicationHashes`: `getSignaturesForAddress(LaunchBatch)`, then `getTransaction` in
+  base64, the message taken byte for byte after the signatures), and keeps the list only when the pending entry's
+  message hash is among them (`NOT_YOUR_TRANSACTION`, `TX_NOT_FOUND`; the RPCs must name the same transactions). A
+  republication is another message (another blockhash at least), so it is never confirmed. The owner must therefore
+  sign exactly the transaction whose hash he was shown (a wallet that adds a compute-unit price makes another message:
+  `confirm` then refuses, as it should).
+* The alarm reads the same when a live record has the window of a pending list: when the transaction that wrote it is
+  another one, it says so (a republication; the key is stolen; clear with halt now) and does not suggest `confirm`;
+  when it is byte for byte the verified message, it says that too (if he refused it, whoever holds the approver key
+  signed that very message). The page's message hash is now taken from the wire bytes, as the landed one is.
+What remains: the thief signs the very message the owner verified, within its blockhash's lifetime (about a minute):
+ed25519 signatures are deterministic, so that transaction is indistinguishable from the owner's own. Only the owner
+knows he refused it; the alarm names this case, and the monitor and the second person see the list.
+
+Tests. `33-batch-verifier` R8-DIFF-2 (the real CLI, two RPCs): the review's window (now + 47 h for 48 h) is
+`TX_WINDOW_NOT_DEFAULT` and nothing is kept; the default window passes; the thief republishes the refused list with
+that window minutes later in his own transaction: the next verify says "the transaction that wrote it is another
+one ... a republication" and suggests no `confirm`, and `confirm` is `NOT_YOUR_TRANSACTION` (before round 8 it exited
+0 and wrote `signed/`); the owner's own batch 1 is confirmed by its transaction; the identical replay of a verified page
+message is named as such. Every suite now signs and sends the printed transaction exactly as printed
+(`World.sendWire`), and the JSON-RPC stub serves the World's blockhash, transaction history and statuses.
+
+### 94. An approver multisig is checked for roles among its members and its config authority; a multisig approver is not ready while the verifier cannot check it (8.4, O32; reviews R8-DIFF-3, R8-DIFF-6, R8-OPS-3)
+
+**Spec.** O32 (a) and the checklist (R7-CONF-3): a separate approver multisig, sharing no member key with the
+guardian's or the vault's multisig, is accepted with `--approver-multisig`.
+
+**Issue.** The checklist compared member keys only. A guardian vault (or the admin vault) as a member of the approver
+multisig, or a guardian member key (or the guardian vault) as its config authority, passed: one stolen guardian member
+key could then publish batches through it (reproduced against the real Squads program: g1 alone adds himself, lowers
+the threshold to 1 and publishes). Low (R8-DIFF-3). And for such an approver the verifier printed a transaction whose
+fee payer is a program address that cannot sign, while `verify --tx` refused every Squads-wrapped publication: the
+members would approve a website-built proposal whose root nothing checked (info; R8-DIFF-6, and R8-OPS-3, a duplicate).
+
+**Choice.**
+* In the approver multisig: a member that is the guardian, the admin vault or any vault of the guardian's or the
+  vault's multisig is refused (`APPROVER_MULTISIG_MEMBER_IS_ROLE`), and so is any other member that is not a wallet key
+  (`APPROVER_MULTISIG_PROGRAM_MEMBER`: whoever controls that program would vote); its config authority must be none
+  (only its own members change it) or the admin vault (`APPROVER_MULTISIG_CONFIG_AUTHORITY`); a threshold of 1 is a
+  warning (`APPROVER_MULTISIG_THRESHOLD_ONE`), since O32 (a)'s benefit needs two signatures.
+* The safer of the review's two options for R8-DIFF-6: the verifier refuses an approver that is not a wallet key
+  (`APPROVER_NOT_WALLET_KEY`), and the checklist reports any such approver as not ready (`APPROVER_NOT_VERIFIABLE`).
+  O32 (a) therefore needs a Squads mode of the verifier first (decode the `vault_transaction_create` message, check
+  its one `publish_launch_batch` against the verified publication, print the hash of each member's transaction, and
+  read the stored vault transaction before the executing member signs); it is not built, and O32 (a) says so. O32's
+  default, a wallet key, is unaffected.
+
+Tests. `32-batch-checklist` R8-DIFF-3, R8-DIFF-6: the review's cases (a) and (b), the guardian vault as config
+authority, the admin vault and vaults of both multisigs as members, an unrelated program address, a threshold of 1,
+and two correct approver multisigs (autonomous, and controlled by the admin vault) that fail only on
+`APPROVER_NOT_VERIFIABLE`; the round-7 expectations gain that code wherever the approver is a program address.
+`33-batch-verifier` R8-DIFF-6: `set_launch_approver(a program address)` executes and the verifier gives
+`APPROVER_NOT_WALLET_KEY` and no transaction. Against the round-7 scripts both pass silently.
+
+### 95. A guardian member's stop reads and sends through two RPCs and carries a compute-unit price (8.4 step 5, 14.1; reviews R8-OPS-2, R8-DIFF-7)
+
+**Spec.** 8.4 step 5 and the scripts' README set no RPC rule for the stop; NOTES 87: the thief "must win every slot of
+the window".
+
+**Issue.** `guardian-stop.mjs` read the multisig, `Launchpad` and `LaunchBatch`, decided "the chain shows the stop"
+and sent everything through one `--rpc`: an RPC that served a halted LaunchBatch made it print the stop and exit 0
+without sending anything (reproduced; low). And its transactions carried no compute-unit limit or price, so a thief
+paying priority fees for the multisig's next index was ordered ahead of the stop (info; the ordering cannot be
+reproduced in litesvm).
+
+**Choice.**
+* `--rpc` twice, two providers (the rule of entry 92), neither operated or relayed by the website. Both are read every
+  time; the stop counts only when both show it and one of the member's own transactions is confirmed (either RPC's
+  `getSignatureStatuses`). Before sending, both showing the stop means nothing is sent. Each transaction is sent
+  through both RPCs, and the variants are built with each RPC's blockhash and cover the next indices as each RPC sees
+  the multisig, so one lying RPC can neither spoil every variant nor fake the result. A precondition that only one RPC
+  shows unmet does not keep the member from stopping (a warning says the RPCs disagree). When both show the stop but
+  none of the member's transactions is confirmed after the rounds, the tool says so (exit 1): another member's stop, or
+  RPCs not to be trusted.
+* Each transaction starts with `SetComputeUnitLimit(150,000)` (a stop measured about 90,000 units) and
+  `SetComputeUnitPrice` (`--priority-fee`, micro-lamports per unit, default 1,000,000, about 0.00015 SOL per
+  transaction, doubled each round up to 50,000,000), outside the vault message, so the stop itself is unchanged.
+The checker (`invariants.mjs`) charges the prioritization fee (`priorityFeeOf`) in successful and failed transactions.
+8.4 step 5, 14.1 and the scripts' README carry the two-RPC rule; the monitor's paging text names the command with
+both.
+
+Tests. `34-guardian-stop` R8-OPS-2, R8-DIFF-7: the liar alone is a usage error and nothing is read (before round 8:
+"the chain shows the stop", exit 0, nothing sent); two URLs of one provider are refused; the honest RPC and the liar
+(which serves a halted LaunchBatch and drops every transaction) disagree, the stop goes through the honest RPC and is
+reported with the member's confirmed transaction, and the real chain is halted; a second run sends nothing. Each
+printed variant carries the limit and the price given, the price doubles per round, and the printed stop (pause,
+halt buys, clear) executes within its limit when signed as printed. The round-7 command-line test uses two RPCs and
+signs the printed transaction as printed.
+
+### 96. The archive's MAC key lives outside any archive folder and is 32 bytes (8.4 step 2; review R8-DIFF-5)
+
+**Spec.** NOTES 83: every archive entry carries an HMAC under `archive.key`, "a random key created there on first use".
+
+**Issue.** The key lived inside the archive folder that `--archive` or $VICINITY_BATCH_ARCHIVE names, so a folder handed
+over whole, with its own key and entries MAC'd under it, was trusted in full: a thief's batch became the baseline and
+his entry vanished from the changes. An empty, odd or non-hex key decoded to 0 or 1 bytes, which anyone can MAC with.
+Reproduced; info (it needs the owner talked into a foreign folder, or a corrupted key file).
+
+**Choice.** The key is `~/.vicinity-curve/archive.key`, this computer's, independent of the archive folder (a file of
+that name inside a folder is ignored); it must hold exactly 64 hex digits (`ARCHIVE_KEY`: the run stops); it is created
+once, atomically (written to a temporary file, then hard-linked into place, never over an existing key). Every
+`verify` and `confirm` prints the archive folder, the key file and its fingerprint (the first 16 hex digits of its
+SHA-256), and warns (`ARCHIVE_MOVED`) when the folder is not the one used last (`~/.vicinity-curve/last-archive`).
+The owner backs the key up with the archive; a lost key makes every archived list unreadable, which is a first use
+(two RPCs, the live batch printed in full), never a silent baseline. No archive was in use (the program is not
+deployed), so nothing migrates.
+
+Tests. `33-batch-verifier` R8-DIFF-5 (the real CLI with a scratch HOME): a handed-over folder in round 7's layout,
+named by `--archive` or $VICINITY_BATCH_ARCHIVE, is warned as moved, its entry ignored and the run a first use (before
+round 8: the thief's list was the baseline and GEVIL vanished); `readArchive` with the folder's own key and with this
+computer's; key files of 0, 14, 3 and 62 characters stop the run; a key is created once and never replaced, and its
+fingerprint printed. Every CLI run of the suites names a scratch HOME.

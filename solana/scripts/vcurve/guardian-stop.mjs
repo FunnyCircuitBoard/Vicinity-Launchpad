@@ -19,18 +19,27 @@
 // admin's set_launch_approver), `set_pause(launches = true)` (`--pause-launches`, both launch paths) and
 // `set_pause(buys = true)` (`--halt-buys`), in that order: pause first, then clear, as 8.4 step 5 says.
 //
+// The chain is read through two RPCs of different providers that the website does not operate or relay (`--rpc`
+// twice), each transaction is sent through both, and the stop counts only when both RPCs show it and one of this
+// member's transactions is confirmed: one lying or failing RPC can neither report a stop that is not on chain nor
+// drop the stop unseen (review R8-OPS-2). A precondition seen unmet by one RPC only does not keep the member from
+// stopping. Each transaction carries a compute-unit limit and price (`--priority-fee` micro-lamports per compute unit,
+// doubled each round), outside the vault message, so a thief paying priority fees for the multisig's next index does
+// not win the slot for nothing (review R8-DIFF-7).
+//
 // Usage (from solana/):
-//   node scripts/vcurve/guardian-stop.mjs --rpc <url> --multisig <guardian multisig> --keypair <member keypair file>
-//     [--clear] [--pause-launches] [--halt-buys] [--vault-index <n>] [--variants <n>] [--rounds <n>]
-//     [--cluster mainnet|devnet] [--program-id <id>]
+//   node scripts/vcurve/guardian-stop.mjs --rpc <url> --rpc <url of another provider> --multisig <guardian multisig>
+//     --keypair <member keypair file> [--clear] [--pause-launches] [--halt-buys] [--vault-index <n>] [--variants <n>]
+//     [--rounds <n>] [--priority-fee <micro-lamports per compute unit>] [--cluster mainnet|devnet] [--program-id <id>]
 //   With --member <key> instead of --keypair it only prints the unsigned transactions (base64) and their message hashes.
-// The keypair is read from the file to sign and is never printed. Exit status 0 when the chain shows the stop, 1 when
-// it does not, 2 on a usage error.
+// The keypair is read from the file to sign and is never printed. Exit status 0 when both RPCs show the stop (and,
+// after sending, one of this member's transactions is confirmed), 1 when they do not, 2 on a usage error.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import web3 from '@solana/web3.js';
 import { ADDRESSES, CURVE_PROGRAM_ID, curveInstructions, curvePdas, decodeLaunchpad, decodeLaunchBatch, findPda } from '../../sdk/curve/index.mjs';
 import { SQUADS, SQUADS_ALL_PERMISSIONS, decodeSquadsMultisig, squadsVaultIndexOf, squadsVaultPda } from './preflight.mjs';
+import { rpcUrlsProblem } from './batch.mjs';
 
 const { PublicKey } = web3;
 const enc = new TextEncoder();
@@ -141,6 +150,24 @@ export function guardianStopInstructions({ multisig, member, vaultIndex = 0, tra
   const c = squadsVaultCall({ multisig, member, vaultIndex, transactionIndex, instructions: guardianStopInner({ guardian, ...stop, programId, cluster }) });
   return [c.create, c.propose, c.approve, c.execute];
 }
+const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
+/** The compute units a stop transaction asks for: a stop costs about 90,000 (NOTES 87), so this leaves a margin and keeps the price per unit high. */
+export const STOP_COMPUTE_UNITS = 150_000;
+/** The default compute-unit price of the first round (micro-lamports per unit; 0.00015 SOL per transaction), and the most any round pays. */
+export const DEFAULT_PRIORITY_FEE = 1_000_000;
+export const MAX_PRIORITY_FEE = 50_000_000;
+/** `SetComputeUnitLimit(units)` and `SetComputeUnitPrice(microLamports)` (review R8-DIFF-7). */
+export function computeBudgetInstructions({ units = STOP_COMPUTE_UNITS, microLamports = DEFAULT_PRIORITY_FEE } = {}) {
+  const limit = Buffer.alloc(5); limit[0] = 2; limit.writeUInt32LE(units, 1);
+  const price = Buffer.alloc(9); price[0] = 3; price.writeBigUInt64LE(BigInt(microLamports), 1);
+  return [ix(COMPUTE_BUDGET, [], limit), ix(COMPUTE_BUDGET, [], price)];
+}
+/** The compute-unit price of round `round` (from 1): the first round's doubled each round, at most MAX_PRIORITY_FEE. */
+export const roundPriorityFee = (base, round) => Math.min(MAX_PRIORITY_FEE, base * 2 ** (round - 1));
+/** The instructions of one stop transaction: the compute budget (outside the vault message), then the four Squads instructions. */
+export function stopTransactionInstructions({ microLamports = DEFAULT_PRIORITY_FEE, ...args }) {
+  return [...computeBudgetInstructions({ microLamports }), ...guardianStopInstructions(args)];
+}
 /** Whether the chain shows the stop asked for (`launchpad`, `launchBatch` decoded). */
 export function stopDone({ launchpad, launchBatch }, { clear = true, pauseLaunches = false, haltBuys = false } = {}) {
   return (!clear || Boolean(launchBatch?.halted && launchBatch.latest.cleared && launchBatch.previous.cleared))
@@ -168,12 +195,21 @@ export function stopPreconditions({ multisig, multisigAccount, member, launchpad
 /** SHA-256 of a message, base58: what a Ledger shows as the message hash when it blind-signs. */
 export const messageHash = (messageBytes) => new PublicKey(createHash('sha256').update(Buffer.from(messageBytes)).digest()).toBase58();
 
-const USAGE = 'usage: node scripts/vcurve/guardian-stop.mjs --rpc <url> --multisig <guardian multisig> (--keypair <member keypair file> | --member <key>) '
-  + '[--clear] [--pause-launches] [--halt-buys] [--vault-index <n>] [--variants <n>] [--rounds <n>] [--cluster mainnet|devnet] [--program-id <id>]';
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const base58 = (bytes) => {
+  let n = 0n; for (const b of bytes) n = n * 256n + BigInt(b);
+  let t = ''; while (n > 0n) { t = B58[Number(n % 58n)] + t; n /= 58n; }
+  for (const b of bytes) { if (b !== 0) break; t = `1${t}`; }
+  return t;
+};
+const sameAccount = (x, y) => (!x || !y ? !x === !y : x.owner === y.owner && x.data.equals(y.data));
+
+const USAGE = 'usage: node scripts/vcurve/guardian-stop.mjs --rpc <url> --rpc <url of another provider> --multisig <guardian multisig> (--keypair <member keypair file> | --member <key>) '
+  + '[--clear] [--pause-launches] [--halt-buys] [--vault-index <n>] [--variants <n>] [--rounds <n>] [--priority-fee <micro-lamports per compute unit>] [--cluster mainnet|devnet] [--program-id <id>]';
 const VALUE = new Map([['--rpc', 'rpc'], ['--multisig', 'multisig'], ['--keypair', 'keypair'], ['--member', 'member'], ['--vault-index', 'vaultIndex'], ['--variants', 'variants'],
-  ['--rounds', 'rounds'], ['--cluster', 'cluster'], ['--program-id', 'programId']]);
+  ['--rounds', 'rounds'], ['--priority-fee', 'priorityFee'], ['--cluster', 'cluster'], ['--program-id', 'programId']]);
 const BOOL = new Map([['--clear', 'clear'], ['--pause-launches', 'pauseLaunches'], ['--halt-buys', 'haltBuys']]);
-/** The CLI's options, or `{ error }`. */
+/** The CLI's options, or `{ error }`; `rpc` is the two RPC URLs (two providers, review R8-OPS-2). */
 export function parseArgs(argv) {
   const o = { clear: false, pauseLaunches: false, haltBuys: false };
   for (let i = 0; i < argv.length; i++) {
@@ -181,12 +217,15 @@ export function parseArgs(argv) {
     if (!VALUE.has(argv[i])) return { error: `unknown option ${argv[i]}` };
     const v = argv[++i];
     if (v === undefined || v.startsWith('--')) return { error: `${argv[i - 1]} needs a value` };
-    o[VALUE.get(argv[i - 1])] = v;
+    const k = VALUE.get(argv[i - 1]);
+    if (k === 'rpc') (o.rpc ??= []).push(v); else o[k] = v;
   }
-  if (!o.rpc || !o.multisig) return { error: '--rpc and --multisig are required' };
+  if (!o.rpc || !o.multisig) return { error: '--rpc (twice) and --multisig are required' };
+  const rpcProblem = rpcUrlsProblem(o.rpc, { min: 2, max: 2 });
+  if (rpcProblem) return { error: `${rpcProblem}: the stop is read and sent through two RPCs of different providers that the website does not operate (review R8-OPS-2)` };
   if (Boolean(o.keypair) === Boolean(o.member)) return { error: 'give --keypair (sign and send) or --member (print only), not both' };
   if (!o.clear && !o.pauseLaunches && !o.haltBuys) return { error: 'name the stop: --clear, --pause-launches and/or --halt-buys' };
-  for (const [k, lo, hi, d] of [['vaultIndex', 0, 255, 0], ['variants', 1, 16, 4], ['rounds', 1, 50, 5]]) {
+  for (const [k, lo, hi, d] of [['vaultIndex', 0, 255, 0], ['variants', 1, 16, 4], ['rounds', 1, 50, 5], ['priorityFee', 0, MAX_PRIORITY_FEE, DEFAULT_PRIORITY_FEE]]) {
     const n = o[k] === undefined ? d : Number(o[k]);
     if (!Number.isInteger(n) || n < lo || n > hi) return { error: `--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)} must be an integer from ${lo} to ${hi}` };
     o[k] = n;
@@ -199,53 +238,89 @@ async function main(argv) {
   const o = parseArgs(argv);
   if (o.error) { console.error(`${o.error}\n${USAGE}`); return 2; }
   const cluster = o.cluster ?? 'mainnet'; const programId = o.programId ?? CURVE_PROGRAM_ID;
-  const connection = new web3.Connection(o.rpc, 'confirmed');
+  const connections = o.rpc.map((u) => new web3.Connection(u, 'confirmed'));
   const signer = o.keypair ? web3.Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(o.keypair, 'utf8')))) : null;
   const member = signer ? signer.publicKey.toBase58() : o.member;
   const P = curvePdas({ programId, cluster });
   const stop = { clear: o.clear, pauseLaunches: o.pauseLaunches, haltBuys: o.haltBuys };
+  const shape = (a) => (a ? { owner: a.owner.toBase58(), lamports: BigInt(a.lamports), data: Buffer.from(a.data) } : null);
+  const readOne = async (c) => {
+    const raw = (await c.getMultipleAccountsInfo([o.multisig, P.launchpad(), P.launchBatch()].map((k) => new PublicKey(k)))).map(shape);
+    let launchpad = null; let launchBatch = null;
+    try { launchpad = raw[1] ? decodeLaunchpad(raw[1], { programId }) : null; launchBatch = raw[2] ? decodeLaunchBatch(raw[2], { programId }) : null; } catch { launchpad = null; }
+    return { raw, multisigAccount: raw[0], launchpad, launchBatch };
+  };
+  // review R8-OPS-2: every decision on both RPCs' views; the stop is seen only when both show it
   const read = async () => {
-    const [msAcc, lpAcc, lbAcc] = await connection.getMultipleAccountsInfo([o.multisig, P.launchpad(), P.launchBatch()].map((k) => new PublicKey(k)));
-    const shape = (a) => (a ? { owner: a.owner.toBase58(), lamports: BigInt(a.lamports), data: Buffer.from(a.data) } : null);
-    return { multisigAccount: shape(msAcc), launchpad: decodeLaunchpad(shape(lpAcc), { programId }), launchBatch: lbAcc ? decodeLaunchBatch(shape(lbAcc), { programId }) : null };
+    const views = await Promise.all(connections.map(readOne));
+    return { views, agree: views.every((v) => v.raw.every((a, i) => sameAccount(a, views[0].raw[i]))), done: views.every((v) => v.launchpad && stopDone(v, stop)) };
+  };
+  const confirmedOf = async (sigs) => {
+    for (const c of connections) {
+      try {
+        const st = (await c.getSignatureStatuses(sigs)).value;
+        const i = st.findIndex((x) => x && !x.err && (x.confirmationStatus === 'confirmed' || x.confirmationStatus === 'finalized'));
+        if (i >= 0) return sigs[i];
+      } catch { /* the other RPC may answer */ }
+    }
+    return null;
   };
   let s = await read();
-  const pre = stopPreconditions({ multisig: o.multisig, multisigAccount: s.multisigAccount, member, launchpad: s.launchpad, vaultIndex: o.vaultIndex });
-  for (const p of pre) console.log(`PROBLEM: ${p}`);
-  if (pre.length) return 1;
+  if (!s.agree) console.log('warning RPC_DISAGREE: the two RPCs return different accounts (the multisig, the Launchpad or LaunchBatch): one of them is lying or behind; the stop goes ahead, and counts only when both show it');
+  const pres = s.views.map((v) => (v.launchpad ? stopPreconditions({ multisig: o.multisig, multisigAccount: v.multisigAccount, member, launchpad: v.launchpad, vaultIndex: o.vaultIndex }) : ['vicinity_curve\'s Launchpad was not found']));
+  if (pres.every((p) => p.length)) { for (const p of pres[0]) console.log(`PROBLEM: ${p}`); return 1; }
+  if (s.done) { console.log('both RPCs show the stop already (another member\'s, or an earlier one): nothing sent'); return 0; }
+  const usable = () => s.views.filter((v) => { try { decodeSquadsMultisig(v.multisigAccount); return true; } catch { return false; } });
+  const sigs = new Set();
   for (let round = 1; round <= o.rounds; round++) {
-    if (stopDone(s, stop)) { console.log('the chain shows the stop'); return 0; }
-    const next = decodeSquadsMultisig(s.multisigAccount).transactionIndex + 1n;
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    // the next few indices as each RPC sees the multisig, so that one lying RPC's index cannot move every variant off the real one
+    const indices = [...new Set(usable().flatMap((v) => { const n = decodeSquadsMultisig(v.multisigAccount).transactionIndex; return Array.from({ length: o.variants }, (_, k) => n + 1n + BigInt(k)); }).map(String))]
+      .map(BigInt).sort((x, y) => (x < y ? -1 : 1));
+    const microLamports = roundPriorityFee(o.priorityFee, round);
+    // a blockhash from each RPC, so that one lying RPC's cannot spoil every variant
+    const hashes = [...new Set((await Promise.all(connections.map((c) => c.getLatestBlockhash('confirmed').then((x) => x.blockhash, () => null)))).filter(Boolean))];
+    if (!hashes.length) { console.log(`round ${round}: neither RPC gave a blockhash`); continue; }
     const txs = [];
-    for (let v = 0; v < o.variants; v++) {
-      const ixs = guardianStopInstructions({ multisig: o.multisig, member, vaultIndex: o.vaultIndex, transactionIndex: next + BigInt(v), stop, programId, cluster });
-      const tx = new web3.Transaction({ feePayer: new PublicKey(member), recentBlockhash: blockhash }).add(...ixs.map((x) => new web3.TransactionInstruction({
-        programId: new PublicKey(x.programAddress), data: Buffer.from(x.data),
-        keys: x.accounts.map((a) => ({ pubkey: new PublicKey(a.address), isSigner: isSigner(a.role), isWritable: isWritable(a.role) })),
-      })));
-      txs.push(tx);
+    for (const blockhash of signer ? hashes : hashes.slice(0, 1)) {
+      for (const index of indices) {
+        const ixs = stopTransactionInstructions({ multisig: o.multisig, member, vaultIndex: o.vaultIndex, transactionIndex: index, stop, microLamports, programId, cluster });
+        txs.push({ index, tx: new web3.Transaction({ feePayer: new PublicKey(member), recentBlockhash: blockhash }).add(...ixs.map((x) => new web3.TransactionInstruction({
+          programId: new PublicKey(x.programAddress), data: Buffer.from(x.data),
+          keys: x.accounts.map((a) => ({ pubkey: new PublicKey(a.address), isSigner: isSigner(a.role), isWritable: isWritable(a.role) })),
+        }))) });
+      }
     }
     if (!signer) {
-      txs.forEach((tx, v) => console.log(`index ${next + BigInt(v)}: message hash ${messageHash(tx.serializeMessage())}\n${tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64')}`));
-      console.log('unsigned: sign every variant with the member key and send them together within a minute (only the one at the multisig\'s next index executes)');
+      txs.forEach(({ index, tx }) => console.log(`index ${index}: message hash ${messageHash(tx.serializeMessage())}\n${tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64')}`));
+      console.log(`unsigned, with a compute-unit limit of ${STOP_COMPUTE_UNITS} at ${microLamports} micro-lamports per unit: sign every variant with the member key and send them together within a minute through two RPCs of different providers (only the one at the multisig's next index executes)`);
       return 0;
     }
-    const sigs = [];
-    for (const tx of txs) {
+    let sent = 0;
+    for (const { tx } of txs) {
       tx.sign(signer);
-      try { sigs.push(await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 })); } catch (e) { console.log(`round ${round}: a variant was not sent: ${e.message}`); }
+      const raw = tx.serialize();
+      sigs.add(base58(tx.signature));
+      for (const c of connections) {
+        try { await c.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 3 }); sent++; } catch (e) { console.log(`round ${round}: a variant was not sent through ${c.rpcEndpoint}: ${e.message}`); }
+      }
     }
-    console.log(`round ${round}: sent ${sigs.length} variant(s) for indices ${next} to ${next + BigInt(o.variants - 1)}: ${sigs.join(', ')}`);
+    console.log(`round ${round}: sent ${txs.length} variant(s) for indices ${indices.join(', ')} at ${microLamports} micro-lamports per compute unit (${sent} sends through ${connections.length} RPCs)`);
     for (let t = 0; t < 30; t++) {
       await new Promise((ok) => { setTimeout(ok, 1_000); });
       s = await read();
-      if (stopDone(s, stop)) break;
+      const mine = s.done ? await confirmedOf([...sigs]) : null;
+      if (s.done && mine) { console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine} is confirmed`); return 0; }
     }
+    if (s.done) break;
   }
   s = await read();
-  if (stopDone(s, stop)) { console.log('the chain shows the stop'); return 0; }
-  console.log('PROBLEM: the stop is not on chain after every round: another member, the owner (clear with the approver key) or the admin must act (8.4 step 5)');
+  const mine = s.done ? await confirmedOf([...sigs]) : null;
+  if (s.done && mine) { console.log(`the stop is on chain: both RPCs show it, and this member's transaction ${mine} is confirmed`); return 0; }
+  if (s.done) {
+    console.log('PROBLEM: both RPCs show the stop, but none of this member\'s transactions is confirmed on them: it is another member\'s stop, or the RPCs are not to be trusted; check LaunchBatch through a third provider and tell the other members (8.4 step 5)');
+    return 1;
+  }
+  console.log('PROBLEM: the stop is not on chain after every round (as both RPCs show it): another member, the owner (clear with the approver key) or the admin must act (8.4 step 5)');
   return 1;
 }
 

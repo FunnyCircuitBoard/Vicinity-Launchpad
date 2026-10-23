@@ -123,15 +123,25 @@ is any vault of it (review R7-CONF-3); `--vault-multisig` adds the same approver
 checks for the vault's multisig, and `--approver-multisig` checks an approver that
 is a multisig vault (O32 (a): one of its vaults, no time lock, no member key
 shared with the guardian's or the vault's multisig; required when the approver
-is not a wallet key). `--proposed-guardian`, `--proposed-payout-authority`,
+is not a wallet key). An approver that is not a wallet key is not ready at all
+while the batch verifier cannot check a publication made through Squads (review
+R8-DIFF-6); an approver multisig whose members include the guardian, the admin
+vault, any vault of the guardian's or the vault's multisig or any other program
+address, or whose config authority is neither none nor the admin vault, is
+refused, and a threshold of 1 is a warning (review R8-DIFF-3).
+`--proposed-guardian`, `--proposed-payout-authority`,
 `--proposed-payout-destination` and `--proposed-launch-approver` check a key
 before the proposal that sets it is signed.
 
 `vcurve/batch.mjs` is the owner's batch verifier (`verify <list file>`, before
 he signs the day's `publish_launch_batch`), his confirmation (`confirm <seq>
 <root>`, within minutes of its landing) and the monitor's comparison (`check
-<list or archive file>`, after a publication), 8.4 steps 2 and 3. Every `--rpc`
-must be a provider the website does not operate or relay. `verify` prints the
+<list or archive file>`, after a publication), 8.4 steps 2, 3 and 5. Every
+`--rpc` must be a provider the website does not operate or relay; with `--rpc`
+twice the two must be different providers (by IP address, or by the last two
+labels of the host name), and every account, the Clock sysvar (within a
+minute; the earlier is used) and the pending approvals must agree on both, for
+`verify`, `confirm` and `check` alike (reviews R8-DIFF-1, R8-DIFF-4). `verify` prints the
 day's changes only against lists the owner signed and confirmed (reviews
 R6-DIFF-1, R6-RT-1, R7-BA-1, R7-3): its archive (`--archive <dir>`, default
 `$VICINITY_BATCH_ARCHIVE` or `~/.vicinity-curve/launch-batches`) keeps each
@@ -141,8 +151,21 @@ stored batch that is not a confirmed list is a problem. On a first use, with an
 empty archive, `--previous` / `--in-force` may stand in, read from two RPCs of
 different providers (`--rpc` twice; review R7-4) and printed in full. With `--tx
 <base64>` it checks that the transaction the website's batch page built is
-exactly the verified publication (review R7-CONF-1); either way it prints the
-message hash a hardware wallet shows when it blind-signs. A ticker another city
+exactly the verified publication, with the default window (reviews R7-CONF-1,
+R8-DIFF-2); either way it prints the message hash a hardware wallet shows when
+it blind-signs, and the owner signs exactly that transaction. `--correct`
+builds (or, with `--tx`, checks) 8.4 step 5's correction of a batch in force,
+`clear_launch_batch(halt = false)` then the publication in one transaction,
+and shows the changes as they stand once the clear has landed; without it a
+list that removes or changes an entry of the batch in force is warned that the
+batch keeps running until the new list's valid_from (review R8-OPS-1).
+`confirm` keeps a list as a baseline only when the transaction that wrote it
+is the one the owner verified, by its message hash, on every RPC (review
+R8-DIFF-2). The archive's MAC key is `~/.vicinity-curve/archive.key`, never a
+file inside an archive folder, and must be 32 bytes; every run names the
+folder and the key's fingerprint and warns when the folder is not the one used
+last (review R8-DIFF-5). An approver that is not a wallet key is refused
+(review R8-DIFF-6). A ticker another city
 can still launch with is refused (review R7-BA-2). Each entry is printed with its
 metadata hash, and each changed entry names the fields that differ (review
 R6-DIFF-2). It prints the unsigned transaction only when nothing is wrong, and
@@ -155,6 +178,11 @@ the vault transaction's create, proposal, approval and execution in one
 transaction, so that no approved proposal waits where another member could
 cancel it; it sends its stop for the multisig's next few transaction indices at
 once (`--variants`, default 4) and repeats (`--rounds`) until the chain shows
-the stop. With `--keypair <file>` it signs with the member's key (never
-printed); with `--member <key>` it only prints the unsigned transactions and
-their message hashes.
+the stop. It needs `--rpc` twice, two providers the website does not operate or
+relay: it reads both, sends through both, and reports the stop only when both
+show it and one of the member's transactions is confirmed (review R8-OPS-2).
+Each transaction carries a compute-unit limit (150,000) and price
+(`--priority-fee`, micro-lamports per unit, default 1,000,000, doubled each
+round up to 50,000,000; review R8-DIFF-7). With `--keypair <file>` it signs
+with the member's key (never printed); with `--member <key>` it only prints the
+unsigned transactions and their message hashes.

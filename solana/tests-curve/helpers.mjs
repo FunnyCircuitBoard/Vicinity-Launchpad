@@ -29,6 +29,7 @@ import {
   address, generateKeyPairSigner, lamports, pipe, createTransactionMessage, setTransactionMessageFeePayerSigner,
   appendTransactionMessageInstructions, signTransactionMessageWithSigners, addSignersToTransactionMessage,
   getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder, compressTransactionMessageUsingAddressLookupTables,
+  getTransactionDecoder, partiallySignTransaction, getSignatureFromTransaction,
 } from '@solana/kit';
 import web3 from '@solana/web3.js';
 import anchorPkg from '@coral-xyz/anchor';
@@ -38,7 +39,7 @@ import { createConfigIx, vicinityConfigParams } from '../sdk/launchpad/config.mj
 import { dbc } from '../sdk/launchpad/pda.mjs';
 import {
   snapshot, decodeTransaction, checkTransaction, checkFailedTransaction, probeLiveness, tokenAccountInfo, mintInfo, readMetadata,
-  compiledIdsProblems, PROGRAM_DATA_HEADER,
+  compiledIdsProblems, PROGRAM_DATA_HEADER, priorityFeeOf,
 } from './invariants.mjs';
 
 const { BN } = anchorPkg;
@@ -216,6 +217,7 @@ export class World {
     this.frozen = new Map();
     this.cu = {};
     this.txs = 0;
+    this.history = []; // every transaction sent, as an RPC would keep it (rpcStub's getSignaturesForAddress, getTransaction)
     this.haltAllLoaded = false;
     this.checks = process.env.VCURVE_INVARIANTS !== 'off';
     // I22: the liveness probe runs after every successful transaction (VCURVE_PROBE=end: only at the end of each test)
@@ -384,7 +386,18 @@ export class World {
    * holder burns).
    */
   async send(ixs, signers = [], label = 'tx', o = {}) {
-    const tx = await this.buildTx(ixs, signers, o);
+    return this.sendBuilt(await this.buildTx(ixs, signers, o), label, o);
+  }
+  /**
+   * Send a transaction exactly as it came over the wire (a client's printed or signed transaction, legacy or v0), signed
+   * here by `signers` where its signatures are empty: the same message bytes, so the same message hash.
+   */
+  async sendWire(bytes, label = 'wire tx', { signers = [], ...o } = {}) {
+    let tx = getTransactionDecoder().decode(Uint8Array.from(Buffer.from(bytes)));
+    if (signers.length) tx = await partiallySignTransaction(signers.map((x) => x.keyPair), tx);
+    return this.sendBuilt(tx, label, o);
+  }
+  async sendBuilt(tx, label, o = {}) {
     const messageBytes = tx.messageBytes;
     const loaded = o.lookupTables ? this.loadedAddresses(messageBytes, o.lookupTables) : [];
     const msg = getCompiledTransactionMessageDecoder().decode(messageBytes);
@@ -394,15 +407,19 @@ export class World {
     const keySet = new Set(keys);
     const pre = this.checks ? snapshot(this, keySet) : null;
     const size = Buffer.from(getBase64EncodedWireTransaction(tx), 'base64').length;
+    const slotSent = this.slot();
     const res = this.svm.sendTransaction(tx);
     this.svm.expireBlockhash();
     this.txs++;
+    let signature = null;
+    try { signature = getSignatureFromTransaction(tx); } catch { signature = null; }
+    this.history.push({ signature, slot: slotSent, blockTime: this.now(), wire: Buffer.from(getBase64EncodedWireTransaction(tx), 'base64'), keys, err: typeof res.err === 'function' ? stringify(res.err()) : null });
     const postAccounts = read();
     if (typeof res.err === 'function') {
       const logs = res.meta().logs();
       const rpc = rpcTransaction(messageBytes, { err: stringify(res.err()), inner: res.meta().innerInstructions(), logs, loaded });
       if (this.checks) {
-        checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, label, charged: !refusedBeforeExecution(res.err()) });
+        checkFailedTransaction(this, { pre, post: snapshot(this, keySet), preAccounts, postAccounts, feePayer: keys[0], nSignatures: msg.header.numSignerAccounts, priorityFee: priorityFeeOf(messageBytes), label, charged: !refusedBeforeExecution(res.err()) });
         // 4.21, T56 (CLI-2): a failed transaction yields no events to an indexer, whatever its metadata carries
         assert.deepEqual(S.decodeTransactionEvents(rpc, { programId: this.programId }), [], `${label} (failed): decodeTransactionEvents returned events`);
       }
@@ -740,46 +757,71 @@ function memoPdas(P) {
 export const SOL_ = (x) => BigInt(Math.round(Number(x) * 1e9));
 
 /**
- * A JSON-RPC stub serving a World's accounts and clock, for the scripts' real command lines (scripts/vcurve): the methods
- * they call (getMultipleAccounts, getAccountInfo, getProgramAccounts with memcmp filters, getSlot, getBlockTime,
- * getLatestBlockhash). `lie(address, account)` may return another account (or null) for an address, as a malicious or
- * compromised RPC would (reviews R7-BA-1, R7-4). Returns `{ url, close, calls }`.
+ * A JSON-RPC stub serving a World's accounts, clock and transaction history, for the scripts' real command lines
+ * (scripts/vcurve): the methods they call (getMultipleAccounts, getAccountInfo, getProgramAccounts with memcmp filters,
+ * getSlot, getBlockTime, getLatestBlockhash (the World's own, so a printed transaction can be signed and sent as it is),
+ * getSignaturesForAddress, getTransaction (base64), sendTransaction (run in the World, with the checker) and
+ * getSignatureStatuses). `lie(address, account)` may return another account (or null) for an address, as a malicious or
+ * compromised RPC would (reviews R7-BA-1, R7-4); `rpc(request)` may return a whole answer for any method (anything but
+ * undefined; `{ drop: true }` for sendTransaction answers the signature without sending; review R8-DIFF-1, R8-OPS-2);
+ * `host` is the loopback address it listens on (two stubs on 127.0.0.1 and 127.0.0.2 are two providers, review
+ * R8-DIFF-4). Returns `{ url, close, calls }`.
  */
-export async function rpcStub(w, { lie = (addr, a) => a } = {}) {
+export async function rpcStub(w, { lie = (addr, a) => a, rpc = () => undefined, host = '127.0.0.1' } = {}) {
   const calls = [];
   const view = (k) => lie(String(k), w.accountInfo(String(k)));
   const wire = (a) => ({ data: [Buffer.from(a.data).toString('base64'), 'base64'], executable: false, lamports: Number(a.lamports), owner: String(a.owner), rentEpoch: 0, space: a.data.length });
   const bytesOf = (f) => (f.encoding === 'base64' ? Buffer.from(f.bytes, 'base64') : Buffer.from(bs58decode(f.bytes)));
+  const status = (h) => (h ? { slot: Number(h.slot), confirmations: null, err: h.err ? { stub: h.err } : null, confirmationStatus: 'confirmed' } : null);
+  const one = async (m) => {
+    calls.push(m.method);
+    const slot = Number(w.svm.getClock().slot);
+    const over = rpc(m);
+    if (over !== undefined && !(m.method === 'sendTransaction' && over?.drop)) return { jsonrpc: '2.0', id: m.id, result: over };
+    let result;
+    if (m.method === 'getMultipleAccounts') result = { context: { slot }, value: m.params[0].map((k) => { const a = view(k); return a ? wire(a) : null; }) };
+    else if (m.method === 'getAccountInfo') { const a = view(m.params[0]); result = { context: { slot }, value: a ? wire(a) : null }; }
+    else if (m.method === 'getProgramAccounts') {
+      const filters = m.params[1]?.filters ?? [];
+      result = w.svm.getProgramAccounts(address(m.params[0])).map((x) => String(x.address)).map((k) => [k, view(k)]).filter(([, a]) => a && filters.every((f) => {
+        if (f.dataSize !== undefined) return a.data.length === f.dataSize;
+        const want = bytesOf(f.memcmp);
+        return Buffer.from(a.data).subarray(f.memcmp.offset, f.memcmp.offset + want.length).equals(want);
+      })).map(([k, a]) => ({ pubkey: k, account: wire(a) }));
+    } else if (m.method === 'getSlot') result = slot;
+    else if (m.method === 'getBlockTime') result = Number(w.now());
+    else if (m.method === 'getLatestBlockhash') result = { context: { slot }, value: { blockhash: String(w.svm.latestBlockhash()), lastValidBlockHeight: slot + 150 } };
+    else if (m.method === 'getSignaturesForAddress') {
+      const [addr, o = {}] = m.params;
+      let list = w.history.filter((h) => h.signature && h.keys.includes(String(addr))).reverse();
+      if (o.before) { const i = list.findIndex((h) => h.signature === o.before); list = i < 0 ? [] : list.slice(i + 1); }
+      result = list.slice(0, o.limit ?? 1000).map((h) => ({ signature: h.signature, slot: Number(h.slot), err: h.err ? { stub: h.err } : null, memo: null, blockTime: Number(h.blockTime), confirmationStatus: 'confirmed' }));
+    } else if (m.method === 'getTransaction') {
+      const h = w.history.find((x) => x.signature === m.params[0]);
+      result = h ? { slot: Number(h.slot), blockTime: Number(h.blockTime), transaction: [h.wire.toString('base64'), 'base64'], meta: { err: h.err ? { stub: h.err } : null, fee: 5000, logMessages: [] }, version: 'legacy' } : null;
+    } else if (m.method === 'sendTransaction') {
+      const bytes = (m.params[1]?.encoding ?? 'base58') === 'base64' ? Buffer.from(m.params[0], 'base64') : Buffer.from(bs58decode(m.params[0]));
+      const tx = getTransactionDecoder().decode(Uint8Array.from(bytes));
+      const signature = getSignatureFromTransaction(tx);
+      if (!over?.drop) { try { await w.sendBuilt(tx, `rpc sendTransaction ${signature.slice(0, 8)}`); } catch { /* a failed transaction is still sent, as with skipPreflight */ } }
+      result = signature;
+    } else if (m.method === 'getSignatureStatuses') {
+      result = { context: { slot }, value: m.params[0].map((sig) => status(w.history.find((x) => x.signature === sig))) };
+    } else return { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: `stub: ${m.method}` } };
+    return { jsonrpc: '2.0', id: m.id, result };
+  };
   const server = createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
-    req.on('end', () => {
-      const one = (m) => {
-        calls.push(m.method);
-        const slot = Number(w.svm.getClock().slot);
-        let result;
-        if (m.method === 'getMultipleAccounts') result = { context: { slot }, value: m.params[0].map((k) => { const a = view(k); return a ? wire(a) : null; }) };
-        else if (m.method === 'getAccountInfo') { const a = view(m.params[0]); result = { context: { slot }, value: a ? wire(a) : null }; }
-        else if (m.method === 'getProgramAccounts') {
-          const filters = m.params[1]?.filters ?? [];
-          result = w.svm.getProgramAccounts(address(m.params[0])).map((x) => String(x.address)).map((k) => [k, view(k)]).filter(([, a]) => a && filters.every((f) => {
-            if (f.dataSize !== undefined) return a.data.length === f.dataSize;
-            const want = bytesOf(f.memcmp);
-            return Buffer.from(a.data).subarray(f.memcmp.offset, f.memcmp.offset + want.length).equals(want);
-          })).map(([k, a]) => ({ pubkey: k, account: wire(a) }));
-        } else if (m.method === 'getSlot') result = slot;
-        else if (m.method === 'getBlockTime') result = Number(w.now());
-        else if (m.method === 'getLatestBlockhash') result = { context: { slot }, value: { blockhash: String(w.programId), lastValidBlockHeight: slot + 150 } };
-        else return { jsonrpc: '2.0', id: m.id, error: { code: -32601, message: `stub: ${m.method}` } };
-        return { jsonrpc: '2.0', id: m.id, result };
-      };
+    req.on('end', async () => {
       const m = JSON.parse(body);
+      const out = Array.isArray(m) ? await Promise.all(m.map(one)) : await one(m);
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(Array.isArray(m) ? m.map(one) : one(m)));
+      res.end(JSON.stringify(out));
     });
   });
-  await new Promise((ok) => { server.listen(0, '127.0.0.1', ok); });
-  return { url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((ok) => { server.close(ok); }), calls };
+  await new Promise((ok) => { server.listen(0, host, ok); });
+  return { url: `http://${host}:${server.address().port}`, close: () => new Promise((ok) => { server.close(ok); }), calls };
 }
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function bs58decode(text) {

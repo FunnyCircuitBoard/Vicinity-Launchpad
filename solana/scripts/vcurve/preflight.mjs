@@ -53,9 +53,14 @@
 //     its member keys and none of its vaults; a warning while it has no time
 //     lock (O11);
 //   * an approver that is not a wallet key (off the ed25519 curve) can only be
-//     a multisig vault (O32 (a)): `--approver-multisig` is then required, the
-//     approver must be one of its vaults, it has no time lock and it shares no
-//     member key with the guardian's or the vault's multisig (review R7-CONF-3).
+//     a multisig vault (O32 (a)), which the batch verifier cannot check a
+//     publication of (it refuses such an approver), so it is not ready (review
+//     R8-DIFF-6); `--approver-multisig` is required, the approver must be one
+//     of its vaults, it has no time lock and it shares no member key with the
+//     guardian's or the vault's multisig (review R7-CONF-3); no member of it is
+//     the guardian, the admin vault, any vault of the guardian's or the vault's
+//     multisig or any other program address, its config authority is none or
+//     the admin vault, and a threshold of 1 is a warning (review R8-DIFF-3).
 // Not checkable here: the published program metadata, that the approver key
 // shares no seed or device with a member key (8.4, O32), and, without
 // `--vault-multisig`, the vault's time lock and members; the operator confirms
@@ -270,8 +275,11 @@ export const isWalletKey = (key) => PublicKey.isOnCurve(new PublicKey(String(key
  * execute a stop alone (so the stops survive the loss or theft of any one member key, review R7-2). The approver is no
  * member key and no vault (any index) of the guardian's or the vault's multisig, so the key that signs batches is never
  * the key that stops them (4.4, O32; review R7-CONF-3); an approver that is not a wallet key can only be a multisig
- * vault, so `approverMultisig` is then required: the approver must be one of its vaults, it has no time lock and shares
- * no member key with the guardian's or the vault's multisig. Returns `{ problems, warnings }`.
+ * vault, which the batch verifier cannot check a publication of (`APPROVER_NOT_VERIFIABLE`, review R8-DIFF-6), so
+ * `approverMultisig` is then required: the approver must be one of its vaults, it has no time lock and shares no
+ * member key with the guardian's or the vault's multisig; none of its members is the guardian, the admin vault, a vault
+ * of the guardian's or the vault's multisig or any other program address, its config authority is none or the admin
+ * vault, and a threshold of 1 is a warning (review R8-DIFF-3). Returns `{ problems, warnings }`.
  */
 export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig = null, vaultMultisig = null, approverMultisig = null, accounts = {} }) {
   const problems = []; const warnings = [];
@@ -321,6 +329,10 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
       if (index !== null) bad(code, `the launch approver ${approver} is vault ${index} of ${what} ${ms}: its members could publish batches, and the key that stops a wrong batch would be the key that signs it (4.4, O32; review R7-CONF-3)`);
     }
     if (!isWalletKey(approver) || approverMultisig) {
+      // review R8-DIFF-6: the batch verifier cannot build or check a publication made through a multisig
+      if (!isWalletKey(approver)) {
+        bad('APPROVER_NOT_VERIFIABLE', `the launch approver ${approver} is not a wallet key (a multisig vault, O32 (a)): the batch verifier refuses it, since it cannot check a publication made through Squads (verify --tx covers only a transaction the approver itself signs), so the members would approve proposals whose root nothing checks before they sign; until the verifier has a Squads mode the approver must be a wallet key (O32's default; review R8-DIFF-6)`);
+      }
       if (!approverMultisig) {
         bad('APPROVER_MULTISIG_UNCHECKED', `the launch approver ${approver} is not a wallet key (it is off the ed25519 curve), so it can only sign as a program address, a multisig vault: pass --approver-multisig <its Squads multisig> (O32 (a); review R7-CONF-3)`);
       } else {
@@ -334,6 +346,27 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
             const shared = ams.members.filter((m) => other.members.some((o) => o.key === m.key)).map((m) => m.key);
             if (shared.length) bad('APPROVER_MULTISIG_SHARES_MEMBER', `the approver multisig shares member key(s) ${shared.join(', ')} with ${what}: one stolen key would both sign batches and ${what === 'the guardian multisig' ? 'act as the guardian' : 'vote as the admin'} (O32 (a); review R7-CONF-3)`);
           }
+          // review R8-DIFF-3: a member that is itself a role or a program address, and a config authority other than none or
+          // the admin vault, would let a guardian member (or whoever controls that key) sign batches alone
+          const roleOf = (k) => {
+            if (guardian && guardian !== ZERO && k === String(guardian)) return 'the guardian';
+            if (k === String(vault)) return 'the admin vault';
+            for (const [msAddr, name] of [[guardianMultisig, 'the guardian multisig'], [vaultMultisig, 'the vault\'s multisig']]) {
+              const i = msAddr ? squadsVaultIndexOf(msAddr, k) : null;
+              if (i !== null) return `vault ${i} of ${name}`;
+            }
+            return null;
+          };
+          for (const m of ams.members) {
+            const role = roleOf(m.key);
+            if (role) bad('APPROVER_MULTISIG_MEMBER_IS_ROLE', `member ${m.key} of the approver multisig is ${role}: any one member of that multisig could create, approve and execute a publication through it, so one stolen guardian member key would sign batches (O32 (a); review R8-DIFF-3)`);
+            else if (!isWalletKey(m.key)) bad('APPROVER_MULTISIG_PROGRAM_MEMBER', `member ${m.key} of the approver multisig is not a wallet key (a program address, such as another multisig's vault): whoever controls that program would vote on batches; every member must be a wallet key (review R8-DIFF-3)`);
+          }
+          if (ams.configAuthority !== ZERO && ams.configAuthority !== String(vault)) {
+            const role = roleOf(ams.configAuthority);
+            bad('APPROVER_MULTISIG_CONFIG_AUTHORITY', `the approver multisig's config authority ${ams.configAuthority}${role ? ` (${role})` : ''} can add members and lower its threshold alone, and then publish through it: it must be none (only its own members change it) or the admin vault ${vault} (review R8-DIFF-3)`);
+          }
+          if (ams.threshold <= 1) warnings.push({ code: 'APPROVER_MULTISIG_THRESHOLD_ONE', message: `the approver multisig's threshold is ${ams.threshold}: any one of its members publishes alone, so one stolen device still publishes a batch, which O32 (a) is meant to prevent: use at least 2 (review R8-DIFF-3)` });
         }
       }
     }

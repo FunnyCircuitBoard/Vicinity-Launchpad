@@ -8,29 +8,41 @@
 //     be cancelled; a race for the multisig's transaction index is met by the tool's variants for the next indices.
 //   * R7-2: members who may only vote cannot start a stop: the real program refuses their vault transaction, and the
 //     deploy checklist now refuses such a guardian multisig.
+// Review round 8:
+//   * R8-OPS-2: the tool read, sent and judged the stop through one RPC, so one lying RPC that served a halted
+//     LaunchBatch made it report the stop and send nothing. It now needs two RPCs of different providers, sends through
+//     both and reports the stop only when both show it and one of the member's transactions is confirmed.
+//   * R8-DIFF-7: each transaction carries a compute-unit limit and price (outside the vault message), so the stop
+//     competes for the slot with a thief who pays priority fees for the multisig's next index.
 // The guardian multisig is written as the Squads program writes one (encodeSquadsMultisig; its address the PDA of its
 // create key with that bump, its members sorted as Squads sorts them), controlled by the admin, 1 of 3, no time lock.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { address } from '@solana/kit';
+import { address, createKeyPairSignerFromBytes, lamports } from '@solana/kit';
 import web3 from '@solana/web3.js';
 import { World, S, SOL, expectFail, squadsProgramPath, rpcStub } from './helpers.mjs';
 import { SQUADS, encodeSquadsMultisig, decodeSquadsMultisig, squadsVaultPda, checkSquadsRoles } from '../scripts/vcurve/preflight.mjs';
 import {
   guardianStopInstructions, squadsVaultCall, squadsProposalCancel, squadsMultisigPda, stopDone, stopPreconditions, parseArgs, messageHash,
+  STOP_COMPUTE_UNITS, DEFAULT_PRIORITY_FEE, roundPriorityFee,
 } from '../scripts/vcurve/guardian-stop.mjs';
 
 const { PublicKey } = web3;
 const sorted = (keys) => [...keys].sort((x, y) => Buffer.compare(new PublicKey(String(x)).toBuffer(), new PublicKey(String(y)).toBuffer()));
 
-/** A World whose guardian is vault 0 of a controlled 1-of-3 Squads multisig of `owner`, `a` and `b` (O35). */
+/** A World whose guardian is vault 0 of a controlled 1-of-3 Squads multisig of `owner`, `a` and `b` (O35); `b`'s secret key is `bSecret` (for the CLI's keypair file). */
 async function guardianWorld() {
   const w = await World.create();
   w.svm.addProgramFromFile(address(SQUADS.programId), squadsProgramPath());
   const approver = await w.initBatchPath();
-  const [owner, a, b] = [await w.signer(20n), await w.signer(20n), await w.signer(20n)];
+  const bKey = web3.Keypair.generate();
+  const b = await createKeyPairSignerFromBytes(bKey.secretKey);
+  w.svm.airdrop(b.address, lamports(20_000_000_000n));
+  const [owner, a] = [await w.signer(20n), await w.signer(20n)];
   const createKey = String((await w.signer(0n)).address);
   const [multisig, bump] = squadsMultisigPda(createKey);
   const put = ({ permissions = {}, threshold = 1, timeLock = 0 } = {}) => {
@@ -43,9 +55,15 @@ async function guardianWorld() {
   const vault = squadsVaultPda(multisig, 0);
   await w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: vault })], [w.admin], 'set_guardian(vault 0 of the guardian multisig)');
   const index = () => decodeSquadsMultisig(w.accountInfo(multisig)).transactionIndex;
-  return { w, approver, owner, a, b, multisig, vault, put, index };
+  return { w, approver, owner, a, b, bSecret: bKey.secretKey, multisig, vault, put, index };
 }
 const state = (w) => ({ launchpad: w.launchpad(), launchBatch: w.launchBatch() });
+/** The real stop tool; returns `{ code, text }`. */
+const runStop = (args) => new Promise((resolve) => {
+  const p = spawn(process.execPath, [join(SOL, 'scripts', 'vcurve', 'guardian-stop.mjs'), ...args], { cwd: SOL });
+  let text = ''; p.stdout.on('data', (d) => { text += d; }); p.stderr.on('data', (d) => { text += d; });
+  p.on('close', (code) => resolve({ code, text }));
+});
 
 test('R7-1 (review round 7) a thief with the approver key and one guardian member key cancels the other members\' stops when they approve in one transaction and execute in another; the stop tool\'s single transaction cannot be cancelled and halts his batch', async () => {
   const { w, approver, owner, a, b, multisig, vault, index } = await guardianWorld();
@@ -117,28 +135,99 @@ test('R7-1, R7-2 (review round 7) a race for the multisig\'s transaction index i
   await w.send(variants[2], [a], 'the last variant: a repeated stop', { feePayer: a });
   assert.deepEqual(w.launchBatch(), before);
 
-  // the command line: options, and the print-only mode against a JSON-RPC stub serving this World (its unsigned
-  // transaction, signed by member B, executes at the next index)
-  assert.match(parseArgs(['--rpc', 'u', '--multisig', multisig, '--member', String(b.address)]).error, /name the stop/);
-  assert.match(parseArgs(['--rpc', 'u', '--multisig', multisig, '--clear']).error, /--keypair .* or --member/);
-  assert.deepEqual((({ clear, pauseLaunches, variants: v, rounds }) => ({ clear, pauseLaunches, v, rounds }))(parseArgs(['--rpc', 'u', '--multisig', multisig, '--member', String(b.address), '--clear', '--pause-launches'])),
-    { clear: true, pauseLaunches: true, v: 4, rounds: 5 });
-  assert.match(parseArgs(['--rpc', 'u', '--multisig', multisig, '--member', String(b.address), '--clear', '--variants', '0']).error, /--variants must be/);
-  const rpc = await rpcStub(w);
+  // the command line: options, and the print-only mode against two JSON-RPC stubs serving this World (its unsigned
+  // transaction, signed by member B exactly as printed, executes at the next index)
+  const two = ['--rpc', 'https://a.example', '--rpc', 'https://b.example'];
+  assert.match(parseArgs([...two, '--multisig', multisig, '--member', String(b.address)]).error, /name the stop/);
+  assert.match(parseArgs([...two, '--multisig', multisig, '--clear']).error, /--keypair .* or --member/);
+  assert.deepEqual((({ clear, pauseLaunches, variants: v, rounds, priorityFee }) => ({ clear, pauseLaunches, v, rounds, priorityFee }))(parseArgs([...two, '--multisig', multisig, '--member', String(b.address), '--clear', '--pause-launches'])),
+    { clear: true, pauseLaunches: true, v: 4, rounds: 5, priorityFee: DEFAULT_PRIORITY_FEE });
+  assert.match(parseArgs([...two, '--multisig', multisig, '--member', String(b.address), '--clear', '--variants', '0']).error, /--variants must be/);
+  const rpc = await rpcStub(w); const rpc2 = await rpcStub(w, { host: '127.0.0.2' });
   try {
-    const out = await new Promise((resolve) => {
-      const p = spawn(process.execPath, [join(SOL, 'scripts', 'vcurve', 'guardian-stop.mjs'), '--rpc', rpc.url, '--multisig', multisig, '--member', String(b.address), '--pause-launches', '--variants', '2', '--program-id', String(w.programId)], { cwd: SOL });
-      let text = ''; p.stdout.on('data', (d) => { text += d; }); p.stderr.on('data', (d) => { text += d; });
-      p.on('close', (code) => resolve({ code, text }));
-    });
+    const out = await runStop(['--rpc', rpc.url, '--rpc', rpc2.url, '--multisig', multisig, '--member', String(b.address), '--pause-launches', '--variants', '2', '--program-id', String(w.programId)]);
     assert.equal(out.code, 0, out.text);
     const blocks = [...out.text.matchAll(/^index (\d+): message hash (\S+)\n(\S+)$/gm)];
     assert.deepEqual(blocks.map((m) => BigInt(m[1])), [index() + 1n, index() + 2n]);
     const tx = web3.Transaction.from(Buffer.from(blocks[0][3], 'base64'));
     assert.equal(blocks[0][2], messageHash(tx.serializeMessage()));
-    const ixs = tx.instructions.map((x) => ({ programAddress: x.programId.toBase58(), accounts: x.keys.map((k) => ({ address: k.pubkey.toBase58(), role: (k.isSigner ? 2 : 0) + (k.isWritable ? 1 : 0) })), data: new Uint8Array(x.data) }));
-    await w.send(ixs, [b], 'member B signs the printed stop', { feePayer: b });
+    await w.sendWire(Buffer.from(blocks[0][3], 'base64'), 'member B signs the printed stop', { signers: [b] });
     assert.equal(w.launchpad().launchesPaused, true);
-  } finally { await rpc.close(); }
+  } finally { await rpc.close(); await rpc2.close(); }
+  await w.finish();
+});
+
+
+test('R8-OPS-2, R8-DIFF-7 (review round 8) one lying RPC that serves a halted LaunchBatch made the stop tool report the stop and send nothing; it now needs two RPCs of different providers, sends through both and reports the stop only when both show it and one of the member\'s transactions is confirmed; each transaction carries a compute-unit limit and price', async () => {
+  const { w, b, bSecret, multisig } = await guardianWorld();
+  const mallory = await w.signer(20n);
+  await w.publishBatch([{ cityId: 8401n, founder: mallory, symbol: 'LIAR' }], { label: 'the thief\'s publication' });
+  const dir = mkdtempSync(join(tmpdir(), 'vcurve-r8-stop-'));
+  const keyFile = join(dir, 'member.json');
+  writeFileSync(keyFile, JSON.stringify([...bSecret]), { mode: 0o600 });
+  // the liar: LaunchBatch served halted with both records cleared, and every transaction dropped (answered, never sent)
+  const lbAddr = String(w.P.launchBatch());
+  const liar = await rpcStub(w, {
+    host: '127.0.0.2',
+    lie: (addr, a) => { if (addr !== lbAddr || !a) return a; const d = Buffer.from(a.data); d[9] = 1; d[10 + 108] = 1; d[119 + 108] = 1; return { ...a, data: d }; },
+    rpc: (m) => (m.method === 'sendTransaction' ? { drop: true } : undefined),
+  });
+  const honest = await rpcStub(w);
+  const base = ['--multisig', multisig, '--keypair', keyFile, '--clear', '--rounds', '1', '--program-id', String(w.programId)];
+  try {
+    // the review's case: the liar alone. Before round 8 the tool printed "the chain shows the stop", exited 0 and sent nothing
+    let out = await runStop(['--rpc', liar.url, ...base]);
+    assert.equal(out.code, 2, out.text);
+    assert.match(out.text, /--rpc twice, two different providers/);
+    assert.deepEqual(liar.calls, [], 'nothing was read through one RPC');
+    // two URLs of one provider are one provider
+    out = await runStop(['--rpc', honest.url, '--rpc', honest.url.replace(/\/?$/, '/'), ...base]);
+    assert.equal(out.code, 2, out.text);
+    assert.match(out.text, /two different providers/);
+    assert.equal(w.launchBatch().halted, false, 'the real LaunchBatch is not halted');
+    // the honest RPC and the liar: the views disagree, the stop goes through the honest RPC, and it counts only when both
+    // show it and the member's transaction is confirmed
+    out = await runStop(['--rpc', honest.url, '--rpc', liar.url, ...base]);
+    assert.equal(out.code, 0, out.text);
+    assert.match(out.text, /warning RPC_DISAGREE/);
+    assert.match(out.text, /the stop is on chain: both RPCs show it, and this member's transaction \S+ is confirmed/);
+    assert.ok(honest.calls.includes('sendTransaction') && liar.calls.includes('sendTransaction'), 'sent through both');
+    const lb = w.launchBatch();
+    assert.deepEqual([lb.halted, lb.latest.cleared, lb.previous.cleared], [true, true, true], 'the real chain shows the stop');
+    // both RPCs now show it: nothing more is sent
+    const before = w.history.length;
+    out = await runStop(['--rpc', honest.url, '--rpc', liar.url, ...base]);
+    assert.equal(out.code, 0, out.text);
+    assert.match(out.text, /both RPCs show the stop already/);
+    assert.equal(w.history.length, before);
+  } finally {
+    await liar.close(); await honest.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // R8-DIFF-7: every variant carries SetComputeUnitLimit and SetComputeUnitPrice before the four Squads instructions;
+  // the price doubles each round; the printed stop executes within its own limit
+  const w2 = await guardianWorld();
+  await w2.w.publishBatch([{ cityId: 8402n, founder: await w2.w.signer(20n), symbol: 'PRIO' }], { label: 'the thief\'s publication' });
+  const r1 = await rpcStub(w2.w); const r2 = await rpcStub(w2.w, { host: '127.0.0.2' });
+  try {
+    const out = await runStop(['--rpc', r1.url, '--rpc', r2.url, '--multisig', w2.multisig, '--member', String(w2.b.address), '--clear', '--pause-launches', '--halt-buys', '--variants', '2', '--priority-fee', '250000', '--program-id', String(w2.w.programId)]);
+    assert.equal(out.code, 0, out.text);
+    const blocks = [...out.text.matchAll(/^index (\d+): message hash (\S+)\n(\S+)$/gm)];
+    assert.equal(blocks.length, 2);
+    for (const m of blocks) {
+      const tx = web3.Transaction.from(Buffer.from(m[3], 'base64'));
+      const programs = tx.instructions.map((x) => x.programId.toBase58());
+      assert.deepEqual(programs, ['ComputeBudget111111111111111111111111111111', 'ComputeBudget111111111111111111111111111111', ...Array(4).fill(SQUADS.programId)]);
+      assert.deepEqual([tx.instructions[0].data[0], tx.instructions[0].data.readUInt32LE(1)], [2, STOP_COMPUTE_UNITS]);
+      assert.deepEqual([tx.instructions[1].data[0], tx.instructions[1].data.readBigUInt64LE(1)], [3, 250_000n]);
+    }
+    assert.match(out.text, /compute-unit limit of 150000 at 250000 micro-lamports per unit/);
+    assert.deepEqual([1, 2, 3, 12].map((r) => roundPriorityFee(1_000_000, r)), [1_000_000, 2_000_000, 4_000_000, 50_000_000]);
+    const res = await w2.w.sendWire(Buffer.from(blocks[0][3], 'base64'), 'member B signs the printed stop (pause, halt buys, clear)', { signers: [w2.b] });
+    assert.ok(res.cu < STOP_COMPUTE_UNITS, `the stop used ${res.cu} compute units`);
+    const lp = w2.w.launchpad();
+    assert.deepEqual([lp.launchesPaused, lp.buysHalted, w2.w.launchBatch().halted], [true, true, true]);
+  } finally { await r1.close(); await r2.close(); }
   await w.finish();
 });

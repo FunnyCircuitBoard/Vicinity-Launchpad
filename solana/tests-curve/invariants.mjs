@@ -65,6 +65,25 @@ import * as S from '../sdk/curve/index.mjs';
 const { PublicKey } = web3;
 const ZERO = S.ADDRESSES.system;
 const LAMPORTS_PER_SIGNATURE = 5_000n;
+/**
+ * The prioritization fee of a message (review R8-DIFF-7: the guardian's stop carries a compute-unit price):
+ * ceil(price x limit / 10^6) lamports, the limit being the transaction's SetComputeUnitLimit or, without one, 200,000
+ * per instruction that is not a compute-budget one (at most 1,400,000); 0 without a SetComputeUnitPrice.
+ */
+export function priorityFeeOf(messageBytes) {
+  const msg = getCompiledTransactionMessageDecoder().decode(messageBytes);
+  const keys = msg.staticAccounts.map(String);
+  let limit = null; let price = 0n; let others = 0n;
+  for (const ix of msg.instructions) {
+    const d = Buffer.from(ix.data ?? []);
+    if (keys[ix.programAddressIndex] !== S.ADDRESSES.computeBudget) { others++; continue; }
+    if (d[0] === 2 && d.length === 5) limit = BigInt(d.readUInt32LE(1));
+    if (d[0] === 3 && d.length === 9) price = d.readBigUInt64LE(1);
+  }
+  if (price === 0n) return 0n;
+  const units = limit ?? (others * 200_000n < 1_400_000n ? others * 200_000n : 1_400_000n);
+  return (price * units + 999_999n) / 1_000_000n;
+}
 /** Metaplex Token Metadata's own fee, charged to the payer of `launch` into the metadata account (3.10, O17). */
 export const METAPLEX_CREATE_FEE = 10_000_000n;
 /**
@@ -240,7 +259,7 @@ export function decodeTransaction(w, { messageBytes, inner, logs, lookupAddresse
     }
     return t;
   });
-  return { keys, signers, feePayer: keys[0], nSignatures: nSigners, top, calls, steps };
+  return { keys, signers, feePayer: keys[0], nSignatures: nSigners, priorityFee: priorityFeeOf(messageBytes), top, calls, steps };
 }
 /**
  * In the logs of one top-level instruction of another program, the `Program data:` lines of each call into
@@ -283,13 +302,14 @@ function computeOf(seg, program) {
 
 // ---------------------------------------------------------------- failed transactions
 /**
- * A failed transaction moved nothing but its fee: the fee payer paid exactly the fee (5,000 lamports per signature)
+ * A failed transaction moved nothing but its fee: the fee payer paid exactly the fee (5,000 lamports per signature, plus
+ * the prioritization fee of a compute-unit price)
  * when the transaction ran and failed, and nothing at all when the runtime refused it before execution (`charged`
  * false: its fee payer missing or unable to pay, a bad signature or blockhash, L2); no other account changed.
  */
-export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts, feePayer, nSignatures, label, charged = true }) {
+export function checkFailedTransaction(w, { pre, post, preAccounts, postAccounts, feePayer, nSignatures, priorityFee = 0n, label, charged = true }) {
   checkProgramBytes(w, label);
-  const fee = charged ? LAMPORTS_PER_SIGNATURE * BigInt(nSignatures) : 0n;
+  const fee = charged ? LAMPORTS_PER_SIGNATURE * BigInt(nSignatures) + BigInt(priorityFee) : 0n;
   for (const [k, a] of preAccounts) {
     const b = postAccounts.get(k);
     const want = k === feePayer ? a.lamports - fee : a.lamports;
@@ -449,7 +469,7 @@ export function checkTransaction(w, ctx) {
   // ------------------------------------------------ SOL: every lamport change explained (I13, I14, I21)
   const exp = new Map();
   const addD = (k, d) => exp.set(k, (exp.get(k) ?? 0n) + d);
-  const fee = LAMPORTS_PER_SIGNATURE * BigInt(tx.nSignatures);
+  const fee = LAMPORTS_PER_SIGNATURE * BigInt(tx.nSignatures) + (tx.priorityFee ?? 0n);
   addD(tx.feePayer, -fee);
   const credits = []; // { to, amount, kind }
   const moves = (from, to, amount, kind) => { addD(from, -amount); addD(to, amount); credits.push({ from, to, amount, kind }); };
