@@ -120,6 +120,16 @@
         if (!signed || signed.length < 100) throw Object.assign(new Error("The wallet gave back no transaction."), { code: "no_signature" });
         return signed;
       },
+      /**
+       * Sign several serialized transactions in ONE prompt (the Wallet Standard's solana:signTransaction takes many inputs): the signed
+       * bytes of each, in order. Only the owner's daily approval round uses it (public/lp-sign.js signAll); nothing is sent here.
+       */
+      async signAllTransactions(list, chain) {
+        if (!sign) throw Object.assign(new Error("This wallet cannot sign transactions from here."), { code: "no_sign" });
+        const out = await sign.signTransaction(...list.map((bytes) => ({ account: this.account, transaction: bytes, chain })));
+        const all = Array.isArray(out) ? out : [out];
+        return all.map((o) => (o && o.signedTransaction ? toBytes(o.signedTransaction) : null));
+      },
       async disconnect() { try { await w.features["standard:disconnect"]?.disconnect(); } catch {} },
     };
   }

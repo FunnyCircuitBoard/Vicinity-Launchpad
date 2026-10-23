@@ -32,7 +32,8 @@ import { access } from "./access.js";
 import { isSolanaAddress } from "./solana.js";
 import { codeOf } from "./sources.js";
 import { lpSetup } from "./cluster.js";
-import { coinV2ReadyOn } from "./flags.js";
+import { coinV2BatchOn, coinV2ReadyOn } from "./flags.js";
+import { launchHold, reviewPause } from "./coinreview.js";
 import { buildTx, checkCluster, checkGenesis, checkedRoute, readAccounts, respond } from "./lpkit.js";
 import { liveSeatOfUser } from "./roles.js";
 import { stillFounder } from "./seats.js";
@@ -220,6 +221,16 @@ function launchProblem(st, s, wallet, nowS, { slack = 0 } = {}) {
 }
 
 /**
+ * COIN_V2_BATCH=on (src/lpbatch.js): approvals come in the owner's rounds, so "not approved" and "expired" are said as that, and never with
+ * a time (the owner signs each round himself). Off: the words are the ones above, unchanged.
+ */
+const ROUND_WORDS = Object.freeze({
+  not_approved: "Your launch opens after the owner's next approval round, once your coin is chosen and passes every check.",
+  approval_expired: "Your approval ran out before you launched. It is renewed at the owner's next approval round.",
+});
+const inRounds = (env, p) => (p && coinV2BatchOn(env) && ROUND_WORDS[p.error] ? { ...p, message: ROUND_WORDS[p.error] } : p);
+
+/**
  * One city, one coin, whatever the switches say: a contract sent for this city through the old Raydium LaunchLab path (src/coins.js
  * city_coins.pending_mint) that still waits for a check may be a coin already, so nothing launches here until an admin settles it.
  * It is the first thing the founder is told (before "not approved" and the rest: no approval is given while it waits), after only a
@@ -282,9 +293,15 @@ async function launchStatus(request, env, fetchImpl, now) {
     out.yours = st.coin.founder === who.wallet;
     return json(out, 200, { "Cache-Control": "no-store" });
   }
-  let p = launchProblem(st, s, who.wallet, nowS);
+  let p = inRounds(env, launchProblem(st, s, who.wallet, nowS));
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
   if (await legacyContractWaiting(env, cityId)) p = { state: "paused", error: "legacy_contract", message: LEGACY_CONTRACT_WAITING };
+  // COIN_V2_REVIEW: a change request or a description waiting for review pauses the launch; the approved coin must still be launchable
+  // (src/coinreview.js launchHold; nothing with the switch off)
+  if (!p) { const h = await launchHold(env, String(cityId), st.approval); if (h) p = h; }
+  // not approved yet (or expired): when the review rules keep the next round from approving it (a request waiting, a ticker the city
+  // list does not carry yet...), that is what the founder is told, never "it opens after the next round" (src/coinreview.js reviewPause)
+  else if (p.error === "not_approved" || p.error === "approval_expired") { const h = await reviewPause(env, String(cityId)); if (h) p = h; }
   // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
   if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
@@ -323,12 +340,19 @@ async function launchTx(request, env, fetchImpl, now) {
 
   let st;
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
-  const p = launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S });
+  const p = inRounds(env, launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S }));
   // the same order as the status: a coin already on chain, an approval for another wallet, then a contract still waiting from the
   // old LaunchLab path (before anything is built), then the rest
   if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
+  if (p && (p.error === "not_approved" || p.error === "approval_expired")) {
+    const h = await reviewPause(env, String(cityId));
+    if (h) return err(h.error, `${h.message} Nothing was built.`, 409, { state: h.state });
+  }
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  // COIN_V2_REVIEW=on: a request waiting for review pauses the launch, and the approved coin must still be launchable (src/coinreview.js)
+  const held = await launchHold(env, String(cityId), st.approval);
+  if (held) return err(held.error, `${held.message} Nothing was built.`, 409, { state: held.state });
   // COIN_V2_READY=on: a ticker launches once. The live program does not lock tickers, so a symbol another city already launched with
   // (lp_coins) is refused here before anything is built (scripts/cities/tickers.mjs pins every launched ticker in the city list too)
   if (coinV2ReadyOn(env) && st.approval) {

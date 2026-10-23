@@ -4,6 +4,7 @@
 // test/coin-ready-launch.test.js and test/coin-ready-recheck.test.js (each sets the art renderer and resets the modules itself).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import zlib from "node:zlib";
 import { BOUNDS, CITIES, IN_UTICA, MINT, newWorld, person, useClock, chain } from "./world.js";
 import { GENESIS } from "../../src/lpkit.js";
 import { _resetCityCache } from "../../src/cities.js";
@@ -20,6 +21,18 @@ export const PROGRAM = "Fncx4qBhEK3xEFN2gGkNCEaUz1r8W9DprHUt83mDrcx7", REWARDS =
 export const LOADER = PROGRAM_IDS.upgradeableLoader, WSOL = ADDRESSES.wsol, METAPLEX = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 export const UTICA = "5142056";
 export const b64 = (u8) => Buffer.from(u8).toString("base64");
+/** A real, whole PNG: `w` x `h` pixels of one colour (an uploaded coin picture must be a square PNG of 64 to 1024 px: src/coinreview.js). */
+export function pngOf(w = 64, h = w, rgb = [200, 40, 40]) {
+  const chunk = (type, data) => {
+    const t = Buffer.from(type, "latin1"), len = Buffer.alloc(4), crc = Buffer.alloc(4);
+    len.writeUInt32BE(data.length); crc.writeUInt32BE(zlib.crc32(Buffer.concat([t, data])));
+    return Buffer.concat([len, t, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  const row = Buffer.concat([Buffer.of(0), Buffer.from(Array.from({ length: w }, () => rgb).flat())]);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))), chunk("IEND", Buffer.alloc(0))]);
+}
 export let n = 0;
 export const fresh = () => base58Encode(Uint8Array.from({ length: 32 }, (_, j) => (++n * 37 + j * 11 + 5) & 255));
 export const CONFIG = fresh();
@@ -89,6 +102,25 @@ export function fakeChain(accounts = {}) {
 
 export const LP_ON = { LAUNCHPAD_CLUSTER: "devnet", LAUNCHPAD_PROGRAM_ID: PROGRAM, LAUNCHPAD_REWARDS_PROGRAM_ID: REWARDS, LAUNCHPAD_RPC_URL: "https://lp-rpc.test/devnet", LAUNCHPAD_DBC_CONFIGS: CONFIG };
 export const SYRACUSE = "5140405";
+/**
+ * A founder's own description made the coin's the only way there is (src/screen.js ENGINE 5, SCR-PLAIN-1: a founder's own words never
+ * pass by themselves): written (flagged "review", or for what the checks found), sent for review, approved by `admin` (an admin or the
+ * owner). Answers the founder's view after the approval. `w`: a world with post/get, the founder `f` and an `admin` (or pass one).
+ */
+export async function ownDescription(w, text, { admin = w.admin || w.owner, who = w.f, city = UTICA } = {}) {
+  const s = await w.post(who, "/api/coins/review/description", { cityId: city, text });
+  assert.equal(s.ok, true, JSON.stringify(s));
+  assert.equal(s.screening.result, "flag", `a founder's own words always go to a person: ${JSON.stringify(s.screening)}`);
+  const sent = await w.post(who, "/api/coins/review/description/review", { cityId: city, screeningId: s.screening.id });
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  const r = sent.review.request;
+  const ap = await w.post(admin, "/api/admin/coins/reviews/decide", { id: r.id, action: "approve", contentHash: r.contentHash });
+  assert.equal(ap.ok, true, JSON.stringify(ap));
+  const v = await w.get(who, `/api/coins/ready?city=${city}`);
+  assert.equal(v.coin.description, s.screening.text);
+  return v;
+}
+
 // what the City coins card sends with "Approve on chain" (public/admin-lp.js): with the ready-made coin, the exact version it showed too
 export const seenOf = (c) => ({ cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt, ...(c.ready ? { contentHash: c.ready.contentHash } : {}) });
 

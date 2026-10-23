@@ -1,0 +1,108 @@
+// Builds src/screen-vocab.js: the words the description screener (src/screen.js) knows, and the web endings it reads as links.
+//
+//   node scripts/screen/build-vocab.mjs --scowl <dir> --hunspell <dir> --iana <file>   everything (the first time, or a new word list)
+//   node scripts/screen/build-vocab.mjs                               only the place names again (after public/data/cities.json changed)
+//
+//   ENGLISH  everyday English words: SCOWL (Spell Checker Oriented Word Lists, Kevin Atkinson; the npm package wordlist-english@1.2.1,
+//            `npm pack wordlist-english@1.2.1`), the "english" list and its American, British, Canadian and Australian variants up to
+//            size 60 (common and less common words, never the rare ones), lower case, accents folded; and the lower-case words of the
+//            Hunspell en_US dictionary made from SCOWL (the npm package dictionary-en@4.0.0, `npm pack dictionary-en@4.0.0`: a few
+//            everyday words the lists leave out, such as "tech"). Its notice is in scripts/screen/SCOWL-COPYRIGHT.txt.
+//   NAMES    the proper names of that Hunspell dictionary (people, places, brands, landmarks: "Broadway", "Beatles", "Waikiki"), with
+//            their plural when it has one, folded the same way. src/screen.js knows them as names: a word of a description, never
+//            counted as an everyday English one.
+//   PLACES   every word of every city, region and country name of the Vicinity city list (public/data/cities.json), folded the same way,
+//            that ENGLISH and NAMES do not have already. test/screen-wordlist.test.js fails when this is out of date with the city list.
+//   TLDS     every top-level domain IANA lists (https://data.iana.org/TLD/tlds-alpha-by-domain.txt), lower case, letters only.
+// Nothing here is filtered for offensive words: src/screen.js takes out every word of the screener's lists (src/screen-words.js SLURS,
+// ABUSE, FOREIGN_SLURS, VOCAB_DENY) when it loads the vocabulary, so the owner's lists decide, not this file.
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+
+const OUT = fileURLToPath(new URL("../../src/screen-vocab.js", import.meta.url));
+const CITIES = fileURLToPath(new URL("../../public/data/cities.json", import.meta.url));
+export const SCOWL_MAX = 60;
+const SIZES = [10, 20, 35, 40, 50, 55, 60, 70].filter((n) => n <= SCOWL_MAX);
+const VARIANTS = ["english", "american", "british", "canadian", "australian"];
+
+/** Lower case, accents and other marks taken off (the screener folds the text the same way before it looks a word up). */
+export const foldWord = (s) => String(s || "").normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/ß/g, "ss").replace(/æ/g, "ae").replace(/œ/g, "oe").replace(/ø/g, "o").replace(/ł/g, "l").replace(/đ|ð/g, "d").replace(/þ/g, "th").replace(/ı/g, "i");
+const sorted = (set) => [...set].sort();
+
+/** Every word of the city list's names (cities, regions, countries), folded: the gazetteer part of the vocabulary. */
+export function placeWords(citiesJson) {
+  const c = typeof citiesJson === "string" ? JSON.parse(citiesJson) : citiesJson;
+  const out = new Set();
+  const add = (s) => { for (const w of foldWord(s).split(/[^a-z]+/)) if (w.length > 1) out.add(w); };
+  for (const rows of Object.values(c.byCountry || {})) for (const r of rows) add(r[1]);
+  for (const v of Object.values(c.admin || {})) add(v);
+  for (const v of Object.values(c.countries || {})) add(v);
+  return out;
+}
+
+/**
+ * The Hunspell dictionary's stems: a lower-case one is an everyday word (added to `english`), a capitalised one a name (`names`), each
+ * with its plural when its flags allow one (S); the other forms of an everyday word are SCOWL's already.
+ */
+export function hunspellWords(dic, english) {
+  const names = new Set(), out = new Set(english);
+  const plural = (w) => (/(?:[sxz]|ch|sh)$/.test(w) ? `${w}es` : /[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`);
+  for (const line of dic.split("\n").slice(1)) {
+    const [stem, flags = ""] = line.trim().split("/");
+    if (!stem || /[^\p{L}'’-]/u.test(stem) || /['’]/.test(stem)) continue;
+    const f = foldWord(stem).replace(/-/g, "");
+    if (!/^[a-z]{2,}$/.test(f)) continue;
+    const set = /^\p{Lu}/u.test(stem) ? names : out;
+    set.add(f);
+    if (flags.includes("S")) set.add(plural(f));
+  }
+  return { english: out, names };
+}
+/** The module's text: three space-separated word lists and the SHA-256 of all three (part of the screener's rules version). */
+export function moduleText({ english, names, places, tlds, source }) {
+  const E = sorted(english).join(" "), N = sorted([...names].filter((w) => !english.has(w))).join(" ");
+  const P = sorted([...places].filter((w) => !english.has(w) && !names.has(w))).join(" "), T = sorted(tlds).join(" ");
+  const sha = createHash("sha256").update(`${E}\n${N}\n${P}\n${T}`).digest("hex");
+  return `// GENERATED by scripts/screen/build-vocab.mjs: do not edit by hand (rebuild it; src/screen.js reads it).
+// ENGLISH: SCOWL, Copyright 2000-2016 by Kevin Atkinson and the copyrights in scripts/screen/SCOWL-COPYRIGHT.txt, which says:
+//   Permission to use, copy, modify, distribute and sell these word lists, the associated scripts, the output created from the scripts,
+//   and its documentation for any purpose is hereby granted without fee, provided that the above copyright notice appears in all copies
+//   and that both that copyright notice and this permission notice appear in supporting documentation. Kevin Atkinson makes no
+//   representations about the suitability of this array for any purpose. It is provided "as is" without express or implied warranty.
+// NAMES and part of ENGLISH: the Hunspell en_US dictionary made from SCOWL (dictionary-en, MIT AND BSD; the same notice).
+// PLACES: the Vicinity city list (public/data/cities.json: GeoNames, CC BY 4.0). TLDS: IANA's list of top-level domains.
+export const VOCAB_SOURCE = ${JSON.stringify(source)};
+export const ENGLISH = ${JSON.stringify(E)};
+export const NAMES = ${JSON.stringify(N)};
+export const PLACES = ${JSON.stringify(P)};
+export const TLDS = ${JSON.stringify(T)};
+export const VOCAB_SHA256 = ${JSON.stringify(sha)};
+`;
+}
+
+/** The current module's lists (to rebuild only the places). */
+async function current() {
+  const m = await import(`${new URL("../../src/screen-vocab.js", import.meta.url).href}?t=${Date.now()}`);
+  return { english: new Set(m.ENGLISH.split(" ")), names: new Set(m.NAMES.split(" ")), places: new Set(m.PLACES.split(" ")), tlds: new Set(m.TLDS.split(" ")), source: m.VOCAB_SOURCE };
+}
+
+async function main() {
+  const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
+  const scowl = arg("--scowl"), hun = arg("--hunspell"), iana = arg("--iana");
+  let english, names, tlds, source;
+  if (scowl || hun || iana) {
+    if (!scowl || !hun || !iana) throw new Error("give --scowl <dir>, --hunspell <dir> and --iana <file> (or none, to rebuild only the place names)");
+    const pkg = JSON.parse(readFileSync(`${scowl}/package.json`, "utf8")), hpkg = JSON.parse(readFileSync(`${hun}/package.json`, "utf8"));
+    english = new Set();
+    for (const n of SIZES) for (const v of VARIANTS) for (const w of JSON.parse(readFileSync(`${scowl}/${v}-words-${n}.json`, "utf8"))) { const f = foldWord(w); if (/^[a-z]+$/.test(f)) english.add(f); }
+    ({ english, names } = hunspellWords(readFileSync(`${hun}/index.dic`, "utf8"), english));
+    const ianaText = readFileSync(iana, "utf8");
+    tlds = new Set(ianaText.split("\n").map((l) => l.trim().toLowerCase()).filter((l) => /^[a-z]{2,}$/.test(l)));
+    source = { scowl: `${pkg.name}@${pkg.version}, sizes ${SIZES.join(", ")}: ${VARIANTS.join(", ")}`, hunspell: `${hpkg.name}@${hpkg.version} (en_US)`, iana: ianaText.split("\n")[0].replace(/^#\s*/, "") };
+  } else ({ english, names, tlds, source } = await current());
+  const places = placeWords(readFileSync(CITIES, "utf8"));
+  writeFileSync(OUT, moduleText({ english, names, places, tlds, source }));
+  console.log(`src/screen-vocab.js: ${english.size} English words, ${[...names].filter((w) => !english.has(w)).length} names, ${[...places].filter((w) => !english.has(w) && !names.has(w)).length} more place words, ${tlds.size} top-level domains`);
+}
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main().catch((e) => { console.error(e.message); process.exit(1); });

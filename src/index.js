@@ -91,8 +91,9 @@ import { handleCancelSnapshot, handleProof, handleSnapshotData, handleSnapshots,
 import { managerOf } from "./roles.js";
 import { handleCoins, handleDecideMint, handleDesign, handlePrices, handleProposeMint, handleTakedown, jupiterPrices, officialCityCoin, wantedMints } from "./coins.js";
 import { runJobs } from "./jobs.js";
-import { coinV2ReadyOn, feedV2On, launchpadV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { coinV2ReadyOn, coinV2ReviewOn, feedV2On, launchpadV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
 import { handleReady, handleReadyArt, handleReadyUse } from "./coinready.js";
+import { handleReview } from "./coinreview.js";
 import { handleSendBuild } from "./walletsend.js";
 import { linkAccountFor, routeWalletLink } from "./walletlink.js";
 import { routeV2 } from "./signup.js";
@@ -398,6 +399,9 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
 
   // paths with an id in them
   if (path.startsWith("/api/admin/")) return db(() => handleAdmin(request, env, Date.now(), fetchImpl));
+  // the city-coin reviews (COIN_V2_REVIEW=on with COIN_V2_READY=on, src/coinreview.js): with the switch off every such path is an unknown
+  // path (404) for every method
+  if (path.startsWith("/api/coins/review/")) return coinV2ReviewOn(env) ? handleReview(request, env, path.slice("/api/coins/review/".length), fetchImpl) : json({ error: "not_found" }, 404);
   const oauth = path.match(/^\/api\/auth\/(google)\/(start|callback)$/);
   // (ctx: the "Google sign-in was added" e-mail goes out after the answer)
   if (oauth) return only("GET") || (oauth[2] === "start" ? handleOAuthStart(request, env, oauth[1]) : handleOAuthCallback(request, env, oauth[1], fetchImpl, Date.now(), ctx));

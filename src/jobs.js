@@ -13,8 +13,9 @@ import { cleanupSignups } from "./signup-core.js";
 import { refreshCoinStats } from "./launchpad.js";
 import { recordMarket } from "./pricehistory.js";
 import { pruneFeedback } from "./feedback.js";
-import { v2On, profilesOn, launchpadV2On } from "./flags.js";
+import { coinV2ReviewOn, v2On, profilesOn, launchpadV2On } from "./flags.js";
 import { lpSetup } from "./cluster.js";
+import { registryStep } from "./coinreview.js";
 import { sweepLaunchedCoins } from "./lpcoins.js";
 import { DAY, HOUR, iso } from "./policy.js";
 
@@ -55,6 +56,8 @@ async function runSteps(env, now, fetchImpl, rand) {
   if (launchpadV2On(env)) await step("market", () => recordMarket(env, now, fetchImpl));
   // city coins launched on our own launchpad, recorded from the chain every 30 minutes (only while its settings are there: lpSetup)
   if (lpSetup(env).on) await step("lpCoins", () => sweepLaunchedCoins(env, now, fetchImpl));
+  // approved ticker changes the city list now carries (COIN_V2_REVIEW on only: with it off this run is exactly as it always was)
+  if (coinV2ReviewOn(env)) await step("coinRegistry", () => registryStep(env, now));
   return out;
 }
 

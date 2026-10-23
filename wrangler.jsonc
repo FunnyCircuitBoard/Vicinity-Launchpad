@@ -95,6 +95,18 @@
     // template look is not signed off and the rules text (docs/RULES-V7-DRAFT.md) is not published yet. "on" only after the owner's
     // go; anything else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
     "COIN_V2_READY": "off",
+    // The city-coin flow, stage 2 (src/flags.js coinV2ReviewOn, src/coinreview.js): "Request changes" (another picture, ticker or name,
+    // reviewed by an admin or the owner against its exact version; submitting pauses the launch), the review status (Pending, Approved,
+    // Changes needed, with a plain reason), the founder's own description with automatic screening (src/screen.js), and the admin queue
+    // "Coin reviews". Needs COIN_V2_READY on as well. OFF: built and tested dark on 23 Oct 2026. "on" only after the owner's go; anything
+    // else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
+    "COIN_V2_REVIEW": "off",
+    // The owner's daily launch-approval round (src/flags.js coinV2BatchOn, src/lpbatch.js; DESIGN 6.5 and 9.4): in the admin's City coins
+    // tab, "Launch approvals to sign" lists every founder whose chosen coin passes every check (Approve), approvals to renew or revoke,
+    // and what is blocked and why; the Worker builds UNSIGNED transactions (up to 5 cities each) and the owner's own wallet signs them
+    // (the website never holds a key). Needs COIN_V2_READY on as well. OFF: built and tested dark on 23 Oct 2026. "on" only after the
+    // owner's go; anything else than "on" is the site exactly as before (change the value, do not delete the line: keep_vars).
+    "COIN_V2_BATCH": "off",
     // Community feed v2 (src/flags.js feedV2On): the "update" post kind, delete your own post, mute, the author's city on every
     // national post, one confirmation before the first national post. ON since 17 Oct 2026, by the owner ("switch on all the
     // builds"). To switch off: "off" (change the value, do not delete the line: keep_vars) in a pull request; anything else than

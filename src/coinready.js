@@ -48,8 +48,9 @@ import { launchpad as launchpadPdas } from "./sol/pda.js";
 import { tickerOf, tickersAvailable } from "./tickers.js";
 import { DEFAULT_PAIR, SOURCE, coinDefaults } from "./coindefaults.js";
 import { TEMPLATE_VERSION, coinSvg, sha256Hex } from "./coinart.js";
-import { artBySvg, artPath, chosenOf, ensureReadySchema, storeArtStatement } from "./coinart-store.js";
-import { coinV2ReadyOn } from "./flags.js";
+import { approvedBasis, approvedDescription, approvedRequest, artBySvg, artPath, chosenOf, cityDescription, ensureReadySchema, storeArtStatement } from "./coinart-store.js";
+import { coinV2BatchOn, coinV2ReadyOn, coinV2ReviewOn } from "./flags.js";
+import { pendingRequest, reviewState } from "./coinreview.js";
 
 export const PREVIEW_LABEL = "Preview, not launched";
 /** Per account, counted atomically BEFORE the work (src/limits.js): a flood cannot all pass. */
@@ -74,6 +75,11 @@ export const GATES = Object.freeze({
   approved_other: "This city's coin is approved on the blockchain for another wallet than yours (the founder's wallet when it was approved). Vicinity's owner must revoke that approval before you can choose and launch your coin.",
   held: "The owner is approving your coin right now, so its design is fixed for a few minutes. Try again in 5 minutes.",
   rpc_unavailable: "We couldn't check the blockchain just now. Nothing changed. Try again in a minute.",
+  // COIN_V2_REVIEW: a change request (or a description) the founder sent waits for a reviewer: launch and other changes wait
+  request_pending: "Your change request is waiting for review. Launch and other changes wait until a reviewer decides; you can cancel the request.",
+  description_pending: "Your description is waiting for review. Launch and other changes wait until a reviewer decides; you can cancel the review.",
+  // COIN_V2_REVIEW: the founder changed the coin (a description, or back to the defaults) after the owner approved it on the blockchain
+  approved_changed: "Your coin changed after the owner approved it on the blockchain, so it can't launch until the owner approves it as it is now, at the owner's next approval round.",
 });
 
 /* ---------------------------------------------------------------- versions */
@@ -98,7 +104,7 @@ export const versionLabel = (hash) => (hash ? hash.slice(0, 8) : null);
 let rendererOverride = null;
 /** Tests (and the Node tools) hand in the Node renderer (scripts/coin-art/render.mjs); the Worker loads its own on first use. */
 export const _setArtRenderer = (fn) => { rendererOverride = fn; };
-async function renderPng(svg) {
+export async function renderPng(svg) {
   const render = rendererOverride || (await import("./coinart-wasm.js")).render;
   const t0 = Date.now();
   const png = await render(svg);
@@ -107,15 +113,15 @@ async function renderPng(svg) {
 }
 // the city line is the coin's name (the registry name, or its shortened form: src/coindefaults.js NAME_OVERRIDES), never a name the
 // coin itself does not carry
-const svgOf = (d, templateVersion = TEMPLATE_VERSION) => coinSvg({ ticker: d.ticker, city: d.name, templateVersion });
+export const svgOf = (d, templateVersion = TEMPLATE_VERSION) => coinSvg({ ticker: d.ticker, city: d.name, templateVersion });
 /** The stored picture of a coin's defaults: { sha256 } or null. Reads only. */
-async function storedArt(env, d) {
+export async function storedArt(env, d) {
   const svg = svgOf(d);
   const row = await artBySvg(env.DB, await sha256Hex(svg), TEMPLATE_VERSION);
   return row ? { sha256: row.sha256 } : null;
 }
 /** The picture of a coin's defaults, drawn and stored now if it never was (only from a POST of the switch; every read fresh). */
-async function ensureArt(env, d, now) {
+export async function ensureArt(env, d, now) {
   const svg = svgOf(d), svgSha = await sha256Hex(svg);
   const known = await artBySvg(env.DB, svgSha, TEMPLATE_VERSION, { fresh: true });
   if (known) return { sha256: known.sha256 };
@@ -131,7 +137,7 @@ async function ensureArt(env, d, now) {
 const cityIdOk = (v) => typeof v === "string" && /^\d{1,19}$/.test(v) && BigInt(v) > 0n && BigInt(v) < (1n << 64n) - 1n;
 const optional = async (run) => { try { return await run(); } catch (e) { if (/no such table/i.test(String((e && e.message) || e))) return null; throw e; } };
 /** The city's coin as the site knows it: { mint, pending } (a launched coin, or a Raydium LaunchLab contract waiting for a check). */
-async function coinState(env, cityId) {
+export async function coinState(env, cityId) {
   const row = await env.DB.prepare("SELECT mint, pending_mint FROM city_coins WHERE city_id = ?").bind(cityId).first();
   const lp = await optional(() => env.DB.prepare("SELECT mint FROM lp_coins WHERE city_id = ? LIMIT 1").bind(cityId).first());
   return { launched: Boolean((row && row.mint) || lp), pending: Boolean(row && row.pending_mint) };
@@ -170,12 +176,14 @@ export async function symbolTaken(env, cityId, symbol, fetchImpl = fetch, { chai
  */
 async function staleChoice(env, r, symbol) {
   if (r.mint || (r.approved_hash && r.approved_hash === r.content_hash)) return false;
+  // a ticker change a reviewer approved (COIN_V2_REVIEW): that city keeps it while the city list catches up (D8), whatever any switch says
+  if (await approvedRequest(env.DB, r.city_id, r.content_hash)) return false;
   const t = await tickerOf(env, r.city_id);
   if (!t) return tickersAvailable(env); // not in the list any more: stale; the list unreadable: kept
   return t.ticker !== symbol;
 }
 /** A released choice's symbol: "~" and the city id. Never a ticker (A-Z0-9 only), one per city, so coin_ready's UNIQUE holds. */
-const releasedSymbol = (cityId) => `~${cityId}`;
+export const releasedSymbol = (cityId) => `~${cityId}`;
 const gate = (code) => ({ code, message: GATES[code] });
 /**
  * Why the founder cannot use the coin now, or null. `live`: the founder-amount check already made (true / false / "error").
@@ -191,6 +199,11 @@ async function coinGate(env, { u, seat, d, live, cityId, fetchImpl, now, chain =
   if (!live) return gate(stewardInGrace(seat, now) ? "in_grace" : "below_amount");
   if ((await activeBan(env.DB, u.id, u.home_country, now)) || (await activeBan(env.DB, u.id, seat.country, now))) return gate("banned");
   if (!d.ok) return { code: d.code, message: d.message };
+  if (coinV2ReviewOn(env)) {
+    const pend = await pendingRequest(env.DB, cityId);
+    // (one code for both: the page knows a review waits; the words say which)
+    if (pend) return { code: "request_pending", message: pend.kind === "description" ? GATES.description_pending : GATES.request_pending };
+  }
   const st = await coinState(env, cityId);
   if (st.launched) return gate("launched");
   if (st.pending) return gate("legacy_contract");
@@ -220,6 +233,8 @@ async function approvedGate(env, { seat, cityId, fetchImpl }) {
   if (ap.founder !== seat.wallet) return gate("approved_other");
   const c = await chosenOf(env.DB, cityId, { fresh: true });
   if (c && c.current && c.approved_hash === c.content_hash && c.name === ap.name && c.symbol === ap.symbol) return gate("approved");
+  // built from an earlier version of this very coin (only the review routes keep that hash: src/coinreview.js select)
+  if (c && c.current && c.approved_hash && c.name === ap.name && c.symbol === ap.symbol) return gate("approved_changed");
   return { code: "approved_earlier",
     message: `Your city's coin is approved on the blockchain as “${ap.name}” ($${ap.symbol}), but not with the Vicinity coin shown here. It launches as approved, with the design it was approved with.` };
 }
@@ -245,7 +260,7 @@ async function previewOf(env, cityId, { seat, d, c, design }) {
   if (!seat || !["active", "steward", "grace"].includes(seat.status)) return null;
   const st = await coinState(env, cityId);
   if (st.launched || st.pending) return null;
-  const chosenNow = Boolean(c && c.current && c.content && d && d.ok && c.symbol === d.ticker && c.name === d.name);
+  const chosenNow = Boolean(c && c.current && c.content && d && d.ok && c.symbol === d.ticker && (c.name === d.name || (await reviewedName(env, cityId, c))));
   if (design && !chosenNow) return null;
   if (chosenNow && c.approved_hash !== c.content_hash && (await approvalLogged(env, cityId))) return null;
   // a ticker another city launched, holds an approval for or chose cannot launch here: no preview of it
@@ -287,7 +302,16 @@ export async function choiceHolds(env, { cityId, country }, choice) {
   if (choice.approved_hash && choice.approved_hash === choice.content_hash && (await approvalLogged(env, cityId, { symbol: choice.symbol, name: choice.name }))) return true;
   const d = await coinDefaults(env, cityId, country);
   if (!d.ok) return d.code === "list_unavailable";
-  return choice.symbol === d.ticker && choice.name === d.name;
+  return choice.symbol === d.ticker && (choice.name === d.name || (await reviewedName(env, cityId, choice)));
+}
+/**
+ * A chosen version whose name a reviewer approved (an approved change with exactly its name, ticker and picture) holds like the defaults
+ * do, once the city list carries its ticker, whatever COIN_V2_REVIEW says now (switched off after use, an approved change stays approved).
+ * Without the review tables (the switch never on): never, as in stage 1.
+ */
+async function reviewedName(env, cityId, c) {
+  if (!c || !c.art_sha256) return false;
+  return Boolean(await approvedBasis(env.DB, cityId, { name: c.name, symbol: c.symbol, art: c.art_sha256 }));
 }
 /**
  * The card's coin for a chosen version (its own content, as it was chosen): what an approval built from it fixes and what its launch
@@ -318,7 +342,11 @@ async function founderView(env, { u, seat, cityId, fetchImpl, now, live, chain =
   const earlier = aside && String(design.user_id) === String(u.id), earlierOther = aside && !earlier;
   // approved from the chosen version (or being approved right now), or launched with it: the card shows THAT version, which is what
   // launches or launched, never the defaults as they read today
-  if (c && c.content && ((c.current && g && ["approved", "held"].includes(g.code)) || c.mint)) {
+  // COIN_V2_REVIEW: this founder's own chosen version that is not Vicinity's defaults (an approved change, their screened description) is
+  // their coin: shown as it is, in use
+  // (whatever COIN_V2_REVIEW says now: switched off after use, the founder's chosen version is still what the owner approves and launches)
+  const reviewed = c && c.content && c.current && c.seat_id === seat.id && c.origin && c.origin !== "default";
+  if (c && c.content && ((c.current && g && ["approved", "held"].includes(g.code)) || c.mint || reviewed)) {
     const v = versionCoin(c, d);
     return { ok: true, mode: "founder", city: v.city, coin: v.coin, chosen, inUse: Boolean(chosen.current && chosen.mine), earlier, earlierOther, gate: g, preview };
   }
@@ -333,12 +361,26 @@ async function founderView(env, { u, seat, cityId, fetchImpl, now, live, chain =
     chosen, inUse: Boolean(chosen && chosen.current && chosen.mine && contentHash && chosen.contentHash === contentHash), earlier, earlierOther, gate: g, preview,
   };
 }
+/** The founder's answer: their view, and with COIN_V2_REVIEW on the review state (src/coinreview.js reviewState: requests, description, holds). */
+export async function founderAnswer(env, { u, seat, cityId, fetchImpl = fetch, now = Date.now(), live = true, chain = true }) {
+  const view = await founderView(env, { u, seat, cityId, fetchImpl, now, live, chain });
+  // COIN_V2_BATCH: approvals come in the owner's rounds (src/lpbatch.js); the card says the launch opens after the next one (no time)
+  const round = coinV2BatchOn(env) ? { approvalRound: true } : null;
+  if (!coinV2ReviewOn(env)) return round ? { ...view, ...round } : view;
+  return { ...view, review: await reviewState(env, { u, seat, cityId, view, now }), ...(round || {}) };
+}
 async function previewView(env, cityId) {
   const seat = await liveSeatOfCity(env.DB, cityId);
   if (!seat) return { ok: true, mode: "preview", preview: null };
   const d = await coinDefaults(env, cityId, seat.country);
   const c = await chosenOf(env.DB, cityId);
-  return { ok: true, mode: "preview", preview: await previewOf(env, cityId, { seat, d, c, design: await designRowOf(env, cityId) }) };
+  const preview = await previewOf(env, cityId, { seat, d, c, design: await designRowOf(env, cityId) });
+  // everyone else sees a founder's own description (COIN_V2_REVIEW: one the screener passed) only once a person stood behind it: the
+  // owner's approval was built from this version, or a reviewer approved exactly that text. Until then the answer carries none (Vicinity's
+  // own sentence, and every coin without the review step, as before)
+  if (preview && preview.chosen && c && c.content && c.description !== cityDescription(c.content.city) && c.approved_hash !== c.content_hash
+    && !(await approvedDescription(env.DB, cityId, c.description))) preview.description = null;
+  return { ok: true, mode: "preview", preview };
 }
 
 const fail = (error, status, extra = {}) => json({ ok: false, error, ...(GATES[error] ? { message: GATES[error] } : {}), ...extra }, status);
@@ -364,7 +406,7 @@ export async function handleReady(request, env, fetchImpl = fetch, now = Date.no
   if (seat && seat.city_id === cityId && [...LIVE, "grace"].includes(seat.status)) {
     const live = seat.status === "grace" ? false : await liveCheck(env, seat, fetchImpl);
     // a GET reads no unknown symbol from the chain (nor writes one): the POSTs and the owner's list do, and refuse while one is unknown
-    return json(await founderView(env, { u: a.u, seat, cityId, fetchImpl, now, live, chain: false }), 200, headers);
+    return json(await founderAnswer(env, { u: a.u, seat, cityId, fetchImpl, now, live, chain: false }), 200, headers);
   }
   return json(await previewView(env, cityId), 200, headers);
 }
@@ -398,7 +440,7 @@ export async function handleReadyArt(request, env, fetchImpl = fetch, now = Date
   if (!d.ok) return json({ ok: false, error: d.code, message: d.message }, d.code === "list_unavailable" ? 503 : 409);
   await ensureReadySchema(env.DB);
   await ensureArt(env, d, now);
-  return json(await founderView(env, { u: w.u, seat, cityId: w.cityId, fetchImpl, now, live }), 200, { "Cache-Control": "no-store" });
+  return json(await founderAnswer(env, { u: w.u, seat, cityId: w.cityId, fetchImpl, now, live }), 200, { "Cache-Control": "no-store" });
 }
 
 /** POST /api/coins/ready/use {cityId, contentHash}: "Use this coin" (see the header). */
@@ -431,7 +473,7 @@ export async function handleReadyUse(request, env, fetchImpl = fetch, now = Date
   const art = await ensureArt(env, d, now);
   const content = canonicalContent({ city: d.city, name: d.name, symbol: d.ticker, description: d.description, artSha256: art.sha256, templateVersion: TEMPLATE_VERSION });
   const hash = await sha256Hex(content);
-  const view = () => founderView(env, { u, seat, cityId, fetchImpl, now, live: true });
+  const view = () => founderAnswer(env, { u, seat, cityId, fetchImpl, now, live: true });
   // the founder confirms exactly what their page showed: a list or template change since then is a new version, shown first
   if (echo !== hash) return json({ ...(await view()), ok: false, error: "coin_changed", message: "Your coin changed since this page loaded. Check it again, then use it." }, 409);
   const before = await chosenOf(env.DB, cityId, { fresh: true });
@@ -439,11 +481,43 @@ export async function handleReadyUse(request, env, fetchImpl = fetch, now = Date
   // again, so the design row names this founder's seat (the owner approves only a design of the current founder: src/lpadmin.js)
   if (before && before.current && before.content_hash === hash && before.seat_id === seat.id) return json({ ...(await view()), already: true });
 
+  const db = env.DB;
+  const { stmts } = await choiceStatements(env, { cityId, seat, userId: u.id, before, now,
+    v: { content, hash, name: d.name, symbol: d.ticker, description: d.description, artSha: art.sha256, templateVersion: TEMPLATE_VERSION, origin: "default" },
+    log: { actorId: u.id, role: "founder", action: "coin_design", reason: "design", note: `${seat.city_name}: the Vicinity coin $${d.ticker} "${d.name}", version ${versionLabel(hash)}` } });
+  try { await db.batch(stmts); }
+  catch (e) {
+    if (/UNIQUE/i.test(String((e && e.message) || e))) return fail("symbol_taken", 409);
+    throw e;
+  }
+  const after = await chosenOf(db, cityId, { fresh: true });
+  if (!after || !after.current || after.content_hash !== hash || after.seat_id !== seat.id) {
+    // nothing of ours stands: say why, as the gate would have
+    const why = await notWritten(env, cityId, now);
+    return why === "coin_changed" ? json({ ...(await view()), ok: false, error: "coin_changed", message: "Your coin changed since this page loaded. Check it again, then use it." }, 409) : fail(why, 409);
+  }
+  return json({ ...(await view()), used: true });
+}
+/**
+ * The statements that make version `v` the city's choice (one db.batch, every write conditional in the database itself): the version
+ * row (kept once per content hash), the founder's earlier studio design copied aside, the design row (city_coins: name, description,
+ * pair, no picture of its own), another city's stale choice of this ticker released, the city's choice (coin_ready, not approved by the
+ * owner yet), and one public log line. Each write after the design row's own is conditional on the design row having been written now
+ * (its updated_at is `at`), and the design row is replaced only while it is still the one read here, not launched, with no LaunchLab
+ * contract waiting and no live hold of the owner's approval (src/lpcoins.js holdDesign). "Use this coin" and the reviewed paths of
+ * src/coinreview.js (a passing description, an approved request, reset to the defaults) all write through here.
+ *   v     { content, hash, name, symbol, description, artSha, templateVersion (the column: "t1", or "upload"), origin }
+ *   log   { actorId, role, action, reason, note }: the public mod_actions line (note: the city, the coin and its version, never free text)
+ * Returns { stmts, at }: the caller runs them (with its own guards) and reads the choice back.
+ */
+export async function choiceStatements(env, { cityId, seat, userId, v, log, now, before = undefined, keepApproved = false }) {
   const db = env.DB, at = iso(now), hold = holdKey(cityId);
+  if (before === undefined) before = await chosenOf(db, cityId, { fresh: true });
+  const content = v.content, hash = v.hash;
   const old = await db.prepare("SELECT * FROM city_coins WHERE city_id = ?").bind(cityId).first();
   const stmts = [
     db.prepare(`INSERT OR IGNORE INTO coin_versions (city_id, origin, content_json, content_hash, name, symbol, description, art_sha256, template_version, created_by, created_at)
-      VALUES (?, 'default', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(cityId, content, hash, d.name, d.ticker, d.description, art.sha256, TEMPLATE_VERSION, u.id, at),
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(cityId, v.origin || "default", content, hash, v.name, v.symbol, v.description, v.artSha, v.templateVersion, userId, at),
   ];
   // the owner's approval being built right now (src/lpcoins.js holdDesign, written BEFORE src/lpadmin.js approveTx reads the design
   // again and builds) wins over this choice: checked again inside every write, not only by the gate above, so a choice and an
@@ -462,7 +536,7 @@ export async function handleReadyUse(request, env, fetchImpl = fetch, now = Date
   if (legacy) {
     stmts.push(db.prepare(`INSERT INTO coin_legacy_designs (city_id, design_json, copied_at, copied_by)
         SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM city_coins WHERE city_id = ? AND ${asRead})`)
-      .bind(cityId, JSON.stringify(old), at, u.id, cityId, ...asReadArgs));
+      .bind(cityId, JSON.stringify(old), at, userId, cityId, ...asReadArgs));
   }
   stmts.push(db.prepare(`INSERT INTO city_coins (city_id, city_name, country, seat_id, user_id, name, pitch, pair, color, media_id, updated_at, created_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'ink', NULL, ?, ? WHERE ${noHold}
@@ -470,39 +544,30 @@ export async function handleReadyUse(request, env, fetchImpl = fetch, now = Date
         color = excluded.color, media_id = NULL, approved_media_id = NULL, logo_hash = NULL, logo_status = NULL, logo_reason = NULL, logo_note = NULL,
         logo_reviewed_at = NULL, logo_reviewed_by = NULL, updated_at = excluded.updated_at
       WHERE ${asRead}`)
-    .bind(cityId, seat.city_name, seat.country, seat.id, u.id, d.name, d.description, d.pair, at, at, hold, at, ...asReadArgs));
+    .bind(cityId, seat.city_name, seat.country, seat.id, userId, v.name, v.description, DEFAULT_PAIR, at, at, hold, at, ...asReadArgs));
   // another city's choice that still names this ticker although the city list gave that city another one since (not launched, not
   // approved: staleChoice) lets it go, so coin_ready's UNIQUE(symbol) never keeps a ticker from the city that has it now. That city's
   // founder sees their coin changed and chooses again (its row keeps its version; only the symbol is released)
-  const holder = await db.prepare("SELECT city_id, mint, content_hash, approved_hash FROM coin_ready WHERE symbol = ? AND city_id <> ?").bind(d.ticker, cityId).first();
-  if (holder && (await staleChoice(env, holder, d.ticker))) {
+  const holder = await db.prepare("SELECT city_id, mint, content_hash, approved_hash FROM coin_ready WHERE symbol = ? AND city_id <> ?").bind(v.symbol, cityId).first();
+  if (holder && (await staleChoice(env, holder, v.symbol))) {
     stmts.push(db.prepare(`UPDATE coin_ready SET symbol = ? WHERE city_id = ? AND symbol = ? AND mint IS NULL AND (approved_hash IS NULL OR approved_hash <> content_hash) AND ${ours}`)
-      .bind(releasedSymbol(holder.city_id), String(holder.city_id), d.ticker, ...oursArgs));
+      .bind(releasedSymbol(holder.city_id), String(holder.city_id), v.symbol, ...oursArgs));
   }
-  // a new choice is not approved by anyone yet: approved_hash is set only by the owner's approval built from it (src/lpadmin.js)
+  // a new choice is not approved by anyone yet: approved_hash is set only by the owner's approval built from it (src/lpadmin.js).
+  // keepApproved (the review routes, src/coinreview.js): the hash an earlier approval was built from stays, never equal to the new
+  // version's, so the launch knows the coin changed under an approval on chain and the owner's next round renews it
   stmts.push(db.prepare(`INSERT INTO coin_ready (city_id, version_id, content_hash, symbol, design_at, seat_id, user_id, chosen_at, approved_hash)
       SELECT ?, (SELECT id FROM coin_versions WHERE city_id = ? AND content_hash = ?), ?, ?, ?, ?, ?, ?, NULL WHERE ${ours}
       ON CONFLICT(city_id) DO UPDATE SET version_id = excluded.version_id, content_hash = excluded.content_hash, symbol = excluded.symbol,
-        design_at = excluded.design_at, seat_id = excluded.seat_id, user_id = excluded.user_id, chosen_at = excluded.chosen_at, approved_hash = NULL
-      WHERE coin_ready.mint IS NULL`).bind(cityId, cityId, hash, hash, d.ticker, at, seat.id, u.id, at, ...oursArgs));
+        design_at = excluded.design_at, seat_id = excluded.seat_id, user_id = excluded.user_id, chosen_at = excluded.chosen_at, approved_hash = ${keepApproved ? "coin_ready.approved_hash" : "NULL"}
+      WHERE coin_ready.mint IS NULL`).bind(cityId, cityId, hash, hash, v.symbol, at, seat.id, userId, at, ...oursArgs));
   // the public line says the earlier design is kept aside only when it was (the copy above is in this same batch)
   stmts.push(db.prepare(`INSERT INTO mod_actions (actor_id, actor_role, action, target_type, target_id, target_user, country, place, reason, note, created_at, state)
-      SELECT ?, 'founder', 'coin_design', 'city_coin', NULL, ?, ?, ?, 'design',
+      SELECT ?, ?, ?, 'city_coin', NULL, ?, ?, ?, ?,
         ? || CASE WHEN EXISTS (SELECT 1 FROM coin_legacy_designs WHERE city_id = ? AND copied_at = ? AND copied_by = ?) THEN ' (the earlier design is kept aside)' ELSE '' END,
         ?, 'done' WHERE ${ours}`)
-    .bind(u.id, u.id, seat.country, cityId, `${seat.city_name}: the Vicinity coin $${d.ticker} "${d.name}", version ${versionLabel(hash)}`, cityId, at, u.id, at, ...oursArgs));
-  try { await db.batch(stmts); }
-  catch (e) {
-    if (/UNIQUE/i.test(String((e && e.message) || e))) return fail("symbol_taken", 409);
-    throw e;
-  }
-  const after = await chosenOf(db, cityId, { fresh: true });
-  if (!after || !after.current || after.content_hash !== hash || after.seat_id !== seat.id) {
-    // nothing of ours stands: say why, as the gate would have
-    const why = await notWritten(env, cityId, now);
-    return why === "coin_changed" ? json({ ...(await view()), ok: false, error: "coin_changed", message: "Your coin changed since this page loaded. Check it again, then use it." }, 409) : fail(why, 409);
-  }
-  return json({ ...(await view()), used: true });
+    .bind(log.actorId, log.role, log.action, userId, seat.country, cityId, log.reason, log.note, cityId, at, userId, at, ...oursArgs));
+  return { stmts, at };
 }
 /** The settings key of the owner's approval hold for a city (src/lpcoins.js holdDesign writes it; designFrozen reads it). */
 const holdKey = (cityId) => `lp_design_hold:${String(cityId)}`;

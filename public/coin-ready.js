@@ -66,15 +66,23 @@
     text("#cr-pair", coin ? coin.pair : "SOL");
     text("#cr-desc", coin ? coin.description : "—");
     text("#cr-version", coin && coin.version ? `Design version ${coin.version}` : "");
-    const g = show("#cr-gate", Boolean(gate));
-    g.textContent = gate ? gate.message : "";
+    // a review that waits is said by the review card under the coin (its status and what it pauses), not a third time here
+    const reviewSays = Boolean(gate && gate.code === "request_pending" && r.review);
+    const g = show("#cr-gate", Boolean(gate) && !reviewSays);
+    g.textContent = gate && !reviewSays ? gate.message : "";
     const use = $("#cr-use"), st = $("#cr-state");
     let state = ["Ready to choose", "tag--gold"], note = "";
     if (chosen && chosen.launched) { state = ["Launched", "tag--ok"]; note = "Your coin launched with this design. Its picture and words are fixed for good."; }
     // the founder's own coin, approved on chain or being approved right now: it is theirs, said as that (the gate's words say the rest)
     else if (gate && r.inUse && ["approved", "held"].includes(gate.code)) state = [gate.code === "approved" ? "Approved" : "Your coin", "tag--ok"];
+    else if (gate && gate.code === "request_pending") state = ["Pending review", "tag--warn"];
     else if (gate) state = ["Not available now", "tag--warn"];
-    else if (r.inUse) { state = ["Your coin", "tag--ok"]; note = "This is your coin's design now. Next, Vicinity's owner approves it on the blockchain; then you launch it from your Founder tab."; }
+    else if (r.inUse) {
+      state = ["Your coin", "tag--ok"];
+      // COIN_V2_BATCH (approvalRound): the owner approves ready coins in rounds; never a time
+      note = r.approvalRound === true ? "This is your coin's design now. Its launch opens after the owner's next approval round; then you launch it from your Founder tab."
+        : "This is your coin's design now. Next, Vicinity's owner approves it on the blockchain; then you launch it from your Founder tab.";
+    }
     else if (chosen && chosen.current && !chosen.mine) note = "A former founder of this city chose this coin. Use it to make it yours: Vicinity's owner approves only the current founder's choice.";
     else if (chosen && chosen.current) note = "Vicinity's design or the city list changed since you chose your coin. This is the new version: use it to keep your coin up to date.";
     else if (chosen && chosen.mine) note = "Your coin's design was changed since you chose it. Use this coin to choose it again.";
@@ -136,23 +144,55 @@
     return ["approved", "held"].includes(r.gate.code) && p.chosen ? p : null;
   }
 
+  /* ---------- the review step (COIN_V2_REVIEW=on: the server's founder answer carries `review`) ---------- */
+  // public/coin-review.js adds Request changes, the review status and the founder's own description to this card. It is fetched ONLY when
+  // an answer carries `review`, so with the switch off this page never asks for it. Every answer of its routes is a founder answer again:
+  // the card is painted from it as from any other.
+  let review = null, reviewAsked = false;
+  function withReview(r) {
+    if (!r || !r.review) { if (review) review.hide(); return; }
+    if (review) { review.paint(r); return; }
+    if (reviewAsked) return;
+    reviewAsked = true;
+    const s = document.createElement("script"); s.src = "/coin-review.js";
+    s.onload = () => {
+      if (!window.VCoinReview) { reviewAsked = false; return; }
+      review = window.VCoinReview.init({ api: ctx.api, sensitive: ctx.sensitive, toast: ctx.toast, answer: reviewAnswer });
+      if (last && last.review) review.paint(last);
+    };
+    s.onerror = () => { reviewAsked = false; };
+    (document.head || document.body).append(s);
+  }
+  /** An answer of a review route (a founder answer): the whole card follows it, and the coin card and the launch card read again. */
+  function reviewAnswer(r) {
+    if (!r || r.mode !== "founder") return;
+    last = r;
+    paintFounder(r);
+    paintPreview(founderPreview(r), founderOpts(r));
+    withReview(r);
+    told(r);
+    if (ctx.changed) ctx.changed();
+  }
+
   /* ---------- reading, drawing, using ---------- */
   async function render(me) {
     const c = me && me.community;
     const my = ++seq;
-    if (!c) { shownFor = null; show("#coin-ready", false); paintPreview(null); told(null); return; }
+    if (!c) { shownFor = null; show("#coin-ready", false); paintPreview(null); withReview(null); told(null); return; }
     if (shownFor !== c.id) { if (shownFor) paintPreview(null); shownFor = c.id; } // another city: never its predecessor's preview meanwhile
     const r = await ctx.api(`/api/coins/ready?city=${encodeURIComponent(c.id)}`);
     if (my !== seq) return; // a newer render is on its way
-    if (!r || r.ok === false) { show("#coin-ready", false); paintPreview(null); told(null); return; } // off (404) or unreadable: the page as before
+    if (!r || r.ok === false) { show("#coin-ready", false); paintPreview(null); withReview(null); told(null); return; } // off (404) or unreadable: the page as before
     last = r;
     if (r.mode === "founder") {
       paintFounder(r);
       paintPreview(founderPreview(r), founderOpts(r));
+      withReview(r);
       if (r.coin && !r.coin.art && !r.gate) draw(c.id);
     } else {
       show("#coin-ready", false);
       paintPreview(r.preview);
+      withReview(null);
     }
     told(r);
   }
@@ -161,7 +201,7 @@
     if (drawingFor === cityId) return;
     drawingFor = cityId;
     const r = await ctx.api("/api/coins/ready/art", { cityId });
-    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), founderOpts(r)); told(r); return; }
+    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), founderOpts(r)); withReview(r); told(r); return; }
     text("#cr-art-wait", "Your coin's picture couldn't be made just now. Reload the page to try again.");
     drawingFor = null;
   }
@@ -179,6 +219,7 @@
       if (st) st.focus();
       paintFounder(r);
       paintPreview(founderPreview(r), founderOpts(r));
+      withReview(r);
       told(r);
       ctx.toast(`$${r.coin.ticker} is your coin`);
       if (ctx.changed) ctx.changed(); // the coin card and the launch card read the new design

@@ -455,7 +455,8 @@
     const again = async () => { const r = await founder(card, opts); if (typeof opts.onChange === "function") opts.onChange(r); return r; };
     if (v.state === "ready") readyView(body, st, p, again);
     else if (v.state === "launched") restored.set(card, { ...launchedView(body, st, p, again), again });
-    return { on: true, state: v.state };
+    // why it is paused, in the server's words (the Founder card says the same thing: a review pause is not "launches are paused")
+    return { on: true, state: v.state, ...(st && st.ok && st.why ? { why: st.why, message: st.message || null } : {}) };
   }
   /**
    * The launched cards on this page, for the page the browser brings back from its back/forward cache (Back or Forward in this

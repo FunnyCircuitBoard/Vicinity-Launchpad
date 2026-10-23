@@ -19,7 +19,7 @@ async function table(env) {
   cache = await res.json();
   return cache;
 }
-export const _resetTickers = () => { cache = null; warned = new Set(); noTable = new WeakMap(); };
+export const _resetTickers = () => { cache = null; byTicker = null; warned = new Set(); noTable = new WeakMap(); };
 /** lp_coins exists now (src/lpcoins.js just made it): forget that it was missing, so the next reader asks it at once. */
 export const lpCoinsTableReady = (db) => { if (db) noTable.delete(db); };
 
@@ -37,6 +37,20 @@ export async function tickerOf(env, cityId) {
     const v = (await table(env))[String(cityId)];
     if (!v) return null;
     return typeof v === "string" ? { ticker: v, base: v, shared: 1 } : { ticker: v[0], base: v[1], shared: v[2] };
+  } catch { return null; }
+}
+
+let byTicker = null; // ticker -> city id, built once from the same table (only by the change-request checks, src/coinreview.js)
+/** The city the list gives `ticker` to (its own ticker, not a shared base), or null; null too when the list cannot be read. */
+export async function cityOfTicker(env, ticker) {
+  try {
+    const t = await table(env);
+    if (!byTicker || byTicker.table !== t) {
+      const map = new Map();
+      for (const [id, v] of Object.entries(t)) map.set(typeof v === "string" ? v : v[0], id);
+      byTicker = { table: t, map };
+    }
+    return byTicker.map.get(String(ticker)) || null;
   } catch { return null; }
 }
 

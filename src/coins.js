@@ -45,6 +45,7 @@ import { notify, pictureReason } from "./notify.js";
 import { coinV2ReadyOn } from "./flags.js";
 import { boundArtOf, chosenOf, madeByOf } from "./coinart-store.js";
 import { choiceHolds } from "./coinready.js";
+import { v2Takedown } from "./cointakedown.js";
 
 const C = POLICY.coins;
 
@@ -337,7 +338,9 @@ export async function handleDecideMint(request, env, fetchImpl = fetch, now = Da
 }
 
 /**
- * POST /api/coins/takedown { city, what: "logo" | "text", reason, note } — an admin removes a logo or text that breaks the rules.
+ * POST /api/coins/takedown { city, what: "logo" | "text" | "art", sha?, reason, note } — an admin removes a logo, text or (COIN_V2_REVIEW) a founder's
+ * own picture that breaks the rules. A ready-made coin's founder content (a founder's description or name, an uploaded picture), launched
+ * or not, is taken down by src/cointakedown.js (its answer says every change in words: `changed`, `message`); everything else as before.
  * A logo takedown is a rejection (src/logos.js): the public picture goes at once (caches keep it at most an hour), the founder sees
  * the reason and the note on their dashboard and can replace the picture, which then waits for a check like any other. A newer
  * working picture that waits for its check is left waiting (nobody has looked at it). A coin without any picture has nothing to take
@@ -353,6 +356,10 @@ export async function handleTakedown(request, env, fetchImpl = fetch, now = Date
   const reason = POLICY.moderation.reasons.includes(body.reason) ? body.reason : null;
   const note = cleanText(body.note, 300);
   if (!reason || note == null || note.length < 3) return json({ ok: false, error: "reason_required" }, 400);
+  // a ready-made coin's founder content (COIN_V2_REVIEW: a founder's description or name, an uploaded picture), launched or not: taken down
+  // from its version, its design row, its /coin-meta JSON and every page, with every change said in words (src/cointakedown.js)
+  const v2 = await v2Takedown(env, { coin, what: body.what, sha: typeof body.sha === "string" ? body.sha : null, reason, note, actor: a.u, now });
+  if (v2) return json(v2.body.ok ? { ...v2.body, coin: coinView(await coinOf(db, coin.city_id), { mine: true }) } : v2.body, v2.status);
   if (body.what === "logo") {
     if (!coin.media_id && !coin.approved_media_id) return json({ ok: false, error: "not_found" }, 404);
     await rejectLogo(db, coin.city_id, { reason, note, by: a.u.id, at: now, takedown: true });

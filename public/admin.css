@@ -411,6 +411,24 @@
 .lp-next { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: var(--fs-sm, .875rem); }
 .lp-link { color: var(--pin-2); }
 .lp-status { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+/* the owner's daily approval round (COIN_V2_BATCH, public/admin-lp.js batchSection) */
+.lp-round { display: grid; gap: var(--sp-3, 12px); min-width: 0; }
+.lp-round__counts { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lp-round__group { margin: 0; border: 1px solid var(--line); border-radius: var(--r-card, 18px); padding: var(--sp-3, 12px) var(--sp-4, 16px); display: grid; gap: var(--sp-2, 8px); min-width: 0; }
+.lp-round__group legend { font: 700 var(--fs-base, 1rem)/1.3 var(--display); padding: 0 6px; }
+.lp-round__group > p { margin: 0; }
+.lp-round__rows { gap: 0; }
+.lp-round__row { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+.lp-round__row:first-child { border-top: 0; }
+.lp-round__row > p { margin: 0; }
+/* a coin's description as the owner approves it (BATCH-1): whose words, then the words, wrapped (they go into the metadata for ever) */
+.lp-desc { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.lp-desc__by { flex: none; }
+.lp-desc__text { font-style: italic; }
+.lp-round__head { min-width: 0; overflow-wrap: anywhere; }
+.lp-round__name { font-weight: 400; }
+.lp-round__txs { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+.lp-round__tx { display: grid; gap: 6px; min-width: 0; }
 .lp-status:empty { display: none; }
 .lp-sum { border: 1px solid var(--line-2); border-radius: var(--r-chip, 12px); padding: var(--sp-3, 12px) var(--sp-4, 16px); display: grid; gap: var(--sp-2, 8px); background: var(--surface-inset, rgba(255,255,255,.04)); min-width: 0; font-size: var(--fs-sm, .875rem); line-height: var(--lh-snug, 1.3); }
 .lp-sum p { margin: 0; }
@@ -448,3 +466,38 @@
   .admin-table--cards .adm-pic__reject { justify-content: flex-start; margin: 0; }
   .admin-table--cards .adm-pic__note { flex-basis: 100%; }
 }
+
+/* City-coin reviews (Moderation → Coin reviews; COIN_V2_REVIEW on, public/admin.js coinReviewsList): one card per request. With the switch off
+   no element carries these classes. */
+.adm-coinrev { display: grid; gap: var(--sp-3, 12px); min-width: 0; }
+.adm-coinrev__item, .adm-coinrev__registry { display: grid; gap: var(--sp-2, 8px); padding: var(--sp-3, 12px) var(--sp-4, 16px); min-width: 0; }
+.adm-coinrev__item p, .adm-coinrev__registry p, .adm-coinrev__item h3, .adm-coinrev__registry h3 { margin: 0; overflow-wrap: anywhere; }
+.adm-coinrev__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.adm-coinrev__hash { font-size: 0.75rem; word-break: break-all; }
+.adm-coinrev__diff { width: 100%; table-layout: fixed; }
+.adm-coinrev__diff th[scope="row"] { width: 22%; text-align: left; }
+.adm-coinrev__diff .adm-thumb { width: 64px; height: 64px; }
+.adm-coinrev__checks { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.adm-coinrev__checks .is-flag { color: var(--warn, #FFD58A); }
+.adm-coinrev__issue { color: var(--text-2, inherit); }
+.adm-coinrev__act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.adm-coinrev__act .btn { min-height: 44px; }
+.adm-coinrev__said { margin: 0; padding: var(--sp-3, 12px) var(--sp-4, 16px); border-radius: 12px; border: 1px solid var(--line, rgba(255, 255, 255, 0.12)); overflow-wrap: anywhere; }
+.adm-coinrev__said.is-flag { color: var(--warn, #FFD58A); }
+.adm-coinrev__inuse { display: grid; gap: var(--sp-2, 8px); padding: var(--sp-3, 12px) var(--sp-4, 16px); min-width: 0; }
+.adm-coinrev__inuse p, .adm-coinrev__inuse h3 { margin: 0; overflow-wrap: anywhere; }
+.adm-coinrev__use { display: grid; gap: 6px; padding-top: var(--sp-2, 8px); border-top: 1px solid var(--line, rgba(255, 255, 255, 0.12)); min-width: 0; }
+.adm-coinrev__use > * { min-width: 0; max-width: 100%; }
+.adm-coinrev__takedown { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.adm-coinrev__takedown .btn { min-height: 44px; }
+.adm-coinrev__takedown input, .adm-coinrev__takedown select { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+/* phone width: one column that never grows past the card (a grid item's min-content would otherwise push the table, the hash and the
+   reason form out of the card and cut them off) */
+.adm-coinrev__item, .adm-coinrev__registry { grid-template-columns: minmax(0, 1fr); }
+.adm-coinrev__item > *, .adm-coinrev__registry > * { min-width: 0; max-width: 100%; }
+.adm-coinrev__diff :is(th, td) { padding: 8px; white-space: normal; overflow-wrap: anywhere; }
+.adm-coinrev__diff td.adm-text { min-width: 0; max-width: none; }
+.adm-coinrev__diff thead th { overflow-wrap: normal; word-break: normal; hyphens: none; }
+.adm-coinrev__act .adm-pic__reject { justify-content: flex-start; margin: 0; }
+.adm-coinrev__act .adm-pic__reason { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+.adm-coinrev__act .adm-pic__note { flex: 1 1 100%; }

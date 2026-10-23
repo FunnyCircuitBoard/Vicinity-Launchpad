@@ -370,6 +370,8 @@
     own_objection: "You can't decide your own objection.", outranked: "You can't act on someone of equal or higher role.",
     protected_wallet: "That wallet is an owner wallet (ADMIN_WALLETS).", owner_not_grantable: "Owners come from ADMIN_WALLETS only.",
     window_closed: "That claim window is closed.",
+    needs_second_person: "A city's own founder can't decide their own coin. Another admin or the owner decides.",
+    version_changed: "The founder changed this request since you opened it. Reload.", not_pending: "This request was decided, cancelled or withdrawn meanwhile. Reload.",
   };
   const okMsg = (r, what) => { if (r && r.ok) { toast(`${what} ✓`); refresh(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`); };
   const walletOf = (w) => (!w ? "no wallet" : w.includes("*") ? w : short(w)); // an account may have no wallet yet (it links one from its dashboard)
@@ -488,6 +490,8 @@
     // Meteora's two programs against the builds the team tested (src/programpins.js): only where the City coins tab exists; it lights
     // up whenever the answer is not "as tested", because approvals and launches wait then
     if (lpOn) A.meteora = metric("Meteora build", { attn: true });
+    // city-coin requests waiting for a reviewer (COIN_V2_REVIEW on: /api/admin/me says coinReviews; nothing at all with the switch off)
+    if (me && me.coinReviews) A.coinReviews = metric("Coin reviews", { attn: true });
     agrid.append(...Object.values(A).map((m) => m.root));
     attn.append(ah, agrid);
 
@@ -514,6 +518,10 @@
     if (ov.pendingLogos == null) A.pictures.none("Not counted by this server yet", { action: go("Review", "moderation", "logos") });
     else A.pictures.set(int(ov.pendingLogos), { from: "Coin pictures waiting for a check", action: go("Review", "moderation", "logos") }).hot(ov.pendingLogos > 0);
     A.objections.set(int(ov.pendingObjections), { from: "Open objections to a founder seat", action: go("Review", "moderation", "objections") }).hot(ov.pendingObjections > 0);
+    if (A.coinReviews) {
+      if (ov.pendingCoinReviews == null) A.coinReviews.none("Not counted by this server yet", { action: go("Review", "moderation", "coinreviews") });
+      else A.coinReviews.set(int(ov.pendingCoinReviews), { from: "Coin change requests and descriptions waiting for a reviewer", action: go("Review", "moderation", "coinreviews") }).hot(ov.pendingCoinReviews > 0);
+    }
     A.inbox.set(int(inboxNew), { from: "Questions, bug reports and city requests", action: go("Open inbox", "inbox") }).hot(inboxNew > 0);
     A.inbox.num.id = "ov-inbox-new";
     const seatRows = Object.entries(ov.seats || {}).sort((a, b) => b[1] - a[1]);
@@ -814,6 +822,11 @@
       { id: "objections", label: "Objections", load: () => api("/api/admin/objections"), list: (d) => d.objections, draw: objectionsTable, fail: "Couldn't load objections." },
       { id: "appeals", label: "Appeals", load: () => api("/api/admin/appeals"), list: (d) => d.appeals, draw: appealsTable, fail: "Couldn't load appeals." },
     );
+    // city-coin change requests and descriptions (COIN_V2_REVIEW on only: /api/admin/me says coinReviews); every role may look, admins decide
+    if (me && me.coinReviews) {
+      queues.splice(queues.findIndex((q) => q.id === "objections"), 0,
+        { id: "coinreviews", label: "Coin reviews", load: () => api("/api/admin/coins/reviews"), list: (d) => d, count: (d) => d.pending, draw: coinReviewsList, fail: "Couldn't load coin reviews." });
+    }
     const answers = await Promise.all(queues.map((q) => q.load()));
     const bar = el("div", "seg adm-subtabs"); bar.setAttribute("role", "tablist"); bar.setAttribute("aria-label", "Moderation queues");
     const panel = el("div", "adm-subpanel"); panel.id = "mod-panel"; panel.setAttribute("role", "tabpanel"); panel.tabIndex = 0;
@@ -907,6 +920,174 @@
         if (sure("Reject this picture? The founder sees the reason and your note; nobody else sees the picture.")) okMsg(await post("/api/admin/logos/decide", { city, mediaId, action: "reject", reason: reason.value, note: note.value.trim() }), "Picture rejected");
       }));
     });
+  /**
+   * City-coin reviews (src/coinreview.js): each request as a card. The reviewer sees exactly the version the founder sent (its hash, the
+   * picture next to the current one, what changes), the checks the server ran (and what the screening flagged), the founder's why; admins
+   * approve that exact version (its hash is sent back and checked) or ask for changes with a reason the founder reads and an optional note
+   * only they see. Approved tickers waiting for the city list show the line to add to scripts/cities/ticker-overrides.json.
+   */
+  const COIN_FIELD = { picture: "Picture", ticker: "Ticker", name: "Coin name", description: "Description" };
+  function coinReviewsList(d) {
+    const wrap = el("div", "adm-coinrev");
+    const reviews = (d && d.reviews) || [], reasons = (d && d.reasons) || [];
+    if (d && d.waitingRegistry && d.waitingRegistry.length) {
+      const w = el("section", "card adm-coinrev__registry");
+      w.append(el("h3", "adm-h3", "Waiting for the city list"), el("p", "small muted", "Approved ticker changes: add each line to scripts/cities/ticker-overrides.json in a pull request; the founder's launch waits until that update is deployed."));
+      for (const x of d.waitingRegistry) w.append(el("p", "mono small", `${x.city && x.city.name ? x.city.name : ""} · ${JSON.stringify(x.registryPatch)}`));
+      wrap.append(w);
+    }
+    // the last takedown's answer in the server's own words (what changed, everywhere), until the next one
+    if (takedownSaid) { const p = el("p", `adm-coinrev__said ${takedownSaid.ok ? "is-ok" : "is-flag"}`, takedownSaid.text); p.setAttribute("role", "status"); wrap.append(p); }
+    const inUse = (d && d.inUse) || [];
+    if (inUse.length) wrap.append(inUseSection(inUse));
+    if (!reviews.length) { wrap.append(el("p", "empty adm-empty", inUse.length ? "No request waits or was decided lately." : "Nothing here.")); return wrap; }
+    for (const x of reviews) wrap.append(coinReviewCard(x, reasons));
+    return wrap;
+  }
+  /** A takedown's answer (src/cointakedown.js says every change in words): kept above the queue after the list is drawn again. */
+  let takedownSaid = null;
+  const said = (r, what) => {
+    takedownSaid = { ok: Boolean(r && r.ok), text: (r && r.message) || (r && r.ok ? `${what}.` : (r && ERRORS[r.error]) || `Failed: ${(r && r.error) || "unknown"}`) };
+    toast(r && r.ok ? `${what} ✓` : takedownSaid.text);
+    refresh();
+  };
+  const TAKEDOWN_REASONS = [["abuse", "Abusive or hateful"], ["illegal", "Not theirs to use (rights) or illegal"], ["scam", "Scam or misleading"], ["other", "Other"]];
+  /**
+   * The founders' own words and pictures public on a coin now (GET /api/admin/coins/reviews inUse), each with its takedown (POST
+   * /api/coins/takedown). A founder's own description reaches a coin only through a reviewer's approval (src/screen.js "review").
+   */
+  function inUseSection(list) {
+    const s = el("section", "card adm-coinrev__inuse");
+    s.append(el("h3", "adm-h3", "Founders' own words and pictures in use"),
+      el("p", "small muted", "Each one here is public on its coin now (a reviewer approved it). Take it down if it breaks the rules: the coin falls back to Vicinity's own words or design, everywhere, and the founder is told."));
+    for (const x of list) {
+      const row = el("article", "adm-coinrev__use");
+      row.append(el("p", "small", `${x.city && x.city.name ? x.city.name : "—"}${x.city && x.city.country ? ` (${x.city.country})` : ""} · $${x.symbol} “${x.name}” · ${x.launched ? "launched" : "not launched yet"} · version ${x.version || "—"}`));
+      if (x.ownDescription) row.append(el("p", "adm-text adm-coinrev__words", `“${x.description}”`));
+      if (x.ownName) row.append(el("p", "small muted", x.launched ? "The coin name is the founder's own: it is on the blockchain for good." : "The coin name is the founder's own (a reviewer approved it)."));
+      if (x.upload && x.art) { const img = el("img", "adm-thumb"); img.src = x.art; img.width = 64; img.height = 64; img.alt = `The founder's own picture on ${x.city && x.city.name ? x.city.name : "the city"}'s coin`; row.append(img); }
+      if (!can(2)) row.append(el("span", "muted", "admin only"));
+      else row.append(takedownForm(x));
+      s.append(row);
+    }
+    return s;
+  }
+  function takedownForm(x) {
+    const box = el("div", "adm-coinrev__takedown");
+    const why = el("select", "adm-pic__reason"); why.setAttribute("aria-label", `Why ${x.city && x.city.name ? x.city.name : "the coin"}'s founder content is taken down`);
+    for (const [v, t] of TAKEDOWN_REASONS) { const o = el("option", null, t); o.value = v; why.append(o); }
+    why.value = "abuse";
+    const note = textInput("What is wrong (staff log only, 3 to 300 characters)"); note.maxLength = 300; note.setAttribute("aria-label", "What is wrong");
+    const go = async (what, sha = null) => {
+      const n = note.value.trim();
+      if (n.length < 3) { toast("Say what is wrong in 3 to 300 characters (it goes into the staff log)."); note.focus(); return; }
+      const ask = what === "art"
+        ? (x.launched ? "Take the founder's picture down? The coin's metadata and every page show the Vicinity design of the coin instead; the picture's address stops working. The founder is told."
+          : "Take the founder's picture down? Its address stops working, and the coin goes back to Vicinity's coin for the city on every page. The founder is told.")
+        : (x.ownName && !x.launched ? "Take the founder's coin name and words down? The coin goes back to Vicinity's coin for the city (name, ticker, picture and description) on every page. The founder is told."
+          : `Take the founder's description down? Every page${x.launched ? " and the coin's metadata" : ""} show Vicinity's own sentence instead. The founder is told.`);
+      if (!sure(ask)) return;
+      said(await post("/api/coins/takedown", { city: x.city && x.city.id, what, ...(sha ? { sha } : {}), reason: why.value, note: n }), what === "art" ? "Picture taken down" : "Taken down");
+    };
+    box.append(why, note);
+    if (x.ownDescription || (x.ownName && !x.launched)) box.append(btn(x.ownName && !x.launched ? "Take the name and words down" : "Take the description down", () => go("text")));
+    if (x.upload) box.append(btn("Take the picture down", () => go("art", (String(x.art || "").match(/([0-9a-f]{64})\.png$/) || [])[1] || null)));
+    return box;
+  }
+  function coinReviewCard(x, reasons) {
+    const card = el("article", `card adm-coinrev__item is-${x.status}`);
+    const city = x.city ? [x.city.name, x.city.region, x.city.countryName].filter(Boolean).join(" · ") : "—";
+    const head = el("div", "adm-coinrev__head");
+    head.append(el("h3", "adm-h3", `${x.kind === "description" ? "Description" : "Change"} · ${city}`), el("span", `tag ${x.status === "pending" ? "tag--warn" : x.status === "approved" ? "tag--ok" : ""}`, x.label || x.status));
+    card.append(head);
+    const who = x.founder ? (x.founder.handle ? `@${x.founder.handle}` : x.founder.wallet || "—") : "—";
+    card.append(el("p", "small muted", `${who}${x.founder && x.founder.handle && x.founder.wallet ? ` · ${x.founder.wallet}` : ""} · ${x.status === "pending" ? `waiting ${ago(x.submittedAt)}` : `decided ${ago(x.decidedAt)}`}`));
+    const ver = el("p", "small adm-coinrev__version");
+    ver.append(el("span", null, `Version ${x.version || "—"} `), el("code", "mono adm-coinrev__hash", x.contentHash || ""));
+    card.append(ver);
+    // the WHOLE version the decision covers (picture, ticker, name and description), now and proposed side by side; what stays the same
+    // is shown too, marked "same", so nothing is approved unseen (a description that came along with a new picture included)
+    const t = el("table", "admin-table adm-coinrev__diff");
+    const hr = el("tr"); for (const h of ["", x.status === "approved" ? "Before" : "Now", x.status === "approved" ? "Approved" : "Proposed"]) { const th = el("th", null, h); th.scope = "col"; hr.append(th); }
+    const thead = el("thead"); thead.append(hr); t.append(thead);
+    const tb = el("tbody");
+    const rows = x.current && x.proposed
+      ? [["picture", x.current.art, x.proposed.art], ["ticker", x.current.symbol && `$${x.current.symbol}`, x.proposed.symbol && `$${x.proposed.symbol}`], ["name", x.current.name, x.proposed.name], ["description", x.current.description, x.proposed.description]]
+        .filter(([, a, b]) => a != null || b != null).map(([field, from, to]) => ({ field, from, to, same: from === to }))
+      : (x.diff || []);
+    for (const r of rows) {
+      const tr = el("tr", r.same ? "is-same" : null);
+      const th = el("th", null, COIN_FIELD[r.field] || r.field); th.scope = "row"; tr.append(th);
+      for (const [v, which] of [[r.from, "now"], [r.to, "proposed"]]) {
+        const c = el("td", "adm-text");
+        if (r.same && which === "proposed") c.append(el("span", "muted", "same"));
+        else if (r.field === "picture" && v) { const img = el("img", "adm-thumb"); img.src = v; img.width = 64; img.height = 64; img.alt = `${which === "now" ? "Current" : "Proposed"} picture of ${x.city ? x.city.name : "the city"}'s coin`; c.append(img); }
+        else c.textContent = v == null ? "—" : String(v);
+        tr.append(c);
+      }
+      tb.append(tr);
+    }
+    t.append(tb); card.append(t);
+    if (x.why) card.append(el("p", "small", `The founder's why: ${x.why}`));
+    // the checks the server ran
+    if (x.checks && x.checks.length) {
+      const ul = el("ul", "small adm-coinrev__checks");
+      for (const c of x.checks) {
+        const li = el("li", c.ok ? "is-ok" : "is-flag", `${c.ok ? "✓" : "!"} ${c.text}`);
+        for (const m of [...new Set((c.issues || []).map((i) => i.message || i.code))]) li.append(el("span", "adm-coinrev__issue", ` ${m}`)); // one sentence per kind of issue
+        ul.append(li);
+      }
+      card.append(ul);
+    }
+    if (x.decision && x.decision.reason) card.append(el("p", "small", `Reason: ${x.decision.reason}${x.decision.note ? ` · Note to the founder: ${x.decision.note}` : ""}`));
+    if (x.registryPatch) card.append(el("p", "small mono", `Add to scripts/cities/ticker-overrides.json: ${JSON.stringify(x.registryPatch)}`));
+    // an approved picture of the founder's own is public until a launched coin carries it, and can still be taken down (src/coins.js)
+    if (x.status === "approved" && x.proposed && x.proposed.upload && x.proposed.art && can(2)) card.append(artTakedown(x));
+    if (x.status !== "pending") return card;
+    const act = el("div", "adm-coinrev__act");
+    if (!can(2)) { act.append(el("span", "muted", "admin only")); card.append(act); return card; }
+    // no reason is picked for the admin: the founder reads it, so it is chosen on purpose, from the reasons that fit this kind of request
+    const reason = el("select", "adm-pic__reason"); reason.setAttribute("aria-label", "Reason the founder reads");
+    const none = el("option", null, "Pick the reason the founder will read"); none.value = ""; none.disabled = true; none.selected = true; reason.append(none);
+    for (const r of reasons.filter((r) => !r.kinds || r.kinds.includes(x.kind))) { const o = el("option", null, r.text); o.value = r.code; reason.append(o); }
+    reason.value = "";
+    const note = textInput("Note for the founder (optional, 3 to 300 characters)"); note.maxLength = 300; note.className = "adm-pic__note"; note.setAttribute("aria-label", "Note for the founder");
+    const form = el("div", "adm-pic__reject"); form.append(reason, note); act.append(form);
+    act.append(btn("Approve this version", async () => {
+      if (sure(`Approve version ${x.version} exactly as shown? ${x.kind === "description" ? "Its description" : "Its picture, ticker and name"} become the coin's (the launch still needs the owner's approval on the blockchain).`)) {
+        okMsg(await post("/api/admin/coins/reviews/decide", { id: x.id, action: "approve", contentHash: x.contentHash }), "Approved");
+      }
+    }));
+    act.append(btn("Ask for changes", async () => {
+      const n = note.value.trim();
+      const picked = reasons.find((r) => r.code === reason.value);
+      if (!picked) { toast("Pick the reason the founder will read first."); reason.focus(); return; }
+      if (n && n.length < 3) { toast("A note is 3 to 300 characters (or none)."); return; }
+      if (sure(`Ask the founder for changes? They read: “${picked.text}”${n ? ` and your note: “${n}”` : ""}. The coin stays as it was.`)) {
+        okMsg(await post("/api/admin/coins/reviews/decide", { id: x.id, action: "changes_needed", contentHash: x.contentHash, reasonCode: reason.value, ...(n ? { note: n } : {}) }), "Changes asked for");
+      }
+    }));
+    card.append(act);
+    return card;
+  }
+  /** Take down a founder's own approved picture (POST /api/coins/takedown, what "art"); the answer says what changed (src/cointakedown.js). */
+  function artTakedown(x) {
+    const box = el("div", "adm-coinrev__takedown");
+    const sha = (String(x.proposed.art).match(/([0-9a-f]{64})\.png$/) || [])[1] || null;
+    if (!sha) return box;
+    const why = el("select", "adm-pic__reason"); why.setAttribute("aria-label", "Why the picture is taken down");
+    for (const [v, t] of TAKEDOWN_REASONS) { const o = el("option", null, t); o.value = v; why.append(o); }
+    why.value = "abuse";
+    const note = textInput("What is wrong (staff log only, 3 to 300 characters)"); note.maxLength = 300; note.setAttribute("aria-label", "What is wrong with the picture");
+    box.append(why, note, btn("Take the picture down", async () => {
+      const n = note.value.trim();
+      if (n.length < 3) { toast("Say what is wrong in 3 to 300 characters (it goes into the staff log)."); return; }
+      if (sure("Take this picture down? Its public address stops working; a coin that uses it goes back to Vicinity's coin for the city (a launched one shows the Vicinity design of its own ticker and name). The founder is told.")) {
+        said(await post("/api/coins/takedown", { city: x.city && x.city.id, what: "art", sha, reason: why.value, note: n }), "Picture taken down");
+      }
+    }));
+    return box;
+  }
   const appealsTable = (appeals) => table(
     ["From", "Text", "When", ""],
     appeals,
