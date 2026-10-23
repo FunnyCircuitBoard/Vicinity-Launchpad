@@ -1,7 +1,7 @@
 // Dashboard v2 (DASHBOARD_V2=on), the look: the one "dashboard v2" block of public/style.css reaches nothing outside the tabbed
 // page (every selector is scoped under .dv2 or .dv2-skel), so the flag-off dashboard renders exactly as before; the panels wrap
 // long button labels (the eligible holder's "Apply to found <city> (checks your location)" widened the Founder panel past a
-// 390px screen); the strip's sticky offset and the router's scroll offset are the same number; the Moderate deep link waits
+// 390px screen); the router's scroll offset is read from the page (the header's bottom, the strip's sticky top); the Moderate deep link waits
 // for /api/mod only until the person picks another tab. Found in real Chromium against a mock /api (scratchpad/dash-mock), pinned here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -76,10 +76,13 @@ test("buttons inside the panels wrap long labels (no horizontal scroll at 390px 
 });
 
 test("the sticky strip and the router agree on the header height, and the deep-link highlight exists", () => {
+  // the router reads both from the page instead of a number of its own (review SW-1: a constant 67 put every jump under the strip once the
+  // header moved under a notched iPhone's status bar): the header's bottom edge and the strip's own sticky top
   const strip = rules(block).find((r) => r.selectors.includes(".dv2 .dtabs") && /position:\s*sticky/.test(r.body));
-  const top = Number(strip.body.match(/top:\s*(\d+)px/)[1]);
-  const header = Number(v2.match(/const HEADER = (\d+);/)[1]);
-  assert.equal(top, header, "style.css sticky top and dashboard-v2.js HEADER");
+  assert.match(strip.body, /top:\s*\d+px/, "style.css: the strip sticks (polish-dash.css sets where, from --header-h)");
+  assert.doesNotMatch(v2, /const HEADER = \d+/, "no header height of the router's own");
+  assert.match(v2, /const headerBottom = \(\) => \{ const h = document\.querySelector\("\.site-header"\); return h \? h\.getBoundingClientRect\(\)\.bottom : 68; \};/);
+  assert.match(v2, /parseFloat\(cs\.top\)/, "the strip's top as the page computed it");
   assert.ok(rules(block).some((r) => r.selectors.includes(".dv2 .is-target")), ".is-target highlight");
 });
 

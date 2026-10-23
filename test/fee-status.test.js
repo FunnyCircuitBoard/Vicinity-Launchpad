@@ -1644,6 +1644,7 @@ test("the dashboard card and the coin page wait the same after a Collect in the 
   assert.deepEqual([at + 299999, at + 300000, at - 1].map((n) => L.unclearWait(at, n)), [true, false, true]);
   // the same tab, a Collect of the coin landed on the dashboard with no slot given half a minute ago: the dashboard card whose status
   // could not read its fees and the coin page both show nothing of the coin's fees from the edge's copy
+  // (the viewer's clock is this test's, half a minute after that Collect: the pages' own would be today's, days after the fixture day)
   const R = answerOf("graduated", READ_AT, 100), mark = Date.now() - 30000;
   const session = new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: mark } })]]);
   // (both pages on the clock the mark came from: half a minute after it)
