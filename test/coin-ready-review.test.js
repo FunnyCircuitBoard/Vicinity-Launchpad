@@ -40,6 +40,7 @@ async function founder(e = env, { city = UTICA, name = "Utica", holds = 2_000_00
   return f;
 }
 const view = (who, city = UTICA) => who.get(`/api/coins/ready?city=${city}`);
+const tablesOf = async (e) => (await e.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).results.map((r) => r.name);
 const art = (who, city = UTICA) => who.post("/api/coins/ready/art", { cityId: city });
 const use = (who, contentHash, city = UTICA) => who.post("/api/coins/ready/use", { cityId: city, contentHash });
 const row = (sql, ...p) => env.DB.prepare(sql).bind(...p).first();
@@ -103,17 +104,24 @@ test("previews show only the coin that will launch: none with a waiting LaunchLa
   assert.equal((await use(f, a.coin.contentHash)).ok, true);
   const p = (await view(visitor)).preview;
   assert.deepEqual([p.ticker, p.name, p.chosen, p.art], ["UTICA", "Utica", true, a.coin.art]);
-  // the city list moved the ticker after the choice: the preview keeps the chosen version's ticker WITH its picture, never a mix
+  // the city list moved the ticker after the choice: that version can never be approved ("no longer matches the city list"), so it is
+  // nobody's preview any more, the founder's included (their card offers the new version instead)
   await env.DB.prepare("UPDATE coin_ready SET symbol = 'UTICAOLD' WHERE city_id = ?").bind(UTICA).run();
   await env.DB.prepare("UPDATE coin_versions SET symbol = 'UTICAOLD'").run();
-  const moved = (await view(visitor)).preview;
-  assert.deepEqual([moved.ticker, moved.art], ["UTICAOLD", a.coin.art]);
-  // another city launched with the ticker: no preview of a coin that can't launch
+  assert.equal((await view(visitor)).preview, null);
+  assert.equal((await view(f)).preview, null);
+  // another city launched with the ticker on this launchpad: no preview of a coin that can't launch (a coin of another network or
+  // program never counts: it can't launch here)
   await env.DB.prepare("UPDATE coin_ready SET symbol = 'UTICA' WHERE city_id = ?").bind(UTICA).run();
   await env.DB.prepare("UPDATE coin_versions SET symbol = 'UTICA'").run();
+  assert.equal((await view(visitor)).preview.ticker, "UTICA");
+  const { LP_ON, PROGRAM } = await import("./helpers/lpchain.js");
+  Object.assign(env, LP_ON);
   await ensureLpCoinsSchema(env.DB);
   await env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)
-    VALUES ('devnet', 'P', ?, 'MintSyr', 'c', 'f', 'Syracuse', 'UTICA', 'q', 'd', 'p', 'now')`).bind(SYRACUSE).run();
+    VALUES ('mainnet', ?, ?, 'MintSyr', 'c', 'f', 'Syracuse', 'UTICA', 'q', 'd', 'p', 'now')`).bind(PROGRAM, SYRACUSE).run();
+  assert.equal((await view(visitor)).preview.ticker, "UTICA", "another network's coin");
+  await env.DB.prepare("UPDATE lp_coins SET cluster = 'devnet' WHERE mint = 'MintSyr'").run();
   assert.equal((await view(visitor)).preview, null);
 });
 
@@ -192,28 +200,40 @@ test("a launched coin whose symbol the site never read is read from the chain, o
   const main = chain();
   const both = (url, init) => (String(url).startsWith(LP_ON.LAUNCHPAD_RPC_URL) ? lp.fetchImpl(url, init) : main(url, init));
   const gateOf = async () => (await (await f.send(`/api/coins/ready?city=${UTICA}`, { fetchImpl: both })).json()).gate;
-  // the chain has no metadata to read: unknown, so the founder can't choose a ticker it may be
-  assert.deepEqual(await gateOf(), { code: "ticker_unchecked", message: GATES.ticker_unchecked });
-  // the chain says it is UTICA: stored, and the ticker is taken
+  // a page view reads nothing from the chain for it (nor writes): no gate from it, and nothing read
+  const reads = () => lp.S.log.filter((l) => l.method === "getAccountInfo").length;
+  assert.equal(await gateOf(), null);
+  assert.equal(reads(), 0, "the GET never reads an unknown symbol");
+  // the founder's POST does: the chain has no metadata to read, so unknown, and the founder can't choose a ticker it may be
+  const drawn = async () => (await (await f.send("/api/coins/ready/art", { method: "POST", body: { cityId: UTICA }, fetchImpl: both })).json()).gate;
+  assert.deepEqual(await drawn(), { code: "ticker_unchecked", message: GATES.ticker_unchecked });
+  assert.ok(reads() > 0);
+  // the chain says it is UTICA: stored, and the ticker is taken (the page view sees it then, from the database)
   lp.S.accounts[await metadataAddress(mint)] = { owner: METAPLEX, data: metaplexData({ mint, name: "Syracuse", symbol: "UTICA", uri: metadataUriFor(mint) }) };
+  assert.equal((await drawn()).code, "symbol_taken");
   assert.equal((await gateOf()).code, "symbol_taken");
   const r = await row("SELECT name, symbol FROM lp_coins WHERE mint = ?", mint);
   assert.deepEqual([r.name, r.symbol], ["Syracuse", "UTICA"]);
 });
 
-test("the coin's JSON, built on its first read, stores the chain's name and symbol where the launch record could not", async () => {
+test("the coin's JSON, built on its first read, stores the chain's name and symbol where the launch record could not (whatever the switch says)", async () => {
   const { LP_ON, PROGRAM, lpChain, metaplexData, METAPLEX, DEMOV, DEMOV_CITY } = await import("./helpers/lpchain.js");
   const { metadataAddress } = await import("../src/sol/metaplex.js");
   const { metadataUriFor, handleCoinMeta } = await import("../src/coinmeta.js");
-  env = world({ COIN_V2_READY: "on", ...LP_ON });
-  await ensureLpCoinsSchema(env.DB);
-  await env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)
-    VALUES ('devnet', ?, ?, ?, 'c', 'f', NULL, NULL, 'So11111111111111111111111111111111111111112', 'd', 'p', 'now')`).bind(PROGRAM, DEMOV_CITY, DEMOV).run();
-  const lp = lpChain({ accounts: { [await metadataAddress(DEMOV)]: { owner: METAPLEX, data: metaplexData({ mint: DEMOV, name: "Demo Vicinity", symbol: "DEMOV", uri: metadataUriFor(DEMOV) }) } } });
-  const res = await handleCoinMeta(new Request(`https://vicinity.city/coin-meta/${DEMOV}.json`, { headers: { "cf-connecting-ip": "198.51.100.3" } }), env, lp.fetchImpl);
-  assert.equal(res.status, 200);
-  const r = await row("SELECT name, symbol, meta_json FROM lp_coins WHERE mint = ?", DEMOV);
-  assert.deepEqual([r.name, r.symbol, Boolean(r.meta_json)], ["Demo Vicinity", "DEMOV", true]);
+  // this path does not read COIN_V2_READY: with the switch unset too (as on the live site today) the chain's name and symbol are stored
+  for (const ready of [undefined, "on"]) {
+    env = world({ ...(ready ? { COIN_V2_READY: ready } : {}), ...LP_ON });
+    _resetLpCoins();
+    await ensureLpCoinsSchema(env.DB);
+    await env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)
+      VALUES ('devnet', ?, ?, ?, 'c', 'f', NULL, NULL, 'So11111111111111111111111111111111111111112', 'd', 'p', 'now')`).bind(PROGRAM, DEMOV_CITY, DEMOV).run();
+    const lp = lpChain({ accounts: { [await metadataAddress(DEMOV)]: { owner: METAPLEX, data: metaplexData({ mint: DEMOV, name: "Demo Vicinity", symbol: "DEMOV", uri: metadataUriFor(DEMOV) }) } } });
+    const res = await handleCoinMeta(new Request(`https://vicinity.city/coin-meta/${DEMOV}.json`, { headers: { "cf-connecting-ip": "198.51.100.3" } }), env, lp.fetchImpl);
+    assert.equal(res.status, 200, String(ready));
+    const r = await row("SELECT name, symbol, meta_json FROM lp_coins WHERE mint = ?", DEMOV);
+    assert.deepEqual([r.name, r.symbol, Boolean(r.meta_json)], ["Demo Vicinity", "DEMOV", true], String(ready));
+    if (!ready) assert.equal((await tablesOf(env)).filter((t) => t.startsWith("coin_")).length, 0, "the switch unset: no coin table made by it");
+  }
 });
 
 test("the grace period is named only when the seat is in it: Use this coin below the bar puts it there, then says so", async () => {

@@ -1250,17 +1250,21 @@
     $("#coin-city").textContent = c.name;
     $$("[data-city-ticker]").forEach((e) => (e.textContent = c.ticker ? tk : `${c.name} coin`));
     const st = $("#coin-status");
-    // with the ready-made coin on (COIN_V2_READY) nobody designs a coin: Vicinity makes it from the city list and the founder chooses it
+    // with the ready-made coin on (COIN_V2_READY) nobody designs a coin: Vicinity makes it from the city list and the founder chooses it.
+    // byV: the server says this design row IS Vicinity's ready-made coin (chosen, or launched with it: src/coins.js madeBy), so it is
+    // never called the founder's design, launched or not, with a founder now or not
     const rdy = me.coinV2Ready === true, founded = Boolean(seat && ["active", "steward", "grace"].includes(seat.status));
+    const byV = Boolean(cd && cd.madeBy === "vicinity");
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
-    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked") : cd ? "Designed" : rdy ? (founded ? "Not chosen yet" : "No founder yet") : "Not designed yet";
+    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked")
+      : cd ? (byV ? (founded ? "Chosen" : "Not launched") : "Designed") : rdy ? (founded ? "Not chosen yet" : "No founder yet") : "Not designed yet";
     const kick = $("#coin-kicker"); // coin-ready.js names Vicinity here while its preview stands in, and puts these words back after
-    kick.dataset.base = rdy && !cd ? "City coin · made by Vicinity" : "City coin · designed by the City Founder";
+    kick.dataset.base = (rdy && !cd) || byV ? "City coin · made by Vicinity" : "City coin · designed by the City Founder";
     kick.textContent = kick.dataset.base;
     // the founder sees their working picture (the server sends logoDraft to them and the staff only); everyone else the approved one or none
     if (!(mine && studioDirty)) paintCoin(cd ? { ...cd, logo: mine ? cd.logoDraft || cd.logo : cd.logo } : { name: c.name, color: "gold", logo: null, pair: null });
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
-    $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
+    $("#coin-by").textContent = !cd ? "" : byV ? `Made by Vicinity from the city list · chosen ${date(cd.updatedAt)}` : `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}`;
     logoState(mine ? cd : null);
     $("#coin-contract").hidden = !(cd && cd.mint);
     // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
@@ -1272,7 +1276,9 @@
       : mine
       ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : rdy ? "Your city coin is the one made by Vicinity, in your Founder tab. Nothing has launched yet." : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
-      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
+      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.`
+        : byV ? "Made by Vicinity from the city list. Nothing has launched yet." : rdy ? `Designed by ${c.name}'s founder. Nothing has launched yet.`
+          : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
     // with the ready-made coin on (COIN_V2_READY), the coin is made by Vicinity and chosen in its own card: the old studio stays hidden

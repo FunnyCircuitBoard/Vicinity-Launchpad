@@ -653,6 +653,8 @@
       if (!rf && !readyKnown) { note.textContent = "Checking your city coin…"; go.hidden = true; fcardAction = null; }
       else if (!rf) { note.textContent = "City coins are made by Vicinity from the city list now: yours is in your Founder tab."; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
       else if (!rf.coin) { note.textContent = rf.gate ? rf.gate.message : ""; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      // something stands in the way of "Use this coin" (an approval for another wallet or of an earlier design, a low balance...): why
+      else if (rf.gate) { note.textContent = rf.gate.message; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
       else if (!coin) { note.textContent = `${seat.city}'s coin is ready: the Vicinity design with its ticker, from the city list. Check it, then use it.`; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
       else { note.textContent = "Choose your city coin above (Use this coin); then Vicinity's owner approves it on the blockchain."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
     }

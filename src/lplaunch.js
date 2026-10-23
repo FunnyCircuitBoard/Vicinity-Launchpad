@@ -335,7 +335,7 @@ async function launchTx(request, env, fetchImpl, now) {
     // a recorded coin whose symbol the site never read is read now; one still unknown may be this ticker: refused, never assumed free
     if ((await unknownSymbols(env, cityId, fetchImpl)).length) return err("symbol_unchecked", "A coin launched for another city has a ticker this site could not read from the blockchain yet, so it can't be sure yours is free. Nothing was built. Try again in a minute.", 503, { state: "paused" });
     let other = null;
-    try { other = await env.DB.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? LIMIT 1").bind(st.approval.symbol, String(cityId)).first(); }
+    try { other = await env.DB.prepare("SELECT city_id FROM lp_coins WHERE symbol = ? AND city_id <> ? AND cluster = ? AND program_id = ? LIMIT 1").bind(st.approval.symbol, String(cityId), s.cluster, s.programId).first(); }
     catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }
     if (other) return err("symbol_taken", `$${st.approval.symbol} has already launched for another city, so it can't launch twice. Nothing was built. Tell us and we'll sort it out.`, 409, { state: "paused" });
   }

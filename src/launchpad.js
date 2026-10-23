@@ -29,6 +29,8 @@ import { _resetLaunchlab } from "./launchlab.js";
 import { getAllHolders, holderSnapshot, isTeamWallet } from "./chain.js";
 import { DAY, iso } from "./policy.js";
 import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
+import { madeByOf, readyChoices } from "./coinart-store.js";
+import { coinV2ReadyOn } from "./flags.js";
 
 const SOL = PAIRS.SOL.mint;
 const NEW_DAYS = 7; // "New" = live for less than this (a default, see the product decisions in the report)
@@ -151,6 +153,9 @@ async function build(env, fetchImpl, now) {
 
   // the ticker each card shows: the chain's symbol for a launched coin (one query for all of them), else the city list's
   const chainSymbols = await chainSymbolsOf(env, coins.filter((c) => c.mint).map((c) => c.mint));
+  // who made each design (src/coinart-store.js madeByOf): read only with the ready-made coin on or a coin launched, one query for all
+  let choices = new Map();
+  if (coinV2ReadyOn(env) || coins.some((c) => c.mint)) { try { choices = await readyChoices(env.DB); } catch (e) { console.error("coin choices unavailable", shortErr(e)); } }
   const cards = [];
   for (const c of coins) {
     const seat = seats.get(String(c.city)) || null;
@@ -158,8 +163,9 @@ async function build(env, fetchImpl, now) {
       handle: handles.get(String(c.city)) || null, // the username or nothing: never a display name, never a wallet
       wallet: mask(seat.wallet), status: seat.status,
     } : null;
+    const madeBy = madeByOf(env, c, choices.get(String(c.city)) || null);
     cards.push({
-      kind: "city", status: c.mint ? "live" : c.waiting ? "waiting" : "designed",
+      kind: "city", status: c.mint ? "live" : c.waiting ? "waiting" : "designed", ...(madeBy ? { madeBy } : {}),
       city: { id: String(c.city), name: c.cityName, country: c.country },
       ticker: (await displayTicker(env, { cityId: c.city, chainSymbol: (c.mint && chainSymbols.get(c.mint)) || null }))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
       pair: { symbol: c.pair, mint: c.pairMint }, mint: c.mint, launchedAt: c.launchedAt, designedAt: c.updatedAt,

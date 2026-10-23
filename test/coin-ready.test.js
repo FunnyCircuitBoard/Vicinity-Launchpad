@@ -272,21 +272,28 @@ test("every check again on the server: wallet, ban, waiting contract, launched c
   await refused("launched");
   assert.equal((await view(browser(env))).preview, null, "no preview of a launched city");
   await env.DB.prepare("DELETE FROM city_coins WHERE city_id = ?").bind(UTICA).run();
-  // launched on the launchpad (lp_coins), even before city_coins knows
+  // launched on the launchpad (lp_coins), even before city_coins knows (the launchpad's settings on: its coins and approvals count,
+  // those of another network or program never do, they can't launch here)
+  const { LP_ON, PROGRAM } = await import("./helpers/lpchain.js");
+  Object.assign(env, LP_ON);
   await ensureLpCoinsSchema(env.DB);
   await env.DB.prepare(`INSERT INTO lp_coins (cluster, program_id, city_id, mint, coin, founder, name, symbol, quote_mint, dbc_config, dbc_pool, recorded_at)
-    VALUES ('devnet', 'P', ?, 'MintUtica', 'c', 'f', 'Utica', 'UTICA', 'q', 'd', 'p', 'now')`).bind(UTICA).run();
+    VALUES ('devnet', ?, ?, 'MintUtica', 'c', 'f', 'Utica', 'UTICA', 'q', 'd', 'p', 'now')`).bind(PROGRAM, UTICA).run();
   assert.equal((await gateOf()).code, "launched");
   // the ticker launched for ANOTHER city (a moved ticker): never twice
   await env.DB.prepare("UPDATE lp_coins SET city_id = ? WHERE city_id = ?").bind(SYRACUSE, UTICA).run();
   assert.equal((await gateOf()).code, "symbol_taken");
   await refused("symbol_taken");
+  await env.DB.prepare("UPDATE lp_coins SET program_id = 'P'").run();
+  assert.equal(await gateOf(), null, "another program's coin");
   await env.DB.prepare("DELETE FROM lp_coins").run();
   // an approval the owner built for another city with this ticker, not revoked since
   await ensureLpAdminSchema(env.DB);
-  await env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('mainnet', 'P', ?, 'approve', 'f', 'Syracuse', 'UTICA', 'x', 'sig1', 'w', 'now')").bind(SYRACUSE).run();
+  await env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('mainnet', ?, ?, 'approve', 'f', 'Syracuse', 'UTICA', 'x', 'sig0', 'w', 'now')").bind(PROGRAM, SYRACUSE).run();
+  assert.equal(await gateOf(), null, "an approval on another network");
+  await env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('devnet', ?, ?, 'approve', 'f', 'Syracuse', 'UTICA', 'x', 'sig1', 'w', 'now')").bind(PROGRAM, SYRACUSE).run();
   assert.equal((await gateOf()).code, "symbol_taken");
-  await env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('mainnet', 'P', ?, 'revoke', NULL, NULL, NULL, NULL, 'sig2', 'w', 'now')").bind(SYRACUSE).run();
+  await env.DB.prepare("INSERT INTO lp_approvals_log (cluster, program_id, city_id, action, founder, name, symbol, expires_at, signature, by_wallet, at) VALUES ('devnet', ?, ?, 'revoke', NULL, NULL, NULL, NULL, 'sig2', 'w', 'now')").bind(PROGRAM, SYRACUSE).run();
   assert.equal(await gateOf(), null, "revoked since: free again");
   // a ban, here or everywhere
   await env.DB.prepare("INSERT INTO bans (user_id, country, by_user, reason, created_at) VALUES (?, 'US', 1, 'spam', ?)").bind(f.uid, new Date(Date.now()).toISOString()).run();
@@ -347,7 +354,7 @@ test("the registry decides: a city it does not know has no coin; a list that can
 });
 
 test("a design frozen on chain (the owner approving or approved) is not replaced; the chain unreadable is said, never guessed", async () => {
-  const { LP_ON, PROGRAM, lpChain } = await import("./helpers/lpchain.js");
+  const { LP_ON, PROGRAM, lpChain, approvalAccount } = await import("./helpers/lpchain.js");
   const { launchpad: pdas } = await import("../src/sol/pda.js");
   env = world({ COIN_V2_READY: "on", ...LP_ON });
   const lp = lpChain();
@@ -361,9 +368,12 @@ test("a design frozen on chain (the owner approving or approved) is not replaced
   assert.equal((await call(`/api/coins/ready?city=${UTICA}`)).gate.code, "held");
   assert.equal((await call("/api/coins/ready/use", { cityId: UTICA, contentHash: a.coin.contentHash })).error, "held");
   advance(120_000);
-  lp.S.accounts[await pdas(PROGRAM).approval(BigInt(UTICA))] = { owner: PROGRAM, data: Buffer.alloc(179).toString("base64") };
-  assert.equal((await call(`/api/coins/ready?city=${UTICA}`)).gate.code, "approved");
-  assert.equal((await call("/api/coins/ready/use", { cityId: UTICA, contentHash: a.coin.contentHash })).error, "approved");
+  // an approval of this founder's studio design (the coin was never chosen): THAT launches, and the card says so, naming it
+  lp.S.accounts[await pdas(PROGRAM).approval(BigInt(UTICA))] = approvalAccount({ cityId: UTICA, founder: f.w.address, name: "Utica Coin", symbol: "UTICA", expiresAt: Math.floor(Date.now() / 1000) + 86_400 });
+  const g = (await call(`/api/coins/ready?city=${UTICA}`)).gate;
+  assert.equal(g.code, "approved_earlier");
+  assert.match(g.message, /approved on the blockchain as “Utica Coin” \(\$UTICA\), but not with the Vicinity coin shown here\. It launches as approved/);
+  assert.equal((await call("/api/coins/ready/use", { cityId: UTICA, contentHash: a.coin.contentHash })).error, "approved_earlier");
   lp.S.down = true;
   assert.equal((await call(`/api/coins/ready?city=${UTICA}`)).gate.code, "rpc_unavailable");
   const r = await f.send("/api/coins/ready/use", { method: "POST", body: { cityId: UTICA, contentHash: a.coin.contentHash }, fetchImpl: both });
@@ -383,7 +393,9 @@ test("Use this coin is counted per account, atomically, before any work (10 a da
   const h2 = (await art(g)).coin.contentHash;
   const { ensureReadySchema } = await import("../src/coinart-store.js");
   await ensureReadySchema(env.DB);
-  await env.DB.prepare("INSERT INTO coin_ready (city_id, version_id, content_hash, symbol, design_at, seat_id, user_id, chosen_at) VALUES (?, 1, ?, 'UTICA', 'x', 1, 1, 'x')").bind(SYRACUSE, "e".repeat(64)).run();
+  // (approved: the owner's approval was built from it, so it holds the ticker whatever the list says now; a choice the list moved away
+  // from that nobody approved lets it go: test/coin-ready-recheck.test.js)
+  await env.DB.prepare("INSERT INTO coin_ready (city_id, version_id, content_hash, symbol, design_at, seat_id, user_id, chosen_at, approved_hash) VALUES (?, 1, ?, 'UTICA', 'x', 1, 1, 'x', ?)").bind(SYRACUSE, "e".repeat(64), "e".repeat(64)).run();
   assert.equal((await view(g)).gate.code, "symbol_taken");
   assert.equal((await use(g, h2)).error, "symbol_taken");
 });

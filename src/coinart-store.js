@@ -197,6 +197,24 @@ export async function clearApproved(db, cityId) {
   try { await db.prepare("UPDATE coin_ready SET approved_hash = NULL WHERE city_id = ? AND mint IS NULL").bind(String(cityId)).run(); }
   catch (e) { if (!noTable(e) && !noColumn(e)) throw e; } // no table or no column yet: nothing was ever marked
 }
+/**
+ * Every city's choice, Map(city id -> { mint, design_at }), for the pages that list many coins (src/launchpad.js). No table: empty.
+ */
+export async function readyChoices(db) {
+  const rows = await read(db, () => db.prepare("SELECT city_id, mint, design_at FROM coin_ready").all());
+  return new Map(((rows && rows.results) || []).map((r) => [String(r.city_id), r]));
+}
+/**
+ * Who made a city's coin design, as the pages may say it: "vicinity" when the design row IS a ready-made version (src/coinready.js):
+ * the version bound to the launched coin (whatever any switch says now: it is the coin's for ever), or, with COIN_V2_READY on, the
+ * chosen version while it is still the design row (its updated_at). Else null (the founder's own design, or nothing known).
+ * `coin`: { mint, updatedAt } of the design row; `choice`: its coin_ready row (chosenOf or readyChoices), or null.
+ */
+export function madeByOf(env, coin, choice) {
+  if (!coin || !choice) return null;
+  if (coin.mint) return choice.mint && choice.mint === coin.mint ? "vicinity" : null;
+  return coinV2ReadyOn(env) && !choice.mint && choice.design_at === coin.updatedAt ? "vicinity" : null;
+}
 /** The picture of a launched coin bound to `mint` (its art SHA-256), or null. */
 export async function boundArtOf(db, mint) {
   const row = await read(db, () => db.prepare("SELECT v.art_sha256 FROM coin_ready r JOIN coin_versions v ON v.id = r.version_id WHERE r.mint = ?").bind(mint).first());

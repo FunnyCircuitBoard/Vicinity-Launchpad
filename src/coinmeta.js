@@ -151,8 +151,11 @@ async function metadata(request, env, row, fetchImpl, now) {
   let md;
   try { md = await chainMetadata(env, row.mint, fetchImpl); } catch (e) { console.error("coin-meta metadata read failed", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
   if (!md || md.uri !== metadataUriFor(row.mint)) { rememberMissing(row.mint, now); return notFound(request); }
-  // the JSON is being built for the first time here (like the launch record would have): a ready-made version is bound to the coin now
-  try { await bindVersion(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol }, now); } catch (e) { console.error("coin-meta: version not bound", codeOf(e)); }
+  // the JSON is being built for the first time here (like the launch record would have): a ready-made version is bound to the coin now.
+  // A bind that failed (a database error) decides nothing: nothing is stored and the answer is a short 503, so the next read tries again
+  // (a JSON stored without the version would be served for ever)
+  try { await bindVersion(env, { cityId: String(row.city_id), mint: row.mint, name: md.name, symbol: md.symbol }, now); }
+  catch (e) { console.error("coin-meta: version not bound", codeOf(e)); return jsonAnswer(request, { ok: false, error: "unavailable" }, 503, 10); }
   let meta;
   try { meta = JSON.stringify(await metaJsonFor(env, row, md)); } catch (e) { console.error("coin-meta JSON refused", codeOf(e)); return notFound(request); }
   // the chain's name and symbol too, where the launch record could not read them (src/lpcoins.js stores them only then): the

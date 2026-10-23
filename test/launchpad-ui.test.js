@@ -205,7 +205,7 @@ test("launchpad set up (/api/official cityCoins: the old LaunchLab path is close
   assert.match(part, /const sent = c && c\.status === "waiting";\n\s+box\.classList\.add\("is-empty"\); box\.dataset\.sig = sent \? "wait:sent" : "wait";\n\s+box\.append\(el\("span", "lp-spark__dash"\), el\("span", "lp-spark__msg", sent \? "Not trading here yet\." : "Not trading yet\. Nothing is minted\."\)\);/);
   // the page: the switch is read from /api/official before any card is drawn, the tab note and the status filter follow it
   assert.match(part, /official\.then\(\(o\) => \{ swapOn = Boolean\(o && o\.swap === true\); lpOn = Boolean\(o && o\.cityCoins\);/);
-  assert.match(part, /\$\("#lp-tabnote"\)\.textContent = \(lpOn && TAB_NOTE_LP\[state\.tab\]\) \|\| TAB_NOTE\[state\.tab\];/);
+  assert.match(part, /\$\("#lp-tabnote"\)\.textContent = \(readyOn && TAB_NOTE_READY\[state\.tab\]\) \|\| \(lpOn && TAB_NOTE_LP\[state\.tab\]\) \|\| TAB_NOTE\[state\.tab\];/);
   assert.match(part, /if \(lpOn\) for \(const o of \$\$\("#lp-status option"\)\) if \(o\.value === "waiting"\) o\.textContent = WAITING_LP\[0\];/);
 });
 test("founder line: the handle or the masked wallet, the role, never a full address", () => {
@@ -521,7 +521,7 @@ test("sources copy: 'recorded by Vicinity' until the city-coin launch is on (/ap
   // (design v4: it left the top of the page for the sources fold under the grid, "Where the numbers come from")
   const p = html.match(/<p class="tiny muted lp-about">Every coin here is a city's one official coin,[\s\S]*?<\/p>/)[0];
   assert.ok(html.indexOf("lp-about") > html.indexOf('<details class="fold lp-sources">'), "inside the sources fold");
-  assert.match(p, /launched by its City Founder<span data-launchlab-copy> and recorded by Vicinity<\/span><span data-lp-only hidden> on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. A coin that has launched shows its live price; the others are designed and waiting\./);
+  assert.match(p, /launched by its City Founder<span data-launchlab-copy> and recorded by Vicinity<\/span><span data-lp-only hidden> on the Vicinity launchpad \(a Meteora bonding curve\)<\/span>\. A coin that has launched shows its live price; the others are <span data-designed-copy>designed and waiting<\/span><span data-ready-copy hidden>chosen or designed, not launched yet<\/span>\./);
   assert.doesNotMatch(p, /Live coins trade now/);
   assert.ok(srcHtml.includes("<span data-lp-only hidden> on the Vicinity launchpad (a Meteora bonding curve)</span>"));
   const run = async (o) => {

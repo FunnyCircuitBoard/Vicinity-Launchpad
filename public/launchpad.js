@@ -63,6 +63,9 @@
   };
   // with city coins launching on the Vicinity launchpad (lpOn below) nobody checks a contract for the Upcoming tab any more
   const TAB_NOTE_LP = { upcoming: "Upcoming: designed, not launched yet." };
+  // with the ready-made coin on (readyOn below) a city's coin is made by Vicinity and chosen by its founder; an older studio design may
+  // still be listed, so the note names both
+  const TAB_NOTE_READY = { upcoming: "Upcoming: chosen or designed, not launched yet." };
   const SOL_MINT = "So11111111111111111111111111111111111111112";
   const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const isAddr = (a) => typeof a === "string" && ADDR_RE.test(a);
@@ -188,10 +191,14 @@
   let readyOn = false; // /api/official coinV2Ready (COIN_V2_READY=on): set once that answer is in
   const STATUS = { live: ["Live", "tag--ok"], waiting: ["Contract being checked", "tag--warn"], designed: ["Designed", ""], upcoming: ["Opens soon", "tag--gold"] };
   const WAITING_LP = ["Old contract waiting", "tag--warn"]; // with the launchpad set up nobody checks such a contract: it can only be rejected
-  /** The status tag: text and extra class. $VICINITY before its mint carries the countdown. `lp`: the launchpad is set up. */
+  /**
+   * The status tag: text and extra class. $VICINITY before its mint carries the countdown. `lp`: the launchpad is set up. A coin the
+   * server says Vicinity made (madeBy "vicinity": the ready-made coin its founder chose, src/coinart-store.js) is never called designed.
+   */
   function statusLabel(c, { now = Date.now(), opensAt = null, lp = lpOn } = {}) {
     if (c && c.status === "upcoming") { const at = Date.parse(str(c.opensAt)) || opensAt; return [Number.isFinite(at) ? countdownText(at - now) : "Opens soon", "tag--gold"]; }
     if (c && c.status === "waiting" && lp) return WAITING_LP;
+    if (c && c.status === "designed" && c.madeBy === "vicinity") return ["Chosen", ""];
     const s = STATUS[c && c.status] || ["Designed", ""];
     return s;
   }
@@ -408,7 +415,7 @@
     return `Read from the price-curve settings on Solana${shortAddr(f && f.config) ? ` (${shortAddr(f.config)})` : ""}${hhmm(f && f.readAt) ? ` at\u00a0${hhmm(f.readAt)}` : ""}${halves}`;
   };
 
-  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, TAB_NOTE_LP, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
+  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, TAB_NOTE_LP, TAB_NOTE_READY, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, initialsOf, cardKey, stateFromUrl, urlFor,
     coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy, hhmm, feesSource };
   window.VLaunchpad = { pure };
@@ -688,7 +695,7 @@
     const n = Object.fromEntries(TABS.map((t) => [t, rowsFor(cards, { ...opts, tab: t }).length]));
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) { c.textContent = String(n[b.dataset.tab] || 0); c.classList.toggle("is-zero", !n[b.dataset.tab]); } });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
-    $("#lp-tabnote").textContent = (lpOn && TAB_NOTE_LP[state.tab]) || TAB_NOTE[state.tab];
+    $("#lp-tabnote").textContent = (readyOn && TAB_NOTE_READY[state.tab]) || (lpOn && TAB_NOTE_LP[state.tab]) || TAB_NOTE[state.tab];
     const rows = rowsFor(cards, opts);
     const cities = rows.filter((c) => c.kind !== "vicinity").length; // the city coins drawn (the empty card speaks when there is none)
     const keep = focusKey();
@@ -831,6 +838,11 @@
     state.tab = fromUrl.tab; state.q = fromUrl.q; $("#lp-q").value = fromUrl.q;
     // with the launchpad set up the status filter names a waiting contract the way its cards do
     if (lpOn) for (const o of $$("#lp-status option")) if (o.value === "waiting") o.textContent = WAITING_LP[0];
+    // with the ready-made coin on, a coin not launched yet is chosen (made by Vicinity) or an older studio design: the filter and the
+    // section's own sentence say so
+    if (readyOn) for (const o of $$("#lp-status option")) if (o.value === "designed") o.textContent = "Chosen or designed";
+    for (const e of $$("[data-designed-copy]")) e.hidden = readyOn;
+    for (const e of $$("[data-ready-copy]")) e.hidden = !readyOn;
     wire();
     render(); // the controls are wired at once; the first answer fills them (the placeholders hold the room meanwhile)
     load();

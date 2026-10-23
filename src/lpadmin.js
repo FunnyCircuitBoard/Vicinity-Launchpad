@@ -788,18 +788,16 @@ async function candidateList(env, ctx, fetchImpl, now) {
   // approved; and a ticker is never approved twice: not when another city launched with it (lp_coins) nor when another city's approval
   // on chain names it (the registry gives each city its own, but a regenerated list could move one: scripts/cities/tickers.mjs pins them)
   const ready = coinV2ReadyOn(env);
-  const takenBy = new Map(); // symbol -> the other city's id, launched or approved
+  const takenBy = new Map(); // symbol -> Set of the city ids that launched with it or hold an approval naming it
+  const take = (symbol, city) => { if (symbol) { if (!takenBy.has(symbol)) takenBy.set(symbol, new Set()); takenBy.get(symbol).add(String(city)); } };
   let unknown = []; // cities whose launched coin's symbol this site could not read: any ticker may be theirs
   if (ready) {
     unknown = await unknownSymbols(env, "", fetchImpl);
     try {
-      for (const x of (await db.prepare("SELECT city_id, symbol FROM lp_coins WHERE symbol IS NOT NULL").all()).results) takenBy.set(x.symbol, `${x.city_id}`);
+      for (const x of (await db.prepare("SELECT city_id, symbol FROM lp_coins WHERE symbol IS NOT NULL AND cluster = ? AND program_id = ?").bind(s.cluster, s.programId).all()).results) take(x.symbol, x.city_id);
     } catch (e) { if (!/no such table/i.test(String((e && e.message) || e))) throw e; }
-    for (let i = 0; i < rows.length; i++) {
-      if (!ids[i]) continue;
-      const ap = decodeApproval(acc.get(await L.approval(ids[i])) || null, s.programId);
-      if (ap && ap.symbol && !takenBy.has(ap.symbol)) takenBy.set(ap.symbol, String(ids[i]));
-    }
+    // EVERY approval on chain, not only those of the cities listed here (the 200 designs saved last): one more read of the program
+    for (const ap of await approvalRecords(env, s, fetchImpl)) take(ap.symbol, ap.cityId);
   }
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i], id = ids[i];
@@ -847,8 +845,8 @@ async function candidateList(env, ctx, fetchImpl, now) {
     if (ready) {
       // (a Raydium LaunchLab contract still waiting for this city is the reason src/lpadmin.js gives on every candidate, switch or not)
       if (unknown.some((x) => x !== String(id))) reasons.push(`A coin launched for another city (${unknown.filter((x) => x !== String(id)).join(", ")}) has a ticker this site could not read from the blockchain yet, so nothing is approved until it is known. Reload in a minute.`);
-      const other = t ? takenBy.get(t.ticker) : null;
-      if (other && other !== String(id)) reasons.push(`The ticker ${t.ticker} is already launched or approved for another city (${other}). Nothing is approved twice: the city list must give this city another ticker first.`);
+      const other = t && takenBy.has(t.ticker) ? [...takenBy.get(t.ticker)].filter((x) => x !== String(id)) : [];
+      if (other.length) reasons.push(`The ticker ${t.ticker} is already launched or approved for another city (${other.join(", ")}). Nothing is approved twice: the city list must give this city another ticker first.`);
       const c = await chosenOf(db, r.city_id);
       if (c && c.current && t && c.symbol === t.ticker && c.name === r.name) readyCoin = { version: c.content_hash.slice(0, 8), contentHash: c.content_hash, template: c.template_version, art: `/coin-meta/art/${c.art_sha256}.png` };
       else reasons.push(c && c.current ? "The founder's chosen Vicinity coin no longer matches the city list (its ticker or name changed). The founder must use the coin again." : "The founder has not chosen the Vicinity coin yet (\"Use this coin\" in their Founder tab).");
@@ -930,6 +928,20 @@ async function revokeTx(env, ctx, body, fetchImpl, now) {
   const r = await buildTx(env, { payer: ctx.wallet, instructions: [ix], watch: [ap.rentPayer], labels: { [await L.approval(cityId)]: "the approval (closed)", [ap.rentPayer]: ap.rentPayer === ctx.wallet ? "your wallet (gets the rent back)" : "who paid the approval's rent (gets it back)" } }, fetchImpl, now);
   if (r.ok) Object.assign(r, { step: "revoke", cityId: String(cityId), record: { step: "revoke", params: { cityId: String(cityId) } } });
   return respond(r);
+}
+
+/** The Approval account's size (the program's InitSpace: 8 + 8 + 3 x 32 + 4 + 32 + 4 + 10 + 8 + 8 + 1), every approval the same. */
+export const APPROVAL_SIZE = 179;
+/** Every Approval of the program on chain, decoded, each at its own city's address: [{ cityId (string), symbol, name, founder, ... }]. */
+async function approvalRecords(env, s, fetchImpl) {
+  const list = await lpRpc(env, "getProgramAccounts", [s.programId, { encoding: "base64", commitment: "confirmed", filters: [{ dataSize: APPROVAL_SIZE }] }], fetchImpl);
+  const rows = Array.isArray(list) ? list : list && Array.isArray(list.value) ? list.value : [];
+  const L = launchpadPdas(s.programId), out = [];
+  for (const r of rows) {
+    const ap = decodeApproval(r && r.account ? { ...r.account, owner: r.account.owner || s.programId } : null, s.programId);
+    if (ap && (await L.approval(ap.cityId)) === r.pubkey) out.push({ ...ap, cityId: ap.cityId.toString() });
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------------- launched coins */

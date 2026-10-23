@@ -35,7 +35,10 @@ page covers how it works and what was measured.
   is recorded (`src/lpcoins.js`) the version is bound to the mint, but only if the switch is on at that moment, the choice is still the
   city's design, the owner's approval was built from that very version, and the chain's name and symbol are the version's. From then on that
   JSON names the hash-addressed picture, whatever the switch says. Anything else gets the old JSON (the Vicinity badge): a version that was
-  chosen while the switch was on is never published after it is turned off.
+  chosen while the switch was on is never published after it is turned off. A bind that fails with a database error decides nothing: no JSON
+  is stored, the record answers without it and the first `/coin-meta/<mint>.json` read answers a short 503, so the next record (the page or
+  the sweep) or read binds it; a JSON stored without the version would be served for ever. A bound coin's description is the version's own
+  sentence, so a moderator's text takedown of it is refused (`system_text`) and never logged as a removal.
 
 ## Templates are immutable
 
@@ -46,21 +49,39 @@ keeps its `t1` picture forever, because the picture is stored by its own hash an
 ## Tickers stay put
 
 `scripts/cities/ticker-pins.json` pins every launched coin's on-chain symbol. `npm run tickers` fails, and writes nothing, if a rebuilt list
-would move a pinned ticker or hand it to another city, or if a coin on the official list of launched city coins (`/api/official-coins`, read
-from the chain; `--official <file>` for a saved copy) is not pinned to its own symbol (`test/ticker-pins.test.js`). The file is empty today
+would move a pinned ticker or hand it to another city, if a coin on the official list of launched city coins (`/api/official-coins`, read
+from the chain; `--official <file>` for a saved copy) is not pinned to its own symbol, or if a live approval on chain (every Approval of
+`wrangler.jsonc`'s `LAUNCHPAD_PROGRAM_ID`, one `getProgramAccounts`; `--approvals <file>` for a saved copy) would lose its symbol to
+another city or leave the list: `approve_launch` already fixes the ticker on chain, so pin it first (`test/ticker-pins.test.js`). The file is empty today
 because the live site lists no launched city coin. The pins are published at `public/data/ticker-pins.json` for the Cities page's fallback.
-With the switch on, the server checks a ticker again, each route against its own list:
-- "Use this coin" (`src/coinready.js`): coins recorded in `lp_coins` (one whose symbol was never read is read from the chain, or blocks),
-  approvals in `lp_approvals_log` not revoked since, and other cities' chosen coins (`coin_ready`, unique by symbol).
-- The owner's candidates and approval (`src/lpadmin.js`): `lp_coins` (same rule for an unread symbol) and the approvals on chain.
+With the switch on, the server checks a ticker again, each route against its own list. Launched and approved coins count on this site's
+launchpad only (`lpSetup`'s cluster and program: a row of another network can neither be read here nor launch here), and every coin whose
+symbol was never read counts as a possible clash until it is read, all of them, not only the 20 read at a time:
+- "Use this coin" (`src/coinready.js`): coins recorded in `lp_coins` (one whose symbol was never read is read from the chain by the POSTs,
+  or blocks; a GET reads nothing from the chain for it), approvals in `lp_approvals_log` not revoked since, and other cities' chosen coins
+  (`coin_ready`, unique by symbol). A choice counts only while it can still launch: bound, approved, or still its city's registry ticker.
+  One the city list moved away from (unlaunched tickers are not pinned) is released by the next "Use this coin" of the city that has the
+  ticker now (its symbol becomes `~<city id>`, never a ticker), and it is nobody's preview any more.
+- The owner's candidates and approval (`src/lpadmin.js`): `lp_coins` (same rule for an unread symbol) and EVERY approval on chain (one
+  `getProgramAccounts`, not only those of the 200 newest design rows).
 - The launch (`src/lplaunch.js`): `lp_coins` (same rule).
+
+## What the founder is told about an approval on chain
+
+"Approved" (and "It launches exactly as approved") only when the approval is for the founder's own wallet and was built from the coin they
+chose, still their design: exactly what the launch record binds. An approval for another wallet (a seat that changed hands before the owner
+revoked it) is `approved_other`; one built from anything else (a studio design approved before the switch, or the ready-made coin approved
+with the switch off) is `approved_earlier`, which names the approved name and ticker. In both cases the card shows no coin of its own and
+no preview: what launches is that approval. While a version is approved or launched, the card shows that version, not the defaults as the
+city list reads today. The coin card and the Launchpad say "made by Vicinity" / "Chosen" for a design row that is the
+ready-made coin (`madeBy` in `/api/coins?city=` and on Launchpad cards), never "designed by the City Founder".
 
 ## Measured (18 Oct 2026)
 
 | | before (`008a1ca`) | after | |
 |---|---|---|---|
 | Worker bundle (`wrangler deploy --dry-run`) | 1,109.49 KiB (gzip 289.82 KiB) | 3,672.88 KiB (gzip 1,277.25 KiB) | +2,563 KiB: the wasm is 2,478,606 bytes, the fonts 31,784 + 31,872 bytes. That is about 5.6 % of the 64 MiB uncompressed limit, and 12.5 % of the paid plan's 10 MiB gzip limit (42 % of the free plan's 3 MiB) |
-| Startup (`wrangler check startup`, local workerd CPU profile, 4 runs) | 73, 118, 92, 89 ms (median ≈ 90) | 96, 85, 95, 103 ms (median ≈ 95) | within noise. The wasm is loaded lazily on the first drawing, so startup does not parse it |
+| Startup (`wrangler check startup`, local workerd CPU profile, 4 runs) | 73, 118, 92, 89 ms (median ≈ 90) | 96, 85, 95, 103 ms (median ≈ 95) | within noise. The wasm module itself is compiled when the isolate starts (the bundler hoists its import; about 5 ms for this size, so a much larger wasm would show here); only its instantiation and the first drawing are lazy, so ordinary requests never pay for initWasm |
 | One coin drawn, Node (warm) | | 35–40 ms (the first one is about 200 ms with wasm start), PNG 87–95 KB | byte-identical runs |
 | One coin drawn, real Worker (wrangler dev, first call, wasm start included) | | 262 ms, the `POST /api/coins/ready/art` answer in 444 ms | the PNG is byte-identical to the Node golden (`UTICA` → `8108d332…`) |
 

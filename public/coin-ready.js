@@ -42,6 +42,10 @@
     if (gate && gate.code === "launched" && !(chosen && chosen.launched)) { card.hidden = true; return; }
     card.hidden = false;
     text("#cr-place", r.city ? place(r.city) : "");
+    // an approval on chain that is not this coin's (another wallet's, or one built from an earlier design): THAT is what launches, so the
+    // card shows no coin of its own, only why (src/coinready.js approved_other, approved_earlier)
+    const notThis = Boolean(gate && ["approved_other", "approved_earlier"].includes(gate.code));
+    for (const sel of [".coin-ready__body", ".coin-ready__src", "#cr-version"]) show(sel, !notThis);
     const img = $("#cr-art"), wait = $("#cr-art-wait");
     const art = chosen && chosen.launched ? chosen.art : coin && coin.art;
     if (art) {
