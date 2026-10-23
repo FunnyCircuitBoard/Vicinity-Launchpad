@@ -42,7 +42,7 @@ function children(h, start) {
 const startOf = (id) => { const i = html.indexOf(`id="${id}"`); assert.ok(i > 0, id); return html.lastIndexOf("<", i); };
 
 // The id-to-tab table (CONTRACT.md section 1): every id of the built dashboard page, each in exactly one place.
-const LAYOUT = ["main", "status", "toast"]; // design v4: no site-entry Terms modal (#termsgate) on any page any more
+const LAYOUT = ["main", "status", "toast", "acct-sheet", "acct-panel"]; // design v4: no site-entry Terms modal (#termsgate) on any page any more; the header's account sheet (17 Oct 2026)
 const TABLE = {
   global: ["dash-skel", "dash-out", "dash-onboard", "ob-rank", "ob-rank-text", "ob-city", "ob-city-text", "ob-locate", "ob-nearby", "ob-error", "ob-enter",
     "proof-modal", "proof-title", "proof-wallets", "proof-none", "proof-transfer", "proof-code", "proof-sol", "proof-start", "proof-error", "proof-cancel",
@@ -72,7 +72,7 @@ const TABLE = {
     "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker-label", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
   moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
-    "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
+    "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
     "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-username-meta", "profile-bio-meta", "profile-wallet-meta",
     "profile-email-meta", "profile-phone-meta", "roles-fold", "roles",
     "google-sec", "profile-google-meta", "google-desc", "google-view", "google-err", // the Google sign-in row (an extra way to log in, src/logins.js)
@@ -187,7 +187,7 @@ test("the ARIA tab strip: one tablist, nine tabs that control nine panels, Moder
 
 test("the Wallet tab (wallet onboarding, step 1): second in the strip, after Home and before City, with its own panel and its two static cards; the deep link #wallet opens it", async () => {
   assert.deepEqual(TABS.slice(0, 3), ["home", "wallet", "city"]);
-  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg /, "named, with an icon for a crowded strip");
+  assert.match(html, /<a class="dtab" id="tab-wallet" role="tab" href="#wallet" data-tab="wallet" aria-controls="panel-wallet" aria-selected="false" tabindex="-1" aria-label="Wallet"><span class="dtab__ico" aria-hidden="true"><svg /, "named, with an icon (a phone's strip, a crowded tablet strip)");
   assert.match(html, /<span class="dtab__text">Wallet<\/span><\/a>/);
   assert.match(html, /<section class="dpanel" id="panel-wallet" role="tabpanel" aria-labelledby="tab-wallet" tabindex="0" hidden>/);
   for (const id of ["panel-wallet", "tab-wallet", "wt-receive", "wt-balances"]) assert.equal(count(id), 1, id);
@@ -290,7 +290,7 @@ test("dashboard.js fetches dashboard-v2.js only when /api/me says dashboardV2 ==
   assert.ok(start.indexOf('s.src = "/dashboard-v2.js"') < start.indexOf('$("#dash-main").hidden = false;'), "v2 is loaded and set up before the dashboard is shown");
   assert.ok(start.indexOf("v2.init(") < start.indexOf("render(d);"), "init runs before the first render");
   assert.match(start, /if \(!v2\) layoutInit\(\);/, "the two-column layout customiser is retired under v2");
-  assert.match(start, /if \(v2\) v2\.start\(\);\s*else if \(location\.hash === "#profile"\)/, "the old #profile branch stays for the flag-off path");
+  assert.match(start, /if \(v2\) v2\.start\(\);\s*else if \(\["#profile", "#profile-account"\]\.includes\(location\.hash\)\)/, "the old #profile branch stays for the flag-off path (the account sheet's Account lands there too)");
   assert.match(start, /if \(!v2 && params\.get\("claim"\)\) \$\("#progress"\)\.scrollIntoView/, "the old ?claim scroll stays for the flag-off path");
   assert.ok(dash.includes("window.V.openProfile = openProfile") && dash.includes('"#profile"'), "what test/site.test.js pins is still there");
   // every call into v2 is guarded, so with v2 === null (the flag off, or the script failing to load) the old code runs exactly as before
@@ -298,7 +298,7 @@ test("dashboard.js fetches dashboard-v2.js only when /api/me says dashboardV2 ==
   assert.match(dash, /const v2Coin = \(\) => \{ if \(v2\) v2\.coin\(\{ coin: coinData, vicMint \}\); \};/);
   assert.equal((dash.match(/v2Coin\(\);/g) || []).length, 3, "after the coin loads, after a design is saved, after a contract is sent");
   assert.match(dash, /seat\.status === "active" \|\| \(v2 && seat\.status === "steward"\)/, "a Seed Steward gets the studio only under v2 (the server allows both)");
-  assert.match(dash, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true; if \(d\.dashboardV2 !== true\) \{ try \{ localStorage\.removeItem\(V2_KEY\); \} catch \{\} \} \}/, "the skeleton hint is dropped the moment the switch is off");
+  assert.match(dash, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true; if \(d\._status === 200 && \(d\.dashboardV2 !== true \|\| !d\.signedIn\)\) \{ try \{ localStorage\.removeItem\(V2_KEY\); \} catch \{\} \} \}/, "the skeleton hint is dropped the moment the switch is off (on a real answer: review EDGE-4)");
   assert.match(dash, /setTimeout\(\(\) => done\(null\), 4000\)/, "a slow or failing script falls back to today's dashboard");
 });
 

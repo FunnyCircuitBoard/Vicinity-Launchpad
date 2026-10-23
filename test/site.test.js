@@ -65,7 +65,7 @@ test("same menu on every page: the floating header for computers (4 links), the 
     assert.match(h, /<script src="\/theme\.js"><\/script>\s*<\/head>/, `${f}: theme runs before paint`);
     assert.match(header, /<a class="btn btn--ghost btn--sm account-btn" href="\/connect\?mode=login" data-account><span class="btn__dot" aria-hidden="true"><\/span><span data-account-label>Log in<\/span><\/a>/, `${f}: signed-out visitors see a Log in button`);
     assert.match(header, /<a class="btn btn--primary btn--sm hdr-signup has-ring" href="\/connect" data-signup>Sign up<\/a>/, `${f}: and one orange Sign up (an account is made without a wallet: never "Connect wallet")`);
-    assert.doesNotMatch(h, /data-logout|account-out/, `${f}: one account button in the header; Log out lives in the profile modal`);
+    assert.doesNotMatch(h, /data-logout|account-out/, `${f}: one account button in the header; Log out lives in the profile and in the avatar's account sheet`);
   }
   assert.match(css, /:root\[data-theme="light"\]/);
   assert.match(css, /\.tabbar \{ display: grid;/);
@@ -205,13 +205,13 @@ test("terms page: the full Terms of Use", () => {
   assert.match(css, /\.terms \.agreebox \{/, "the Terms page's own agree box keeps its styles");
 });
 
-test("profile: the pass shows no real name, and the header username button is the profile button", () => {
+test("profile: the pass shows no real name, and the header's one avatar is the way to Profile, Account and Settings", () => {
   const js = read("dashboard.js");
   const loginLine = js.split("\n").find((l) => l.includes("[data-me-login]") && l.includes("textContent"));
   assert.ok(loginLine && !loginLine.includes("u.name"), "the sign-in line never interpolates the real name");
   assert.ok(js.includes("PROVIDER_LABEL"), "the pass shows the sign-in method label only");
   const h = html["dashboard.html"];
-  assert.ok(!h.includes('id="profile-open"'), "no profile button on the pass — the header button is the profile entry");
+  assert.ok(!h.includes('id="profile-open"'), "no profile button on the pass — the header's avatar is the profile entry");
   assert.match(h, /id="profile-modal"/, "profile modal");
   assert.match(h, /id="username-form"/, "username change form");
   assert.match(h, /id="email-form"/, "e-mail add form");
@@ -221,10 +221,12 @@ test("profile: the pass shows no real name, and the header username button is th
   // dashboard exposes the opener; the header button calls it on the dashboard
   assert.ok(js.includes("window.V.openProfile = openProfile"), "dashboard exposes openProfile");
   assert.ok(js.includes('"#profile"'), "dashboard opens the profile on the #profile hash");
+  // the header (owner, 17 Oct 2026): one avatar, no username pill; its sheet goes to the profile (in place on the dashboard)
   const site = read("site.js");
-  assert.ok(site.includes("/dashboard#profile"), "the header account button points at the profile");
-  assert.ok(site.includes("Profile and settings"), "the header button is labeled as the profile button");
-  assert.ok(site.includes("window.V.openProfile"), "the header button opens the profile in place on the dashboard");
+  assert.match(h, /<a class="acct__link" href="\/dashboard#profile" data-acct-go="profile">/, "the account sheet points at the profile");
+  assert.ok(site.includes("Profile, account and settings"), "the avatar is labeled as the way to the profile, the account and the settings");
+  assert.ok(site.includes("window.V.openProfile"), "the sheet opens the profile in place on the dashboard");
+  assert.doesNotMatch(site, /label\.textContent = who/, "the username is never written into the header");
   assert.match(css, /\.profile__sec/, "profile styles exist");
   assert.match(css, /\.icon-btn/, "profile icon button styles exist");
 });

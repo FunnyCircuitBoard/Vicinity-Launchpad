@@ -70,29 +70,35 @@ test("D2: short visible words where the strip needs them; each accessible name c
   const mod = tag("tab-moderate");
   assert.match(mod, /aria-label="Moderate" hidden>/); assert.match(mod, /<span class="dtab__text dtab__short" aria-hidden="true">Mod<\/span>/);
   assert.match(v2, /\$\("#tab-moderate"\)\.setAttribute\("aria-label", total \? `Moderate, \$\{total\} to review` : "Moderate"\);/, "the count stays in the name");
+  // Profile (owner, 17 Oct 2026): its line icon like every tab; the person's initial is the header's one avatar now, not a second one here
   const me = tag("tab-profile");
-  assert.match(me, /aria-label="Profile" title="Profile"><span class="dtab__av" aria-hidden="true">V<\/span><span class="dtab__text dtab__long">Profile<\/span>/);
-  // the stylesheet: the short words on phones, the long ones where there is room
-  assert.match(css, /@media \(max-width: 600px\) \{\n  \.dv2 #tab-moderate \.dtab__long \{ display: none; \}\n  \.dv2 #tab-moderate \.dtab__short \{ display: inline; \}/);
-  assert.match(css, /@media \(max-width: 360px\) \{\n  \.dv2 \.dtab \{ padding: 0 5px; font-size: \.78rem; \}\n  \.dv2 #tab-rankings \.dtab__long \{ display: none; \}\n  \.dv2 #tab-rankings \.dtab__short \{ display: inline; \}/);
+  assert.match(me, /aria-label="Profile"><span class="dtab__ico" aria-hidden="true"><svg [^>]*>[\s\S]*?<\/svg><\/span><span class="dtab__text dtab__long">Profile<\/span><\/a>/);
+  assert.doesNotMatch(html, /dtab__av/, "no initial in the strip");
+  // the stylesheet: a phone shows icons (the chosen tab's whole name under its icon, never a short word); the short words remain for
+  // a crowded tablet strip (the fit steps)
+  assert.doesNotMatch(css, /\.dv2 #tab-(rankings|moderate) \.dtab__short \{ display: inline; \}/, "no phone word-shortening any more (Rank, Mod)");
+  assert.match(css, /\.dv2 \.dtabs \.dtab__short \{ display: none; \}/);
+  assert.match(css, /\.dv2 \.dtabs\.is-short #tab-rankings \.dtab__short \{ display: inline; \}/);
   // a crowded strip (nine tabs on a 320 px phone, review VUX-09): no tab steps out any more; Founder, Moderate (and Wallet, test/wallet-tab.test.js;
   // Notifications, test/notify.test.js) show as icons, named
   assert.doesNotMatch(css, /is-tight/, "no tab is hidden to make room");
   assert.match(css, /\.dv2 \.dtabs\.is-compact :is\(#tab-founder, #tab-moderate\) \.dtab__text \{ display: none; \}/);
   assert.match(tag("tab-founder"), /aria-label="Founder"><span class="dtab__ico" aria-hidden="true"><svg /, "the icon-only Founder tab keeps its name");
   assert.match(mod, /aria-label="Moderate" hidden><span class="dtab__ico" aria-hidden="true"><svg /);
-  // the router: the fit check, the nearest scroll, keyboard skips a tab that stepped out
-  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps\);\n\s+for \(const step of steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
+  // the router: the fit check (a phone's icons only scroll or fit), the nearest scroll, keyboard skips a tab that stepped out
+  assert.match(v2, /const steps = \["is-snug", "is-short", "is-compact", "is-scrollable"\];\n\s+strip\.classList\.remove\(\.\.\.steps, "is-flush"\);\n\s+for \(const step of icons \? \["is-flush", "is-scrollable"\] : steps\) \{ if \(!over\(\)\) break; strip\.classList\.add\(step\); \}/);
   assert.doesNotMatch(v2, /\(lr\.width - tr\.width\) \/ 2/, "never centred: Home is never pushed out");
-  assert.match(v2, /\.filter\(\(t\) => !t\.hidden && t\.getClientRects\(\)\.length\)/);
+  assert.match(v2, /\.filter\(\(t\) => inStrip\(t\) && t\.getClientRects\(\)\.length\)/);
+  assert.match(v2, /function inStrip\(t\) \{ return Boolean\(t\) && !t\.hidden && !\(t\.dataset\.tab === "profile" && iconMode\(\)\); \}/, "a hidden tab, or a phone's Profile (the avatar opens it)");
   // a short visible word stays the start of the strip's titles too
   assert.match(v2, /const LABEL = \{ home: "Home", wallet: "Wallet", city: "City", community: "Community", notify: "Notifications", rankings: "Rankings", founder: "Founder", moderate: "Moderate", profile: "Profile" \};/);
 });
 
-test("D2 at runtime: the avatar shows the person's initial, the Moderate tab's name carries its count, and the page is marked is-dv2", async () => {
+test("D2 at runtime: the header's one avatar shows the person's initial, the Moderate tab's name carries its count, and the page is marked is-dv2", async () => {
   const p = await openDashboard({ me: memberMe({ wallet: ADDR, handle: "jo_utica" }), api: async (path) => (path === "/api/mod" ? { ok: true, moderator: true, role: "founder", scope: "Utica", posts: [{ id: 1, kind: "meme", body: "x", score: 0, replies: 0, voted: false, mine: false, hidden: true, at: new Date().toISOString(), author: { name: "a" }, canModerate: true }], proposals: [], appeals: [], objections: [], towns: [] } : undefined) });
   assert.ok(p.doc.body.classList.contains("is-dv2"));
-  assert.equal(p.text("#tab-profile .dtab__av"), "J");
+  assert.equal(p.text("[data-account-avatar] [data-account-initial]"), "J", "the header's avatar (owner, 17 Oct 2026: one avatar, top right)");
+  assert.equal(p.$("#tab-profile .dtab__av"), null, "and no second one in the strip");
   assert.equal(p.$("#tab-moderate").hidden, false);
   assert.equal(p.$("#tab-moderate").getAttribute("aria-label"), "Moderate, 1 to review");
   assert.equal(p.text("#tab-moderate-n"), "1");
@@ -105,7 +111,7 @@ test("D2 at runtime: the avatar shows the person's initial, the Moderate tab's n
 test("D4: the Pass has no Sign out (Log out lives in Profile, the same action) and one line of facts: masked wallet, a copy button, how you sign in, Live", () => {
   assert.doesNotMatch(src, /id="me-logout"|Sign out/);
   assert.match(src, /<button class="btn btn--glass btn--block profile__logout" type="button" id="profile-logout">Log out<\/button>/);
-  assert.match(dash, /\$\("#profile-logout"\)\.addEventListener\("click", async \(\) => \{ await api\("\/api\/auth\/logout", \{\}\); location\.assign\("\/"\); \}\);/, "the same action as the Pass's old Sign out");
+  assert.match(dash, /\$\("#profile-logout"\)\.addEventListener\("click", \(\) => logout\("\/"\)\);/, "the same action as the Pass's old Sign out (site.js V.logout: the request, then the home page)");
   const bottom = src.match(/<div class="pass__bottom">[\s\S]*?\n            <\/div>/)[0];
   assert.match(bottom, /<span class="pass__wallet"><span class="mono" data-me-wallet><\/span><button class="pass__copy" type="button" id="me-copy" aria-label="Copy your wallet address" title="Copy"><svg /);
   assert.match(bottom, /<span class="pass__provider" data-me-login><\/span>/);
