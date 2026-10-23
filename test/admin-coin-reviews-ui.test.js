@@ -117,3 +117,13 @@ test("a moderator looks only; the Overview counts what waits", async () => {
   const off = await open("owner", { hash: "", reviews: false });
   assert.equal(card2(off, "Coin reviews"), undefined);
 });
+
+test("phone width: the card's one column never grows past the card (the table, the hash and the reason form stay inside it)", () => {
+  const css = readFileSync(new URL("../public/admin.css", import.meta.url), "utf8");
+  assert.match(css, /\.adm-coinrev__item, \.adm-coinrev__registry \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(css, /\.adm-coinrev__item > \*, \.adm-coinrev__registry > \* \{ min-width: 0; max-width: 100%; \}/);
+  assert.match(css, /\.adm-coinrev__diff :is\(th, td\) \{ padding: 8px; white-space: normal; overflow-wrap: anywhere; \}/);
+  // every new rule is scoped to the coin-review classes: with the switch off no element carries them
+  const added = css.slice(css.indexOf("/* City-coin reviews"));
+  for (const sel of added.match(/^[^\s/@}][^{]*\{/gm) || []) assert.match(sel, /adm-coinrev/, sel);
+});

@@ -464,3 +464,12 @@
 .adm-coinrev__issue { color: var(--text-2, inherit); }
 .adm-coinrev__act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .adm-coinrev__act .btn { min-height: 44px; }
+/* phone width: one column that never grows past the card (a grid item's min-content would otherwise push the table, the hash and the
+   reason form out of the card and cut them off) */
+.adm-coinrev__item, .adm-coinrev__registry { grid-template-columns: minmax(0, 1fr); }
+.adm-coinrev__item > *, .adm-coinrev__registry > * { min-width: 0; max-width: 100%; }
+.adm-coinrev__diff :is(th, td) { padding: 8px; white-space: normal; overflow-wrap: anywhere; }
+.adm-coinrev__diff td.adm-text { min-width: 0; max-width: none; }
+.adm-coinrev__act .adm-pic__reject { justify-content: flex-start; margin: 0; }
+.adm-coinrev__act .adm-pic__reason { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+.adm-coinrev__act .adm-pic__note { flex: 1 1 100%; }

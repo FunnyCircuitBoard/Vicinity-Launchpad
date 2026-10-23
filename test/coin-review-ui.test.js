@@ -67,7 +67,7 @@ test("switch on: Request changes and Write your own description; the caption say
       view = answer({}, REVIEW({ request: { id: 4, kind: "change", status: "pending", label: "Pending", message: `Version ${HASH2.slice(0, 8)} · a reviewer checks exactly this version. Launch is paused until they decide.`,
         version: HASH2.slice(0, 8), contentHash: HASH2, submittedAt: "2026-10-23T10:01:00Z", diff: [{ field: "picture", from: ART, to: "/api/media/9" }, { field: "name", from: "Utica", to: "Utica Falls" }],
         proposed: { name: "Utica Falls" }, registryState: null, draft: null, nameIssues: [] },
-        hold: { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancel the request to launch the approved coin." },
+        hold: { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancelling the request ends the pause." },
         can: { request: false, describe: false, reset: false, cancel: true, edit: true } }));
       return { ...view, submitted: true };
     }
@@ -106,7 +106,7 @@ test("switch on: Request changes and Write your own description; the caption say
   // Pending: the words in the tag, the version, what changes, the hold; Cancel and Edit
   assert.equal(page.text("#crv-req-tag"), "Pending");
   assert.match(page.text("#crv-req-msg"), /a reviewer checks exactly this version\. Launch is paused until they decide\./);
-  assert.equal(page.text("#crv-hold"), "Launch is paused while your change request is reviewed. Cancel the request to launch the approved coin.");
+  assert.equal(page.text("#crv-hold"), "Launch is paused while your change request is reviewed. Cancelling the request ends the pause.");
   assert.deepEqual(buttons(page, "#crv-status"), ["Cancel request", "Edit"]);
   assert.equal(page.$$(".crv-diff img").map((i) => i.getAttribute("src")).join(" "), `${ART} /api/media/9`);
   assert.deepEqual(page.$$(".crv-diff img").map((i) => i.alt), ["The coin's picture now", "The proposed picture"]);
@@ -115,20 +115,20 @@ test("switch on: Request changes and Write your own description; the caption say
   assert.ok(page.toasts.includes("Sent for review"));
 });
 
-test("every status: Approved and Changes needed with the reason and note; Revise, Cancel and keep, Request other changes; Edit asks first", async () => {
+test("every status: Approved and Changes needed with the reason and note; Revise, Cancel and keep, one Request changes; Edit asks first", async () => {
   const approved = REVIEW({ selected: { ...REVIEW().selected, origin: "change", name: "Utica Falls" }, request: { id: 4, kind: "change", status: "approved", label: "Approved",
     message: "Version 77aa11bb was approved. It is now your coin. It launches after the owner approves it on the blockchain, at the owner's next approval round.", version: "77aa11bb", contentHash: HASH2,
     diff: [{ field: "name", from: "Utica", to: "Utica Falls" }], proposed: {}, registryState: null, draft: null, nameIssues: [] }, can: { request: true, describe: true, reset: true, cancel: false, edit: false } });
   const needs = REVIEW({ request: { id: 5, kind: "change", status: "changes_needed", label: "Changes needed", reasonCode: "name_misleading",
     reason: "The name could be mistaken for another city, a company, a public body or Vicinity.", note: "Please drop the word Official.",
-    message: "Changes needed: The name could be mistaken for another city, a company, a public body or Vicinity. Note from the reviewer: Please drop the word Official. Your coin stays as it was approved before.",
+    message: "Changes needed: The name could be mistaken for another city, a company, a public body or Vicinity. Note from the reviewer: Please drop the word Official. Your coin stays as it was.",
     version: "77aa11bb", contentHash: HASH2, diff: [], proposed: {}, registryState: null, draft: null, nameIssues: [] }, can: { request: true, describe: true, reset: false, cancel: false, edit: true } });
   let view = answer({}, approved);
   const { page, posts } = await open((path) => (path.startsWith("/api/coins/ready") ? view : { ...view, ok: true }));
   assert.equal(page.text("#crv-req-tag"), "Approved");
   assert.match(page.text("#crv-req-msg"), /It launches after the owner approves it on the blockchain, at the owner's next approval round\./);
   assert.doesNotMatch(page.text("#coin-ready"), /24 hours|within a day|tomorrow|launch now/i, "no time promised; nothing says launch now");
-  assert.deepEqual(buttons(page, "#crv-status"), ["Request other changes"]);
+  assert.deepEqual(buttons(page, "#crv-status"), [], "one Request changes button, not two");
   assert.deepEqual(buttons(page, "#crv-actions"), ["Request changes", "Write your own description", "Reset to Vicinity defaults"]);
   await page.tap(page.$$("#crv-actions button").find((b) => b.textContent === "Reset to Vicinity defaults"));
   assert.deepEqual(posts.at(-1), ["/api/coins/review/reset", { cityId: "5142056" }]);
@@ -139,7 +139,7 @@ test("every status: Approved and Changes needed with the reason and note; Revise
   const { page: p2, posts: posts2 } = await open(() => view);
   assert.equal(p2.text("#crv-req-tag"), "Changes needed");
   assert.match(p2.text("#crv-req-msg"), /^Changes needed: The name could be mistaken for another city, a company, a public body or Vicinity\. Note from the reviewer: Please drop the word Official\./);
-  assert.deepEqual(buttons(p2, "#crv-status"), ["Revise", "Cancel and keep the approved coin"]);
+  assert.deepEqual(buttons(p2, "#crv-status"), ["Revise", "Cancel and keep the coin as it is"]);
   await p2.tap(p2.$$("#crv-status button")[0]);
   assert.deepEqual(posts2.at(-1), ["/api/coins/review/edit", { cityId: "5142056", requestId: 5 }]);
   await p2.tap(p2.$$("#crv-status button")[1]);
@@ -162,7 +162,7 @@ test("the founder's own description: a flag shows the reasons with the words mar
     if (path === "/api/coins/review/description") return { ...view, screening: next };
     if (path === "/api/coins/review/description/review") {
       view = answer({}, REVIEW({ request: { id: 8, kind: "description", status: "pending", label: "Pending", message: "Version 1234abcd · a reviewer checks exactly this version. Launch is paused until they decide.", version: "1234abcd", contentHash: HASH2, diff: [{ field: "description", from: COIN.description, to: flagged.text }], proposed: {}, draft: null, nameIssues: [] },
-        hold: { code: "paused_description", message: "Launch is paused while your description is reviewed. Use the default description to launch now." }, can: { request: false, describe: false, reset: false, cancel: true, edit: false } }));
+        hold: { code: "paused_description", message: "Launch is paused while your description is reviewed. Going back to the default description ends the pause." }, can: { request: false, describe: false, reset: false, cancel: true, edit: false } }));
       return view;
     }
     return view;
@@ -178,13 +178,14 @@ test("the founder's own description: a flag shows the reasons with the words mar
   assert.deepEqual(posts.at(-1), ["/api/coins/review/description", { cityId: "5142056", text: flagged.text }]);
   assert.equal(page.text("#crv-desc-verdict"), "This needs a person to look at it:");
   assert.match(page.text("#crv-desc-result"), /This sounds like a promise about price or profit\. City coins can't promise returns\./);
-  assert.match(page.text("#crv-desc-result"), /You can revise it, or send it to Vicinity for review; your launch waits until they decide\. Or keep the default description and launch now\./);
+  assert.match(page.text("#crv-desc-result"), /You can revise it, or send it to Vicinity for review; your launch waits until they decide\. Or keep the default description, which needs no review\./);
+  assert.doesNotMatch(page.text("#coin-ready"), /launch now|24 hours|within a day/i, "no time promised");
   assert.deepEqual(page.$$("#crv-desc-result mark").map((m) => m.textContent), ["guaranteed", "100x"]);
   assert.deepEqual(buttons(page, "#crv-desc-result"), ["Revise", "Send for review", "Keep the default"]);
   await page.tap(page.$$("#crv-desc-result button").find((b) => b.textContent === "Send for review"));
   assert.deepEqual(posts.at(-1), ["/api/coins/review/description/review", { cityId: "5142056", screeningId: 31 }]);
   assert.equal(page.text("#crv-req-tag"), "Pending");
-  assert.equal(page.text("#crv-hold"), "Launch is paused while your description is reviewed. Use the default description to launch now.");
+  assert.equal(page.text("#crv-hold"), "Launch is paused while your description is reviewed. Going back to the default description ends the pause.");
   // a block offers Revise only; an error says nothing changed and offers Try again; a pass is used at once
   for (const [res, verdict, btns] of [["block", "This can't be used:", ["Revise"]], ["error", "We couldn't check your description just now. Nothing changed: your coin keeps its current description. Try again in a minute.", ["Try again"]]]) {
     const { page: p, posts: ps } = await open((path) => (path === "/api/coins/review/description" ? (res === "error" ? { ok: false, error: "screening_error", message: "x" } : { ...answer(), screening: { id: 2, result: "block", text: "Visit utica.io now please", issues: [{ code: "link", severity: "block", start: 6, end: 14, message: "Links and web addresses can't go in a coin description." }] } }) : answer()));

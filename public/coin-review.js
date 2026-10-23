@@ -3,9 +3,9 @@
 // answer. It adds to the founder's #coin-ready card, under the read-only coin:
 //   the launch hold        what pauses the launch now, in the server's words (a request waiting for review, a ticker waiting for the city list...)
 //   the request card       Draft / Pending / Approved / Changes needed, with the server's sentence, the reviewer's reason and note, and what
-//                          the request changes (now and proposed side by side); Cancel request, Edit, Revise, Request other changes
+//                          the request changes (now and proposed side by side); Cancel request, Edit, Revise
 //   Request changes        a separate, private draft: another picture (the Vicinity design, or the founder's own upload, shrunk in the browser
-//                          like the studio's), another ticker (checked as it is typed) or name, and a "why" only reviewers read. Save draft;
+//                          like the studio's), another ticker (checked with the server when the field is left) or name, and a "why" only reviewers read. Save draft;
 //                          Submit for review asks first ("Submitting pauses your launch until a reviewer decides"); Discard draft
 //   Write your own         the description, checked by the server: a pass is used at once; a flag offers Revise, Send for review and Keep the
 //                          default; a block offers Revise; an error says nothing changed. The flagged words are marked in the text
@@ -155,7 +155,7 @@
     if (req.diff && req.diff.length) card.append(diffTable(req.diff));
     const row = el("div", "crv-row");
     if (req.status === "pending") {
-      row.append(button("Cancel request", () => send("cancel", { requestId: req.id }, "Request cancelled: your approved coin is back")));
+      row.append(button("Cancel request", () => send("cancel", { requestId: req.id }, "Request cancelled: your coin is as it was")));
       if (req.kind === "change" && R.can.edit) {
         row.append(button("Edit", () => {
           if (!window.confirm("Editing withdraws this version; the new version needs its own review. Edit it?")) return;
@@ -166,10 +166,8 @@
     } else if (req.status === "changes_needed") {
       if (req.kind === "change" && R.can.edit) row.append(button("Revise", () => { formDirty = false; send("edit", { requestId: req.id }, "A new draft, from your last version"); }, "btn btn--primary"));
       else if (req.kind === "description") row.append(button("Revise", () => openDescribe(req.proposed && req.proposed.description)));
-      row.append(button("Cancel and keep the approved coin", () => send("cancel", { requestId: req.id })));
-    } else if (req.status === "approved") {
-      if (R.can.request) row.append(button("Request other changes", () => openForm()));
-    }
+      row.append(button("Cancel and keep the coin as it is", () => send("cancel", { requestId: req.id })));
+    } // approved: nothing here (Request changes, under the card, makes the next request; one button for one thing)
     if (row.childNodes.length) card.append(row);
     box.append(card);
   }
@@ -430,7 +428,7 @@
     if (s.text && s.result !== "pass") card.append(marked(s.text, s.issues));
     const row = el("div", "crv-row");
     if (s.result === "flag") {
-      card.append(el("p", "small", "You can revise it, or send it to Vicinity for review; your launch waits until they decide. Or keep the default description and launch now."));
+      card.append(el("p", "small", "You can revise it, or send it to Vicinity for review; your launch waits until they decide. Or keep the default description, which needs no review."));
       row.append(button("Revise", () => openDescribe(s.text)));
       if (s.id) row.append(button("Send for review", () => send("description/review", { screeningId: s.id }, "Sent for review").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); } }), "btn btn--primary"));
       row.append(button("Keep the default", () => send("description/default", {}, "Default description").then((r) => { if (r && r.ok) { screening = null; describeOpen = false; paint(last); } })));

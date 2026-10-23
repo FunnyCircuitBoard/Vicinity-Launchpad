@@ -277,8 +277,8 @@ export async function selectionProblem(env, cityId, { c = undefined, d = null, c
   const db = env.DB;
   const pend = await pendingRequest(db, cityId);
   if (pend) return pend.kind === "change"
-    ? { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancel the request to launch the approved coin." }
-    : { code: "paused_description", message: "Launch is paused while your description is reviewed. Use the default description to launch now." };
+    ? { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancelling the request ends the pause." }
+    : { code: "paused_description", message: "Launch is paused while your description is reviewed. Going back to the default description ends the pause." };
   if (c === undefined) c = await chosenOf(db, cityId, { fresh: true });
   if (!c || !c.current || !c.content) return null;
   if (!d) d = await coinDefaults(env, cityId, country || (c.content.city && c.content.city.country));
@@ -406,7 +406,7 @@ async function requestView(env, r, { d, sel }) {
     approved: r.kind === "change"
       ? `Version ${versionLabel(r.content_hash)} was approved. It is now your coin.${registry === "waiting" ? ` Your new ticker $${v.symbol} goes into the Vicinity city list with the next site update; launch opens then.` : ""} It launches after the owner approves it on the blockchain, ${NEXT_ROUND}.`
       : `Your description (version ${versionLabel(r.content_hash)}) was approved. It is now your coin's description.`,
-    changes_needed: `Changes needed: ${REASONS[r.reason_code] || REASONS.other}${r.note ? ` Note from the reviewer: ${r.note}` : ""} Your coin stays as it was approved before.`,
+    changes_needed: `Changes needed: ${REASONS[r.reason_code] || REASONS.other}${r.note ? ` Note from the reviewer: ${r.note}` : ""} Your coin stays as it was.`,
   };
   return {
     id: r.id, kind: r.kind, status: r.status, label: STATUS_LABEL[r.status] || r.status, message: words[r.status] || "",

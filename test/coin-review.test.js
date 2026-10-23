@@ -130,7 +130,7 @@ test("a draft is private and pauses nothing; submitting pauses the launch everyw
   assert.equal(p.version, p.contentHash.slice(0, 8));
   assert.match(p.message, /a reviewer checks exactly this version\. Launch is paused until they decide\./);
   assert.deepEqual(p.diff.map((x) => x.field), ["picture", "name"]);
-  assert.deepEqual(s.review.hold, { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancel the request to launch the approved coin." });
+  assert.deepEqual(s.review.hold, { code: "paused_request", message: "Launch is paused while your change request is reviewed. Cancelling the request ends the pause." });
   assert.deepEqual([s.review.can.request, s.review.can.describe, s.review.can.cancel, s.review.can.edit], [false, false, true, true]);
   // the owner's list: blocked, with the reason; the approval refuses to build
   const c = await w.card();
@@ -238,7 +238,7 @@ test("changes needed: a reason the founder reads in plain words (the note only f
   const v = await w.ready();
   assert.deepEqual([v.review.request.status, v.review.request.label, v.review.request.reason, v.review.request.note],
     ["changes_needed", "Changes needed", REASONS.name_misleading, "Please drop the word Official."]);
-  assert.equal(v.review.request.message, `Changes needed: ${REASONS.name_misleading} Note from the reviewer: Please drop the word Official. Your coin stays as it was approved before.`);
+  assert.equal(v.review.request.message, `Changes needed: ${REASONS.name_misleading} Note from the reviewer: Please drop the word Official. Your coin stays as it was.`);
   assert.equal(v.coin.contentHash, coin.contentHash, "the coin stays as it was");
   assert.equal(v.review.hold, null, "nothing pauses the launch any more");
   assert.equal((await w.card()).ok, true);
@@ -380,7 +380,7 @@ test("the founder's own description: a pass is used at once; a flag pauses nothi
   assert.equal(sent.ok, true, JSON.stringify(sent));
   assert.deepEqual([sent.review.request.kind, sent.review.request.status], ["description", "pending"]);
   assert.equal(sent.review.hold.code, "paused_description");
-  assert.equal(sent.review.hold.message, "Launch is paused while your description is reviewed. Use the default description to launch now.");
+  assert.equal(sent.review.hold.message, "Launch is paused while your description is reviewed. Going back to the default description ends the pause.");
   assert.equal((await w.card()).ok, false);
   const row = (await w.queue()).reviews[0];
   assert.equal(row.kind, "description");
