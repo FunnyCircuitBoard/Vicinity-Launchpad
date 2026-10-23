@@ -136,23 +136,55 @@
     return ["approved", "held"].includes(r.gate.code) && p.chosen ? p : null;
   }
 
+  /* ---------- the review step (COIN_V2_REVIEW=on: the server's founder answer carries `review`) ---------- */
+  // public/coin-review.js adds Request changes, the review status and the founder's own description to this card. It is fetched ONLY when
+  // an answer carries `review`, so with the switch off this page never asks for it. Every answer of its routes is a founder answer again:
+  // the card is painted from it as from any other.
+  let review = null, reviewAsked = false;
+  function withReview(r) {
+    if (!r || !r.review) { if (review) review.hide(); return; }
+    if (review) { review.paint(r); return; }
+    if (reviewAsked) return;
+    reviewAsked = true;
+    const s = document.createElement("script"); s.src = "/coin-review.js";
+    s.onload = () => {
+      if (!window.VCoinReview) { reviewAsked = false; return; }
+      review = window.VCoinReview.init({ api: ctx.api, sensitive: ctx.sensitive, toast: ctx.toast, answer: reviewAnswer });
+      if (last && last.review) review.paint(last);
+    };
+    s.onerror = () => { reviewAsked = false; };
+    (document.head || document.body).append(s);
+  }
+  /** An answer of a review route (a founder answer): the whole card follows it, and the coin card and the launch card read again. */
+  function reviewAnswer(r) {
+    if (!r || r.mode !== "founder") return;
+    last = r;
+    paintFounder(r);
+    paintPreview(founderPreview(r), founderOpts(r));
+    withReview(r);
+    told(r);
+    if (ctx.changed) ctx.changed();
+  }
+
   /* ---------- reading, drawing, using ---------- */
   async function render(me) {
     const c = me && me.community;
     const my = ++seq;
-    if (!c) { shownFor = null; show("#coin-ready", false); paintPreview(null); told(null); return; }
+    if (!c) { shownFor = null; show("#coin-ready", false); paintPreview(null); withReview(null); told(null); return; }
     if (shownFor !== c.id) { if (shownFor) paintPreview(null); shownFor = c.id; } // another city: never its predecessor's preview meanwhile
     const r = await ctx.api(`/api/coins/ready?city=${encodeURIComponent(c.id)}`);
     if (my !== seq) return; // a newer render is on its way
-    if (!r || r.ok === false) { show("#coin-ready", false); paintPreview(null); told(null); return; } // off (404) or unreadable: the page as before
+    if (!r || r.ok === false) { show("#coin-ready", false); paintPreview(null); withReview(null); told(null); return; } // off (404) or unreadable: the page as before
     last = r;
     if (r.mode === "founder") {
       paintFounder(r);
       paintPreview(founderPreview(r), founderOpts(r));
+      withReview(r);
       if (r.coin && !r.coin.art && !r.gate) draw(c.id);
     } else {
       show("#coin-ready", false);
       paintPreview(r.preview);
+      withReview(null);
     }
     told(r);
   }
@@ -161,7 +193,7 @@
     if (drawingFor === cityId) return;
     drawingFor = cityId;
     const r = await ctx.api("/api/coins/ready/art", { cityId });
-    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), founderOpts(r)); told(r); return; }
+    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), founderOpts(r)); withReview(r); told(r); return; }
     text("#cr-art-wait", "Your coin's picture couldn't be made just now. Reload the page to try again.");
     drawingFor = null;
   }
@@ -179,6 +211,7 @@
       if (st) st.focus();
       paintFounder(r);
       paintPreview(founderPreview(r), founderOpts(r));
+      withReview(r);
       told(r);
       ctx.toast(`$${r.coin.ticker} is your coin`);
       if (ctx.changed) ctx.changed(); // the coin card and the launch card read the new design

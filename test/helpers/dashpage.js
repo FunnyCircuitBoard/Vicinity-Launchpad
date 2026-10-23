@@ -147,6 +147,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
     else if (s.src === "/wallet-send.js") { vm.runInContext(read("wallet-send.js"), ctx, { filename: "public/wallet-send.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     // the ready-made city coin (COIN_V2_READY=on: dashboard.js asks for it when /api/me says coinV2Ready)
     else if (s.src === "/coin-ready.js") { vm.runInContext(read("coin-ready.js"), ctx, { filename: "public/coin-ready.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    else if (s.src === "/coin-review.js") { vm.runInContext(read("coin-review.js"), ctx, { filename: "public/coin-review.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else if (s.src === "/lp-sign.js") { vm.runInContext(read("lp-sign.js"), ctx, { filename: "public/lp-sign.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else Promise.resolve().then(() => s.onerror && s.onerror(new Error("not here")));
   };

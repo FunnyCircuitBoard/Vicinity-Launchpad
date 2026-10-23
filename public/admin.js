@@ -370,6 +370,8 @@
     own_objection: "You can't decide your own objection.", outranked: "You can't act on someone of equal or higher role.",
     protected_wallet: "That wallet is an owner wallet (ADMIN_WALLETS).", owner_not_grantable: "Owners come from ADMIN_WALLETS only.",
     window_closed: "That claim window is closed.",
+    needs_second_person: "A city's own founder can't decide their own coin. Another admin or the owner decides.",
+    version_changed: "The founder changed this request since you opened it. Reload.", not_pending: "This request was decided, cancelled or withdrawn meanwhile. Reload.",
   };
   const okMsg = (r, what) => { if (r && r.ok) { toast(`${what} ✓`); refresh(); } else toast(r && ERRORS[r.error] ? ERRORS[r.error] : `Failed: ${r && r.error ? r.error : "unknown"}`); };
   const walletOf = (w) => (!w ? "no wallet" : w.includes("*") ? w : short(w)); // an account may have no wallet yet (it links one from its dashboard)
@@ -488,6 +490,8 @@
     // Meteora's two programs against the builds the team tested (src/programpins.js): only where the City coins tab exists; it lights
     // up whenever the answer is not "as tested", because approvals and launches wait then
     if (lpOn) A.meteora = metric("Meteora build", { attn: true });
+    // city-coin requests waiting for a reviewer (COIN_V2_REVIEW on: /api/admin/me says coinReviews; nothing at all with the switch off)
+    if (me && me.coinReviews) A.coinReviews = metric("Coin reviews", { attn: true });
     agrid.append(...Object.values(A).map((m) => m.root));
     attn.append(ah, agrid);
 
@@ -514,6 +518,10 @@
     if (ov.pendingLogos == null) A.pictures.none("Not counted by this server yet", { action: go("Review", "moderation", "logos") });
     else A.pictures.set(int(ov.pendingLogos), { from: "Coin pictures waiting for a check", action: go("Review", "moderation", "logos") }).hot(ov.pendingLogos > 0);
     A.objections.set(int(ov.pendingObjections), { from: "Open objections to a founder seat", action: go("Review", "moderation", "objections") }).hot(ov.pendingObjections > 0);
+    if (A.coinReviews) {
+      if (ov.pendingCoinReviews == null) A.coinReviews.none("Not counted by this server yet", { action: go("Review", "moderation", "coinreviews") });
+      else A.coinReviews.set(int(ov.pendingCoinReviews), { from: "Coin change requests and descriptions waiting for a reviewer", action: go("Review", "moderation", "coinreviews") }).hot(ov.pendingCoinReviews > 0);
+    }
     A.inbox.set(int(inboxNew), { from: "Questions, bug reports and city requests", action: go("Open inbox", "inbox") }).hot(inboxNew > 0);
     A.inbox.num.id = "ov-inbox-new";
     const seatRows = Object.entries(ov.seats || {}).sort((a, b) => b[1] - a[1]);
@@ -814,6 +822,11 @@
       { id: "objections", label: "Objections", load: () => api("/api/admin/objections"), list: (d) => d.objections, draw: objectionsTable, fail: "Couldn't load objections." },
       { id: "appeals", label: "Appeals", load: () => api("/api/admin/appeals"), list: (d) => d.appeals, draw: appealsTable, fail: "Couldn't load appeals." },
     );
+    // city-coin change requests and descriptions (COIN_V2_REVIEW on only: /api/admin/me says coinReviews); every role may look, admins decide
+    if (me && me.coinReviews) {
+      queues.splice(queues.findIndex((q) => q.id === "objections"), 0,
+        { id: "coinreviews", label: "Coin reviews", load: () => api("/api/admin/coins/reviews"), list: (d) => d, count: (d) => d.pending, draw: coinReviewsList, fail: "Couldn't load coin reviews." });
+    }
     const answers = await Promise.all(queues.map((q) => q.load()));
     const bar = el("div", "seg adm-subtabs"); bar.setAttribute("role", "tablist"); bar.setAttribute("aria-label", "Moderation queues");
     const panel = el("div", "adm-subpanel"); panel.id = "mod-panel"; panel.setAttribute("role", "tabpanel"); panel.tabIndex = 0;
@@ -907,6 +920,89 @@
         if (sure("Reject this picture? The founder sees the reason and your note; nobody else sees the picture.")) okMsg(await post("/api/admin/logos/decide", { city, mediaId, action: "reject", reason: reason.value, note: note.value.trim() }), "Picture rejected");
       }));
     });
+  /**
+   * City-coin reviews (src/coinreview.js): each request as a card. The reviewer sees exactly the version the founder sent (its hash, the
+   * picture next to the current one, what changes), the checks the server ran (and what the screening flagged), the founder's why; admins
+   * approve that exact version (its hash is sent back and checked) or ask for changes with a reason the founder reads and an optional note
+   * only they see. Approved tickers waiting for the city list show the line to add to scripts/cities/ticker-overrides.json.
+   */
+  const COIN_FIELD = { picture: "Picture", ticker: "Ticker", name: "Coin name", description: "Description" };
+  function coinReviewsList(d) {
+    const wrap = el("div", "adm-coinrev");
+    const reviews = (d && d.reviews) || [], reasons = (d && d.reasons) || [];
+    if (d && d.waitingRegistry && d.waitingRegistry.length) {
+      const w = el("section", "card adm-coinrev__registry");
+      w.append(el("h3", "adm-h3", "Waiting for the city list"), el("p", "small muted", "Approved ticker changes: add each line to scripts/cities/ticker-overrides.json in a pull request; the founder's launch waits until that update is deployed."));
+      for (const x of d.waitingRegistry) w.append(el("p", "mono small", `${x.city && x.city.name ? x.city.name : ""} · ${JSON.stringify(x.registryPatch)}`));
+      wrap.append(w);
+    }
+    if (!reviews.length) { wrap.append(el("p", "empty adm-empty", "Nothing here.")); return wrap; }
+    for (const x of reviews) wrap.append(coinReviewCard(x, reasons));
+    return wrap;
+  }
+  function coinReviewCard(x, reasons) {
+    const card = el("article", `card adm-coinrev__item is-${x.status}`);
+    const city = x.city ? [x.city.name, x.city.region, x.city.countryName].filter(Boolean).join(" · ") : "—";
+    const head = el("div", "adm-coinrev__head");
+    head.append(el("h3", "adm-h3", `${x.kind === "description" ? "Description" : "Change"} · ${city}`), el("span", `tag ${x.status === "pending" ? "tag--warn" : x.status === "approved" ? "tag--ok" : ""}`, x.label || x.status));
+    card.append(head);
+    const who = x.founder ? (x.founder.handle ? `@${x.founder.handle}` : x.founder.wallet || "—") : "—";
+    card.append(el("p", "small muted", `${who}${x.founder && x.founder.handle && x.founder.wallet ? ` · ${x.founder.wallet}` : ""} · ${x.status === "pending" ? `waiting ${ago(x.submittedAt)}` : `decided ${ago(x.decidedAt)}`}`));
+    const ver = el("p", "small adm-coinrev__version");
+    ver.append(el("span", null, `Version ${x.version || "—"} `), el("code", "mono adm-coinrev__hash", x.contentHash || ""));
+    card.append(ver);
+    // what changes: now and proposed, pictures side by side
+    const t = el("table", "admin-table adm-coinrev__diff");
+    const hr = el("tr"); for (const h of ["", "Now", "Proposed"]) { const th = el("th", null, h); th.scope = "col"; hr.append(th); }
+    const thead = el("thead"); thead.append(hr); t.append(thead);
+    const tb = el("tbody");
+    for (const r of x.diff || []) {
+      const tr = el("tr");
+      const th = el("th", null, COIN_FIELD[r.field] || r.field); th.scope = "row"; tr.append(th);
+      for (const [v, which] of [[r.from, "now"], [r.to, "proposed"]]) {
+        const c = el("td", "adm-text");
+        if (r.field === "picture" && v) { const img = el("img", "adm-thumb"); img.src = v; img.width = 64; img.height = 64; img.alt = `${which === "now" ? "Current" : "Proposed"} picture of ${x.city ? x.city.name : "the city"}'s coin`; c.append(img); }
+        else c.textContent = v == null ? "—" : String(v);
+        tr.append(c);
+      }
+      tb.append(tr);
+    }
+    t.append(tb); card.append(t);
+    if (x.why) card.append(el("p", "small", `The founder's why: ${x.why}`));
+    // the checks the server ran
+    if (x.checks && x.checks.length) {
+      const ul = el("ul", "small adm-coinrev__checks");
+      for (const c of x.checks) {
+        const li = el("li", c.ok ? "is-ok" : "is-flag", `${c.ok ? "✓" : "!"} ${c.text}`);
+        for (const i of c.issues || []) li.append(el("span", "adm-coinrev__issue", ` ${i.message || i.code}`));
+        ul.append(li);
+      }
+      card.append(ul);
+    }
+    if (x.decision && x.decision.reason) card.append(el("p", "small", `Reason: ${x.decision.reason}${x.decision.note ? ` · Note to the founder: ${x.decision.note}` : ""}`));
+    if (x.registryPatch) card.append(el("p", "small mono", `Add to scripts/cities/ticker-overrides.json: ${JSON.stringify(x.registryPatch)}`));
+    if (x.status !== "pending") return card;
+    const act = el("div", "adm-coinrev__act");
+    if (!can(2)) { act.append(el("span", "muted", "admin only")); card.append(act); return card; }
+    const reason = el("select", "adm-pic__reason"); reason.setAttribute("aria-label", "Reason the founder reads");
+    for (const r of reasons) { const o = el("option", null, r.text); o.value = r.code; reason.append(o); }
+    const note = textInput("Note for the founder (optional, 3 to 300 characters)"); note.maxLength = 300; note.className = "adm-pic__note"; note.setAttribute("aria-label", "Note for the founder");
+    const form = el("div", "adm-pic__reject"); form.append(reason, note); act.append(form);
+    act.append(btn("Approve this version", async () => {
+      if (sure(`Approve version ${x.version} exactly as shown? ${x.kind === "description" ? "Its description" : "Its picture, ticker and name"} become the coin's (the launch still needs the owner's approval on the blockchain).`)) {
+        okMsg(await post("/api/admin/coins/reviews/decide", { id: x.id, action: "approve", contentHash: x.contentHash }), "Approved");
+      }
+    }));
+    act.append(btn("Ask for changes", async () => {
+      const n = note.value.trim();
+      if (n && n.length < 3) { toast("A note is 3 to 300 characters (or none)."); return; }
+      if (sure("Ask the founder for changes? They see the reason, and your note if you wrote one; the coin stays as it was.")) {
+        okMsg(await post("/api/admin/coins/reviews/decide", { id: x.id, action: "changes_needed", contentHash: x.contentHash, reasonCode: reason.value, ...(n ? { note: n } : {}) }), "Changes asked for");
+      }
+    }));
+    card.append(act);
+    return card;
+  }
   const appealsTable = (appeals) => table(
     ["From", "Text", "When", ""],
     appeals,

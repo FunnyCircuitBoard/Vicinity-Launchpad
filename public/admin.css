@@ -448,3 +448,19 @@
   .admin-table--cards .adm-pic__reject { justify-content: flex-start; margin: 0; }
   .admin-table--cards .adm-pic__note { flex-basis: 100%; }
 }
+
+/* City-coin reviews (Moderation → Coin reviews; COIN_V2_REVIEW on, public/admin.js coinReviewsList): one card per request. With the switch off
+   no element carries these classes. */
+.adm-coinrev { display: grid; gap: var(--sp-3, 12px); min-width: 0; }
+.adm-coinrev__item, .adm-coinrev__registry { display: grid; gap: var(--sp-2, 8px); padding: var(--sp-3, 12px) var(--sp-4, 16px); min-width: 0; }
+.adm-coinrev__item p, .adm-coinrev__registry p, .adm-coinrev__item h3, .adm-coinrev__registry h3 { margin: 0; overflow-wrap: anywhere; }
+.adm-coinrev__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.adm-coinrev__hash { font-size: 0.75rem; word-break: break-all; }
+.adm-coinrev__diff { width: 100%; table-layout: fixed; }
+.adm-coinrev__diff th[scope="row"] { width: 22%; text-align: left; }
+.adm-coinrev__diff .adm-thumb { width: 64px; height: 64px; }
+.adm-coinrev__checks { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.adm-coinrev__checks .is-flag { color: var(--warn, #FFD58A); }
+.adm-coinrev__issue { color: var(--text-2, inherit); }
+.adm-coinrev__act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.adm-coinrev__act .btn { min-height: 44px; }
