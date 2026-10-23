@@ -192,7 +192,7 @@ test("NEW-1: every founder's own words and picture in use are listed with their 
     : orig(path, init)))(t.win.fetch);
   const box = t.doc.querySelector(".adm-coinrev__inuse");
   assert.match(box.textContent, /Founders' own words and pictures in use/);
-  assert.match(box.textContent, /A description that passes the checks by itself never comes through this queue/);
+  assert.match(box.textContent, /Each one here is public on its coin now \(a reviewer approved it\)/);
   const [ut, sy] = box.querySelectorAll(".adm-coinrev__use");
   assert.match(ut.textContent, /Utica \(US\) · \$UTICA “Utica” · launched · version 1234abcd/);
   assert.match(ut.textContent, /“Utica is the Handshake City\.”/);

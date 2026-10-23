@@ -209,6 +209,21 @@ test("the founder's own description: a flag shows the reasons with the words mar
   }
 });
 
+test("SCR-PLAIN-1: a description the checks found nothing in is still a flag: the reason says a person reads it, nothing is marked, Send for review", async () => {
+  const review = { id: 32, result: "flag", text: "The Handshake City on the Mohawk River, home of tomato pie.",
+    issues: [{ code: "review", severity: "flag", start: 0, end: 0, message: "Our automatic checks found nothing to point out, but a person reads every description a founder writes before a coin uses it." }] };
+  const { page, posts } = await open((path) => (path === "/api/coins/review/description" ? { ...answer(), screening: review } : answer()));
+  await page.tap(page.$$("#crv-actions button").find((b) => b.textContent === "Write your own description"));
+  page.$("#crv-desc-text").value = review.text;
+  await page.tap(page.$("#crv-desc-check"));
+  assert.deepEqual(posts.at(-1), ["/api/coins/review/description", { cityId: "5142056", text: review.text }]);
+  assert.equal(page.text("#crv-desc-verdict"), "This needs a person to look at it:");
+  assert.match(page.text("#crv-desc-result"), /Our automatic checks found nothing to point out, but a person reads every description a founder writes before a coin uses it\./);
+  assert.deepEqual(page.$$("#crv-desc-result mark").map((m) => m.textContent), [], "nothing in it is marked");
+  assert.deepEqual(buttons(page, "#crv-desc-result"), ["Revise", "Send for review", "Keep the default"]);
+  assert.doesNotMatch(page.text("#coin-ready"), /uses it now|Looks good/, "never said to be used");
+});
+
 test("no markup from text, 44 px targets, every tag has words, the live regions", () => {
   assert.doesNotMatch(JS, /innerHTML|insertAdjacentHTML|outerHTML|document\.write/);
   assert.match(CSS, /\.coin-review \.btn \{ min-height: 44px; \}/);

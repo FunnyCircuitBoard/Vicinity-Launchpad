@@ -1,14 +1,17 @@
-// The description screener's allow-list (src/screen.js ENGINE 3): a founder's description passes by itself only when every character is a
-// plain one for the city, nothing reads as a link or a handle, and the word lists find nothing. Everything else is flagged for a person
-// (or refused). The evasion corpus: every string of the verification (NEW review: SEC-1 and SEC-2 residuals) and 44 generated
-// "fancy text" styles applied to 5 slurs and 5 links: none may pass. And what must still pass: ordinary descriptions in English; another
-// language or script goes to a person with the reason that is true (test/screen-wordlist.test.js has the word allow-list's corpora).
+// The description screener's allow-list (src/screen.js ENGINE 3): the checks find nothing in a founder's description only when every
+// character is a plain one for the city, nothing reads as a link or a handle, and the word lists find nothing (and even then it is
+// flagged "review": a person reads every founder's description, ENGINE 5). The evasion corpus: every string of the verification (NEW
+// review: SEC-1 and SEC-2 residuals) and 44 generated "fancy text" styles applied to 5 slurs and 5 links: the checks must find something
+// in each. And what the checks must find nothing in: ordinary descriptions in English; another language or script goes to a person with
+// the reason that is true (test/screen-wordlist.test.js has the word allow-list's corpora).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { screenDescription, screenName } from "../src/screen.js";
 
 const UTICA = { city: { name: "Utica", region: "New York", countryName: "United States", country: "US" }, ticker: "UTICA" };
 const shown = (t, r) => `${JSON.stringify(t)} → ${r.result} ${JSON.stringify(r.issues.map((x) => `${x.code}:${t.slice(x.start, x.end)}`))}`;
+/** "clear": the checks found nothing, so the only issue is "review" (a founder's own words are read by a person: SCR-PLAIN-1). */
+const verdict = (r) => (r.result === "flag" && r.issues.length && r.issues.every((x) => x.code === "review") ? "clear" : r.result);
 
 /* ---------------------------------------------------------------- the styles, as the "fancy text" generator sites make them */
 const cp = (n) => String.fromCodePoint(n);
@@ -73,7 +76,7 @@ test("the allow-list styles: at least 30 generated fancy-text styles (each a rea
   for (const [name, fn] of Object.entries(STYLES)) for (const w of [...SLURS, ...LINKS]) assert.notEqual(fn(w), w, `${name}: ${w}`);
 });
 
-test("the evasion corpus: every string of the verification and every style of 5 slurs and 5 links is flagged or blocked, none passes", () => {
+test("the evasion corpus: every string of the verification and every style of 5 slurs and 5 links is flagged for what it is or blocked", () => {
   const corpus = [
     // SEC-1 residual: the verification's fancy-text strings
     "Utica welcomes 几丨ᎶᎶ乇尺丂 today", "Utica welcomes ภเﻮﻮєгร today", "Utica welcomes ₦ł₲₲ɆⱤ₴ today", "Utica welcomes ꈤ꒐ꁅꁅꏂꋪꌗ today",
@@ -90,12 +93,12 @@ test("the evasion corpus: every string of the verification and every style of 5 
   const tally = { flag: 0, block: 0 };
   for (const t of corpus) {
     const r = screenDescription(t, UTICA);
-    if (r.result === "pass" || r.result === "error") passed.push(shown(t, r));
+    if (r.result === "pass" || r.result === "error" || verdict(r) === "clear") passed.push(shown(t, r));
     else tally[r.result]++;
     // refused for its length only would prove nothing: every text is short enough to be judged on what it says
     if (r.issues.some((x) => x.code === "length")) tooLong.push(shown(t, r));
   }
-  assert.deepEqual(passed, [], "none of the corpus may pass by itself");
+  assert.deepEqual(passed, [], "the checks find something in every string of the corpus");
   assert.deepEqual(tooLong, []);
   assert.equal(tally.flag + tally.block, corpus.length);
 });
@@ -131,7 +134,7 @@ test("names are screened with the same allow-list (the reviewer sees the flag; a
   assert.equal(screenName("Nigger Town", UTICA).result, "block");
 });
 
-test("ordinary English descriptions pass by themselves; another language or script goes to a person, with the reason that is true", () => {
+test("the checks find nothing in ordinary English descriptions (still read by a person); another language or script is flagged with the reason that is true", () => {
   const english = [
     "Utica is the Handshake City, home of the half moon cookie and the tomato pie.",
     "Founded in 1797 on the Mohawk River, Utica grew with the Erie Canal.",
@@ -144,7 +147,7 @@ test("ordinary English descriptions pass by themselves; another language or scri
     "Uticans meet downtown every Friday; join Uticans at the market.",
     "Utica\nThe Handshake City\nSince 1797",
   ];
-  for (const t of english) { const r = screenDescription(t, UTICA); assert.equal(r.result, "pass", shown(t, r)); }
+  for (const t of english) { const r = screenDescription(t, UTICA); assert.equal(verdict(r), "clear", shown(t, r)); }
   // registry cities as the routes build them (src/cities.js cityRecord: the city list writes every name in Latin letters). Another
   // language in Latin letters: plain characters, words the checks do not know ("words"); a city of a country that writes in another
   // script: that script is plain for it (COUNTRY_SCRIPTS), and the checks read English only ("language"), never "characters" (FP-1)

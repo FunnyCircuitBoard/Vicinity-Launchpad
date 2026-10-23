@@ -7,8 +7,9 @@
 //   Request changes        a separate, private draft: another picture (the Vicinity design, or the founder's own upload, shrunk in the browser
 //                          like the studio's), another ticker (checked with the server when the field is left) or name, and a "why" only reviewers read. Save draft;
 //                          Submit for review asks first ("Submitting pauses your launch until a reviewer decides"); Discard draft
-//   Write your own         the description, checked by the server: a pass is used at once; a flag offers Revise, Send for review and Keep the
-//                          default; a block offers Revise; an error says nothing changed. The flagged words are marked in the text
+//   Write your own         the description, checked by the server: a founder's own words are always flagged (at best "review": a person
+//                          reads every one), so a flag offers Revise, Send for review and Keep the default; a block offers Revise; an
+//                          error says nothing changed; a pass (only Vicinity's own sentence) is used at once. Flagged words are marked
 // Every value is set with textContent (never markup from text); pictures are <img> of the server's own URLs. Nothing here decides anything:
 // the server checks it all again.
 (() => {

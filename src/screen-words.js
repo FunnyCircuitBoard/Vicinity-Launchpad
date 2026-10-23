@@ -3,7 +3,9 @@
  * other list only FLAGS, so a person looks before anything is refused for good). Changing any list changes src/screen.js RULES_VERSION,
  * and a founder description that passed under older lists is screened again before it can launch.
  *
- * The lists are the LAST of four checks, not the first: a description passes by itself only when (a) every character is a plain one
+ * A founder's own description never passes by itself (src/screen.js ENGINE 5: a person reads every one); these lists decide what is
+ * refused outright and what the reviewer is shown first. They are the LAST of four checks, not the first: the checks find nothing only
+ * when (a) every character is a plain one
  * (src/screen.js plainChars: the letters of the city's own script and A to Z, the digits 0 to 9, everyday punctuation and spaces), (b)
  * every word is one the screener knows (src/screen.js knownWords: everyday English from src/screen-vocab.js, the names of the places in
  * the Vicinity city list, the city's own words and the words at the end of this file), (c) nothing in it looks like a link, an address
@@ -82,7 +84,7 @@ export const BRANDS = Object.freeze([
 export const PUBLIC_BODIES = Object.freeze([
   "city council", "town council", "county council", "city hall", "town hall", "municipality", "government", "governor", "mayor", "mayors office",
   "police", "police department", "sheriff", "ministry", "parliament", "senate", "congress", "white house", "chamber of commerce",
-  "tourism board", "embassy", "consulate", "united nations", "european union",
+  "tourism board", "embassy", "consulate", "united nations", "european union", "president", "prime minister", "fbi", "irs",
 ]);
 
 /** Promises about price, profit or returns. FLAG. (Numbers like 100x and x100 are their own rule in src/screen.js.) */
@@ -140,11 +142,17 @@ export const TIE_WORDS = Object.freeze(["official", "officially", "partner", "pa
   "sponsored", "sponsor", "sponsors", "backed", "backs", "supported", "approved", "affiliated", "collaboration", "by", "with", "x"]);
 /** The words that make a public body a claimed tie ("endorsed by the city council", "the mayor's official coin"). */
 export const BODY_TIE_WORDS = Object.freeze(["official", "officially", "endorsed", "endorses", "endorsement", "approved", "sponsored", "backed", "supported",
-  "partner", "partnered", "affiliated", "by"]);
+  "partner", "partnered", "affiliated", "by",
+  // the review's fifth round (SCR-LINK-1): a public body said to speak for, hold or pick a coin ("the police supports this coin")
+  "says", "said", "say", "holds", "hold", "holding", "owns", "own", "supports", "support", "runs", "run", "picked", "picks", "chose", "chosen",
+  "stands", "behind", "backs", "buys", "bought", "recommends", "recommended", "trusts", "uses", "approves", "guarantees", "protects"]);
 
 /** Staff words: "Vicinity" with one of these, or the word alone, sounds like it comes from Vicinity or its staff (src/me.js reservedUsername). */
 export const STAFF_WORDS = Object.freeze(["team", "staff", "admin", "admins", "administrator", "moderator", "moderators", "mod", "mods", "support",
-  "official", "officially", "approved", "endorsed", "partner", "partners", "verified", "founders"]);
+  "official", "officially", "approved", "endorsed", "partner", "partners", "verified", "founders",
+  // the review's fifth round (SCR-LINK-1): "Vicinity says this is the safest coin", "Vicinity picked Utica"
+  "says", "said", "say", "holds", "owns", "supports", "runs", "picked", "picks", "chose", "stands", "behind", "backs", "recommends",
+  "recommended", "trusts", "guarantees", "promises", "safest", "safe", "best"]);
 export const STAFF_ALONE = Object.freeze(["admin", "admins", "administrator", "moderator", "moderators", "mods"]);
 
 /**
@@ -175,8 +183,8 @@ export const LINK_HOSTS = Object.freeze(["t.me", "telegram.me", "discord.gg", "d
 export const OK_TICKERS = Object.freeze(["VICINITY", "SOL", "USDC"]);
 
 /*
- * The allow-list (src/screen.js plainChars and linkLike, ENGINE 3): what a founder's description must look like to pass by itself. Every
- * one of these only FLAGS (a person decides); nothing here refuses a text for good.
+ * The allow-list (src/screen.js plainChars and linkLike, ENGINE 3): what a founder's description must look like for the checks to find
+ * nothing in it. Every one of these only FLAGS (a person decides); nothing here refuses a text for good.
  */
 /** Web endings that are not English words: a word, a SPACE and one of these reads as an address with the dot left out ("uticacoin com"). */
 export const SPACED_TLDS = Object.freeze(["com", "org", "io", "xyz", "gg", "ly", "biz", "cc", "ws", "sh", "ru", "onion"]);
@@ -213,7 +221,7 @@ export const HANDLE_SUFFIXES = Object.freeze(["coin", "coins", "token", "tokens"
 export const HANDLE_PREFIXES = Object.freeze(["the", "real", "official", "get", "join", "visit", "my", "go", "team", "ilove", "love", "we", "buy", "i"]);
 
 /*
- * The word allow-list (src/screen.js knownWords, ENGINE 4): a founder's description passes by itself only when every word in it is one the
+ * The word allow-list (src/screen.js knownWords, ENGINE 4): the checks find nothing in a description only when every word in it is one the
  * screener knows: everyday English (src/screen-vocab.js ENGLISH, from SCOWL), a word of a place name in the Vicinity city list
  * (src/screen-vocab.js PLACES), the city's own name, region and country (and "Uticans", "Londoners"), a number, or a word below. Any other
  * word (a local name, another language, a new spelling, a slur nobody listed) is FLAGGED for a person. Only the lists above refuse.
@@ -332,12 +340,6 @@ export const VOCAB_DENY = Object.freeze(["nigger", "niggers", "nigga", "niggas",
 /** A vocabulary word with one of these inside is taken out too ("fuckhead", "shithead"): the English list has many such compounds. */
 export const DENY_PARTS = Object.freeze(["fuck", "shit", "cunt", "nigg", "fagg", "twat", "wank", "whore", "slut", "bitch", "bollock", "jizz", "dildo", "porn",
   "rapist", "nazi", "kike", "cock", "dick", "pussy", "bastard", "asshole", "arsehole", "piss", "tits", "boob", "retard", "spaz"]);
-/**
- * A word written as a name is never taken for one (src/screen.js allowedNames) within three words after one of these: it may be a
- * handle ("Follow Mvmoon", "Message Moonboys for a deal", "Visit Mvmoon").
- */
-export const NAME_GUARD_WORDS = Object.freeze(["follow", "message", "dm", "pm", "text", "call", "contact", "ping", "add", "email", "mail", "subscribe", "tag",
-  "mention", "ask", "write", "join", "find", "reach", "search", "visit", "via", "handle", "username", "user", "account", "page", "channel", "group", "server"]);
 /** What makes a people's name of a city's own name: "Uticans", "Londoners", "Bostonians", "Parisians", "Romans". */
 export const DEMONYM_SUFFIXES = Object.freeze(["n", "ns", "an", "ans", "ian", "ians", "ite", "ites", "er", "ers", "ese", "i", "is", "ish", "eno", "enos", "ena",
   "enas", "ino", "inos", "ina", "inas", "ois", "oise", "ite", "ites"]);

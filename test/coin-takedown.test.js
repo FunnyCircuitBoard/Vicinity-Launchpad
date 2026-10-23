@@ -16,7 +16,7 @@ import { _resetReview, _setScreener } from "../src/coinreview.js";
 import { SYSTEM_TEXT_LAUNCHED } from "../src/cointakedown.js";
 import { sha256Hex } from "../src/coinart.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
-import { UTICA, approvalAccount, b64, launchOnChain, meta, pngOf, seenOf, world } from "./helpers/readyworld.js";
+import { UTICA, approvalAccount, b64, launchOnChain, meta, ownDescription, pngOf, seenOf, world } from "./helpers/readyworld.js";
 
 before(async () => { const r = await nodeRenderer(); _setArtRenderer(r); });
 after(() => { _setArtRenderer(null); _setScreener(null); realClock(); });
@@ -91,15 +91,14 @@ const neutral = async (w, action, reason = "abuse") => {
   return rows[0];
 };
 
-test("not launched: the founder's own description (it passed by itself) goes from every page, the same words never pass again, the admin is told exactly", async () => {
+test("not launched: the founder's own description (a reviewer approved it) goes from every page, the same words never pass again, the admin is told exactly", async () => {
   const w = await takedownWorld();
   await w.useCoin();
-  const used = await w.rv("description", { text: OWN });
-  assert.equal(used.used, true, JSON.stringify(used));
+  await ownDescription(w, OWN); // a founder's own words reach a coin only through a person's review (SCR-PLAIN-1)
   await w.approveOnChain(); // the owner's approval was built from the coin with the founder's description
   const was = await w.pages();
   assert.deepEqual([was.coin, was.list, was.launchpad, was.founder, was.preview.description], [OWN, OWN, OWN, OWN, OWN]);
-  // it never came through the queue (it passed by itself), but the staff see it among the founders' own words in use
+  // the staff see it among the founders' own words in use
   const inUse = (await w.queue()).inUse;
   assert.deepEqual(inUse.map((x) => [x.city.id, x.description, x.ownDescription, x.ownName, x.upload, x.launched]), [[UTICA, OWN, true, false, false, false]]);
 
@@ -180,7 +179,7 @@ test("not launched: a founder's own name (a reviewer approved it) and descriptio
     SELECT actor_id, 'admin', 'coin_change_approved', 'city_coin', NULL, target_user, 'US', ?, 'review', ?, ?, 'done' FROM mod_actions WHERE action = 'coin_change_approved'`)
     .bind(UTICA, 'Utica: coin change approved, $UTICA "Utica Falls", version abcdef12', new Date(Date.now()).toISOString()).run();
   assert.match(await audit(), /Utica Falls/);
-  assert.equal((await w.rv("description", { text: OWN })).used, true);
+  await ownDescription(w, OWN);
   const c = await w.ready();
   assert.deepEqual([c.coin.name, c.coin.description], ["Utica Falls", OWN]);
   const t = await w.takedown({ what: "text" });
@@ -206,7 +205,7 @@ test("not launched: a founder's own name (a reviewer approved it) and descriptio
 test("launched: the founder's description leaves the coin's /coin-meta JSON and every page; the name stays on chain; a second takedown says there is nothing left", async () => {
   const w = await takedownWorld();
   await w.useCoin();
-  assert.equal((await w.rv("description", { text: OWN })).used, true);
+  await ownDescription(w, OWN);
   await w.approveOnChain();
   const mint = await w.launch();
   assert.ok((await w.json(mint)).description.startsWith(OWN), "the founder's words were published");
@@ -300,7 +299,7 @@ test("not launched: the founder's picture in use goes, and the coin is Vicinity'
 test("the owner's approval being built right now (the 5-minute hold) wins: nothing changes, and the admin is told to try again", async () => {
   const w = await takedownWorld();
   await w.useCoin();
-  assert.equal((await w.rv("description", { text: OWN })).used, true);
+  await ownDescription(w, OWN);
   const c = await w.card();
   assert.equal((await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(c), expiryDays: 7 })).ok, true);
   const t = await w.takedown({ what: "text" });
@@ -324,7 +323,7 @@ test("switch off: Vicinity's own ready-made coin takes the older path exactly as
   // switched off AFTER use: the founder's description stays their coin, and the takedown still takes it down
   const w2 = await takedownWorld();
   await w2.useCoin();
-  assert.equal((await w2.rv("description", { text: OWN })).used, true);
+  await ownDescription(w2, OWN);
   delete w2.env.COIN_V2_REVIEW;
   const t2 = await w2.takedown({ what: "text" });
   assert.equal(t2.ok, true, JSON.stringify(t2));

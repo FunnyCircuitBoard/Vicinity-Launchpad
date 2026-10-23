@@ -18,7 +18,7 @@ import { REASONS, _resetReview, _setScreener } from "../src/coinreview.js";
 import { RULES_VERSION } from "../src/screen.js";
 import { sha256Hex } from "../src/coinart.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
-import { SYRACUSE, UTICA, approvalAccount, b64, fresh, meta, pngOf, seenOf, world } from "./helpers/readyworld.js";
+import { SYRACUSE, UTICA, approvalAccount, b64, fresh, meta, ownDescription, pngOf, seenOf, world } from "./helpers/readyworld.js";
 
 before(async () => { const r = await nodeRenderer(); _setArtRenderer(r); });
 after(() => { _setArtRenderer(null); _setScreener(null); realClock(); });
@@ -84,6 +84,9 @@ test("SEC-1: a description written in small capitals (or split, or stemmed) is n
 test("SEC-3: an approved CHANGE request never vouches for the description it carried; a DESCRIPTION approval does, for exactly that text", async () => {
   const w = await reviewWorld();
   await w.useCoin();
+  // a description that passed by itself under an older engine (before every founder's words went to a person: a stand-in plays it)
+  const older = (text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text });
+  _setScreener(older);
   const ok = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
   assert.equal(ok.used, true, JSON.stringify(ok));
   // everyone else's preview carries a founder's own description only once a person stood behind it (here: nobody yet)
@@ -100,9 +103,12 @@ test("SEC-3: an approved CHANGE request never vouches for the description it car
   _setScreener((text) => ({ result: "block", issues: [{ code: "slur", severity: "block", start: 0, end: 3 }], rulesVersion: "s1-newer", text }));
   const c = await w.card();
   assert.equal(c.ok, false);
-  assert.match(c.reasons.join(" "), /Your description no longer passes the checks/);
+  assert.match(c.reasons.join(" "), /A person reads every description a founder writes before it can launch, and yours wasn't reviewed/);
   assert.equal((await w.ready()).review.hold.code, "description_recheck");
+  // ...and under the current rules (SCR-PLAIN-1) a founder's own words no person read never launch, whatever a change's reviewer saw
   _setScreener(null);
+  assert.equal((await w.card()).ok, false);
+  assert.equal((await w.ready()).review.hold.code, "description_recheck");
   // a description a person approved (a description request) stays approved under any rules, also under a later picture change
   const fl = await w.rv("description", { text: "Utica coin: guaranteed profit, 100x to the moon soon." });
   assert.equal(fl.screening.result, "flag");
@@ -128,7 +134,19 @@ test("SEC-4: an approval built from the founder's coin does not stop a request o
   const cx = await w.rv("cancel", { requestId: p.id });
   assert.equal(cx.ok, true, JSON.stringify(cx));
   assert.equal((await w.status()).state, "ready", "cancelled: the approved coin launches");
-  // a description that passes: used at once; the approval stands for the coin as it was, so the launch waits for the next round
+  // a description: the checks find nothing, a person reads it; sent for review, the launch pauses while it waits
+  const rd = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
+  assert.deepEqual([rd.screening.result, rd.used], ["flag", undefined]);
+  assert.equal((await w.status()).state, "ready", "a flag alone pauses nothing");
+  const rs = await w.rv("description/review", { screeningId: rd.screening.id });
+  assert.equal(rs.ok, true, JSON.stringify(rs));
+  st = await w.status();
+  assert.deepEqual([st.state, st.why], ["paused", "paused_description"]);
+  assert.equal((await w.rv("cancel", { requestId: rs.review.request.id })).ok, true);
+  assert.equal((await w.status()).state, "ready", "cancelled: the approved coin launches");
+  // a description used by itself (an older engine's pass: a stand-in plays it) changes the coin under the approval: the launch waits
+  // for the next round
+  _setScreener((text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text }));
   const d = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
   assert.equal(d.used, true, JSON.stringify(d));
   st = await w.status();
@@ -140,6 +158,7 @@ test("SEC-4: an approval built from the founder's coin does not stop a request o
   const tx = await w.post(w.f, "/api/lp/launch/tx", { cityId: UTICA, cluster: "devnet", mint: fresh() });
   assert.deepEqual([tx.status, tx.error], [409, "approval_changed"]);
   // back to the default description: exactly the approved version again, so it launches as approved
+  _setScreener(null);
   const back = await w.rv("description/default");
   assert.equal(back.ok, true, JSON.stringify(back));
   assert.equal(back.coin.contentHash, coin.contentHash);
@@ -279,14 +298,16 @@ test("UX-5 and UX-6: 'Keep the default' puts the flagged card away; a 'changes n
   assert.equal(keep.ok, true, JSON.stringify(keep));
   assert.equal(keep.review.description.screening, null, "kept: the flagged check is not shown again");
   assert.equal((await w.ready()).review.description.screening, null, "nor after a reload");
-  // a description that needed changes: a new one that passes replaces the card
+  // a description that needed changes: a newer description replaces the card (checked: a person reads it too), and so does its approval
   const fl2 = await w.rv("description", { text: "Utica coin: guaranteed profit, 100x to the moon soon." });
   const sent = await w.rv("description/review", { screeningId: fl2.screening.id });
   await w.decide({ id: sent.review.request.id, action: "changes_needed", contentHash: sent.review.request.contentHash, reasonCode: "financial_claim" });
   assert.equal((await w.ready()).review.request.status, "changes_needed");
   const ok = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
-  assert.equal(ok.used, true);
+  assert.deepEqual([ok.screening.result, ok.used], ["flag", undefined]);
   assert.equal(ok.review.request, null, "the old card is history");
+  const v = await ownDescription(w, "The Handshake City on the Mohawk River, home of tomato pie.");
+  assert.equal(v.review.request.status, "approved", "the new card is the approved description");
   // ...and so does going back to the default when the coin already had it
   const fl3 = await w.rv("description", { text: "Utica coin: guaranteed profit, 100x to the moon soon." });
   const s3 = await w.rv("description/review", { screeningId: fl3.screening.id });
@@ -329,19 +350,28 @@ test("UX-6 and UX-7: the approved card follows the chain; a waiting description 
 test("DARK-1: switched off after use, a founder's description stays their coin and is still checked (on the owner's list and the launch path)", async () => {
   const w = await reviewWorld();
   await w.useCoin();
-  const d = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
-  assert.equal(d.used, true);
+  // a description a person approved stays the coin's with the switch off
+  await ownDescription(w, "The Handshake City on the Mohawk River, home of tomato pie.");
   w.env.COIN_V2_REVIEW = "off";
   let v = await w.ready();
   assert.equal("review" in v, false, "the switch is off: no review step");
   assert.deepEqual([v.coin.description, v.inUse], ["The Handshake City on the Mohawk River, home of tomato pie.", true], "the card shows the coin that launches");
   assert.equal((await w.card()).ok, true);
-  // the rules change: still caught with the switch off (never launchable unchecked)
-  _setScreener((text) => ({ result: "block", issues: [{ code: "slur", severity: "block", start: 0, end: 3 }], rulesVersion: "s1-newer", text }));
+  // one that passed by itself under an older engine (a stand-in plays it) is still checked with the switch off: under the current
+  // rules a founder's own words no person read never launch (never launchable unchecked)
+  w.env.COIN_V2_REVIEW = "on";
+  _setScreener((text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text }));
+  const d = await w.rv("description", { text: "Utica on the Mohawk River, home of the half moon cookie." });
+  assert.equal(d.used, true, JSON.stringify(d));
+  w.env.COIN_V2_REVIEW = "off";
+  assert.equal((await w.card()).ok, true, "under the stand-in's rules it passes");
+  _setScreener(null);
   const c = await w.card();
   assert.equal(c.ok, false);
-  assert.match(c.reasons.join(" "), /no longer passes the checks/);
-  _setScreener(null);
+  assert.match(c.reasons.join(" "), /yours wasn't reviewed/);
+  // back to a coin a person approved, for the rest of the test
+  w.env.COIN_V2_REVIEW = "on";
+  await w.rv("description/default");
   // a request left pending when the switch went off pauses nothing any more (docs/DEPLOY.md says to cancel or decide them first)
   w.env.COIN_V2_REVIEW = "on";
   await w.request({ name: "Utica Falls" });

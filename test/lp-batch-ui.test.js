@@ -235,7 +235,7 @@ test("BATCH-1: every row shows the description that goes into the metadata for e
   const box = (id) => t.panel.querySelectorAll("input").find((i) => i.id === id);
   assert.equal(box("lp-round-approve-5142056").checked, false, "the founder's own words: the owner reads them, then ticks the city");
   assert.equal(box("lp-round-approve-5140405").checked, true);
-  assert.match(t.text(), /1 city has a description in the founder's own words\. It passed the automatic checks, but no person has read it/);
+  assert.match(t.text(), /1 city has a description in the founder's own words\. A reviewer approved it, and it goes into the coin's metadata for ever\. Read it too, then tick the city/);
   assert.ok(t.button(/^Sign today's approvals \(3 cities\)$/), "the unticked city is not in the count");
   // ticked by the owner, it is echoed like any other row
   box("lp-round-approve-5142056").checked = true; box("lp-round-approve-5142056").dispatchEvent(newEvent("change"));

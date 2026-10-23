@@ -92,8 +92,9 @@ export const coinV2ReadyOn = (env) => String((env && env.COIN_V2_READY) ?? "").t
  * COIN_V2_REVIEW=on turns on the second stage of the new city-coin flow, on top of the first (it does nothing unless COIN_V2_READY is on
  * too): "Request changes" (a separate draft for another picture, ticker or name, reviewed by a person against its exact content hash;
  * submitting it pauses the launch until an admin or the owner decides), the review status cards (Pending, Approved, Changes needed, each
- * with a plain reason), the founder's own description with automatic screening (src/screen.js: a pass is used at once, a flag pauses
- * the launch only if the founder sends it for review, a block or a screening error never counts as approval), and the admin queue "Coin
+ * with a plain reason), the founder's own description with automatic screening (src/screen.js: a founder's own words never pass by
+ * themselves, a person reads every one; a flag pauses the launch only if the founder sends it for review, a block or a screening error
+ * never counts as approval; only Vicinity's own sentence passes), and the admin queue "Coin
  * reviews" (src/coinreview.js). The routes /api/coins/review*, /api/admin/coins/reviews*, the key `review` on GET /api/coins/ready, the
  * key coinReviews on /api/admin/me and /api/admin/overview, the coin_requests and coin_screenings tables (lazy, additive) exist only
  * then. Exactly "on" (trimmed, any letter case) AND COIN_V2_READY on; anything else is the site exactly as before.

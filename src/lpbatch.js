@@ -68,7 +68,7 @@ export const CHECKS = Object.freeze([
   "The founder holds the city's seat (active), with this wallet",
   "The founder holds the founder amount (read live just now) and has no ban",
   "This exact version is the founder's chosen coin: the Vicinity design with the city list's ticker and name, or a change a reviewer approved",
-  "No change request or description waits for review, and the description passes the checks",
+  "No change request or description waits for review, and the description is Vicinity's sentence or the founder's own words a reviewer approved",
   "The ticker is not launched or approved for another city, and the city has no coin yet",
 ]);
 const err = (error, message, status = 409, extra = {}) => json({ ok: false, error, ...(message ? { message } : {}), ...extra }, status, { "Cache-Control": "no-store" });
@@ -129,8 +129,8 @@ async function withdrawReason(env, seat, cityId, country, now) {
 const hours = (s) => Math.max(0, Math.floor(s / 3600));
 /**
  * One row of the round. An approve or renew row carries the coin's description (it goes into the metadata for ever) and whose words it
- * is: "vicinity" (the city list's sentence) or "founder" (their own, which passed the checks by itself: the card leaves it unticked
- * until the owner has read it, BATCH-1).
+ * is: "vicinity" (the city list's sentence) or "founder" (their own, which a reviewer approved: a founder's own words never pass the
+ * checks by themselves, src/screen.js; the card still leaves it unticked until the owner has read it, BATCH-1).
  */
 function rowOf(action, a, { founder, name, symbol, contentHash = null, version = null, art = null, description = null, descriptionBy = null, approval = null, why = null, checks = null, warnings = [] }) {
   return {

@@ -100,8 +100,8 @@
   }
   const reasonList = (reasons) => { const ul = el("ul", "lp-reasons"); for (const r of reasons) ul.append(el("li", null, r)); return ul; };
   /**
-   * A coin's description as the owner approves it (BATCH-1): the words, and whose they are. A founder's own words passed the automatic
-   * checks without a person reading them; Vicinity's are the city list's sentence.
+   * A coin's description as the owner approves it (BATCH-1): the words, and whose they are. A founder's own words were approved by a
+   * reviewer (they never pass the automatic checks by themselves); Vicinity's are the city list's sentence.
    */
   function describe(x) {
     const wrap = el("span", "lp-desc");
@@ -455,7 +455,7 @@
     const box = el("div", "lp-step__box");
     sync();
     const own = [...g.approve, ...g.renew].filter((x) => !tickedFirst(x)).length;
-    if (own) body.append(el("p", "lp-warn", `${own} cit${own === 1 ? "y has" : "ies have"} a description in the founder's own words. It passed the automatic checks, but no person has read it, and it goes into the coin's metadata for ever. Read it, then tick the city.`));
+    if (own) body.append(el("p", "lp-warn", `${own} cit${own === 1 ? "y has" : "ies have"} a description in the founder's own words. A reviewer approved it, and it goes into the coin's metadata for ever. Read it too, then tick the city.`));
     if (picked.size || own) body.append(el("p", "muted small", "Untick a city to leave it out of today's round; it comes back in the next one. Founders are told only that their launch opens after your next approval round, never a time."), go);
     body.append(box);
   }

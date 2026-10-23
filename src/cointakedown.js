@@ -34,6 +34,7 @@ import { canonicalContent, choiceStatements, ensureArt, renderPng, versionLabel 
 import { ensureReviewSchema } from "./coinreview.js";
 import { versionJson } from "./coinmeta.js";
 import { rebuildMetaJson } from "./lpcoins.js";
+import { forgetCopies } from "./memos.js";
 
 /** The words the older path gave for a launched ready-made coin whose description is Vicinity's own (kept word for word). */
 export const SYSTEM_TEXT_LAUNCHED = "This coin's description is Vicinity's own sentence from the city list (it launched with the Vicinity design), not the founder's text, so there is nothing to take down. Nothing was changed.";
@@ -104,7 +105,7 @@ async function purgePages(env, mint = null, arts = []) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
   const keys = ["coins", `launchpad-${activeMint(env) || "pre"}`, ...(mint ? [`coin-${mint}`, `lp-coin-${mint}`] : []), ...arts.map((x) => `coin-meta/art/${x}.png`)];
   if (cache) for (const k of keys) { try { await cache.delete(new Request(`https://cache.vicinity.internal/${k}`)); } catch { /* the cache is a convenience */ } }
-  try { (await import("./launchpad.js")).forgetLaunchpadList(env); } catch { /* the list is rebuilt within 30 seconds anyway */ }
+  forgetCopies(env); // this server's launchpad list (src/launchpad.js registers it)
 }
 // `card`: the founder's coin card says it too (a description or a name taken down from a coin not launched yet: src/coinreview.js)
 const told = (n, card = false) => (n ? "The founder was told in their notifications."

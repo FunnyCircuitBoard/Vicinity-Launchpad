@@ -65,7 +65,7 @@ approval on the blockchain, that the website holds no key that can approve a lau
 
 ## Not built yet (so version 7 does not promise them)
 
-- Requesting changes (another picture, ticker or name) with a person's review, and writing your own description with automatic screening:
+- Requesting changes (another picture, ticker or name) with a person's review, and writing your own description (checked automatically, then read by a person):
   later stages of the same design. Version 7 does **not** mention them; a later version adds them when they exist.
 - Launching without a per-city approval signed by the owner: every launch still needs the owner's own approval of that city on the blockchain.
 

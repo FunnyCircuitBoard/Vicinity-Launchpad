@@ -32,6 +32,7 @@ import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
 import { madeByOf, readyChoices } from "./coinart-store.js";
 import { choiceHolds } from "./coinready.js";
 import { coinV2ReadyOn } from "./flags.js";
+import { onForget } from "./memos.js";
 
 const SOL = PAIRS.SOL.mint;
 const NEW_DAYS = 7; // "New" = live for less than this (a default, see the product decisions in the report)
@@ -82,6 +83,7 @@ async function countryName(env, cc) {
 export const _resetLaunchpad = () => { countryNames = null; memo = new WeakMap(); _resetMarketLive(); _resetLaunchlab(); };
 /** Forget this server's copy of the list (an admin's takedown changed a coin's words: src/cointakedown.js); the market answers stay. */
 export const forgetLaunchpadList = (env) => { if (env && env.DB) memo.delete(env.DB); };
+onForget(forgetLaunchpadList);
 
 /** Holder counts the job wrote: Map(mint -> { count, asOf }). Empty, and a note in the log, when the table cannot be made. */
 async function holderCounts(env) {

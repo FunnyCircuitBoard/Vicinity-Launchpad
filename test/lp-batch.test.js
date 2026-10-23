@@ -25,7 +25,7 @@ import * as IX from "../src/sol/lpadmin-ix.js";
 import { programDataAddress, PROGRAM_IDS } from "../src/sol/pda.js";
 import { LAYOUT } from "../src/sol/layout.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
-import { CONFIG, PROGRAM, SYRACUSE, UTICA, approvalAccount, fresh, world } from "./helpers/readyworld.js";
+import { CONFIG, PROGRAM, SYRACUSE, UTICA, approvalAccount, fresh, ownDescription, world } from "./helpers/readyworld.js";
 import { programDataAccount as meteoraProgramData, METEORA_AUTHORITY } from "./helpers/lpchain.js";
 
 before(async () => { const r = await nodeRenderer(); _setArtRenderer(r); });
@@ -277,8 +277,7 @@ test("the build refuses: no rows, a malformed or duplicate row, too many, a stal
   assert.equal(await w.row("SELECT value FROM settings WHERE key = ?", `lp_design_hold:${UTICA}`), null, "nothing was held by a refused build");
   // a founder who changed their coin between the list and the build: dropped, nothing built from a version the owner did not see
   await reprove(w.f);
-  const desc = await w.post(w.f, "/api/coins/review/description", { cityId: UTICA, text: "The Handshake City on the Mohawk River, home of tomato pie." });
-  assert.equal(desc.used, true, JSON.stringify(desc));
+  const desc = await ownDescription(w, "The Handshake City on the Mohawk River, home of tomato pie."); // a person approved it
   const x = await w.build([echo(row)]);
   assert.deepEqual(r(x), [409, "batch_changed"]);
   assert.notEqual(desc.coin.contentHash, coin.contentHash);
@@ -295,7 +294,8 @@ test("record: the chain must show every city; renew is a revoke and an approve i
   const pok = await w.founder("5101002", "Poughkeepsie");
   const nia = await w.founder("5101003", "Niagara Falls");
   const sch = await w.founder("5101006", "Schenectady");
-  // a description that passes today
+  // a description that passed by itself under an older engine (a stand-in plays it: today a founder's own words always go to a person)
+  _setScreener((text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text }));
   const desc = await w.post(nia, "/api/coins/review/description", { cityId: "5101003", text: "The city of the falls, mist and rainbows over the river." });
   assert.equal(desc.used, true, JSON.stringify(desc));
   advance(6 * 60_000);
@@ -439,7 +439,16 @@ test("SEC-4: a pre-approved founder can still ask for changes or write a descrip
   assert.match(rv.why, /change request waits for review/);
   assert.equal((await w.post(w.f, "/api/coins/review/cancel", { cityId: UTICA, requestId: s.review.request.id })).ok, true);
   assert.equal(ofCity(await w.round(), UTICA), null, "cancelled: the approval stands, nothing to do today");
-  // a description that passes, written under the approval: the next round renews it for the coin as it is now (whatever time is left)
+  // a description written under the approval goes to a person: sent for review, the round withdraws the approval while it waits
+  const own = await w.post(w.f, "/api/coins/review/description", { cityId: UTICA, text: "The Handshake City on the Mohawk River, home of tomato pie." });
+  assert.deepEqual([own.screening.result, own.used], ["flag", undefined]);
+  const sent = await w.post(w.f, "/api/coins/review/description/review", { cityId: UTICA, screeningId: own.screening.id });
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  assert.match(ofCity(await w.round(), UTICA).why, /description waits for review/);
+  assert.equal((await w.post(w.f, "/api/coins/review/cancel", { cityId: UTICA, requestId: sent.review.request.id })).ok, true);
+  // a description used by itself under an older engine (a stand-in plays it), written under the approval: the next round renews it for
+  // the coin as it is now (whatever time is left)
+  _setScreener((text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text }));
   const desc = await w.post(w.f, "/api/coins/review/description", { cityId: UTICA, text: "The Handshake City on the Mohawk River, home of tomato pie." });
   assert.equal(desc.used, true, JSON.stringify(desc));
   assert.equal((await w.get(w.f, `/api/lp/launch/status?city=${UTICA}&cluster=devnet`)).why, "approval_changed");

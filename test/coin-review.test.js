@@ -3,8 +3,9 @@
 // submitted request pauses the launch everywhere on the server (the owner's approval, the launch status and build, "Use this coin",
 // other changes); an admin or the owner (never the city's own founder, never a moderator) approves exactly the version they saw, or
 // asks for changes with a plain reason; Pending / Approved / Changes needed with the reason; cancel and edit; the proposed picture is
-// private until approved; an approved ticker waits for the city list; the founder's own description is screened (pass used at once,
-// flag pauses only when sent for review, block and error change nothing); every gate, counter and public log line.
+// private until approved; an approved ticker waits for the city list; the founder's own description is screened and never used by
+// itself (SCR-PLAIN-1: a person reads every one; a flag pauses only when sent for review, block and error change nothing; only
+// Vicinity's own sentence passes); every gate, counter and public log line.
 import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { advance, browser, person, realClock, reprove, setHolding } from "./helpers/world.js";
@@ -20,7 +21,7 @@ import { sha256Hex } from "../src/coinart.js";
 import { _resetCityCache } from "../src/cities.js";
 import { _resetTickers } from "../src/tickers.js";
 import { nodeRenderer } from "../scripts/coin-art/render.mjs";
-import { PROGRAM, SYRACUSE, UTICA, approvalAccount, b64, fresh, launchOnChain, meta, pngOf, seenOf, world } from "./helpers/readyworld.js";
+import { PROGRAM, SYRACUSE, UTICA, approvalAccount, b64, fresh, launchOnChain, meta, ownDescription, pngOf, seenOf, world } from "./helpers/readyworld.js";
 
 const PNG = pngOf(64); // a whole, square PNG: what the page sends (src/coinreview.js squarePng)
 const PNG_B64 = PNG.toString("base64");
@@ -346,25 +347,33 @@ test("a ticker change: free tickers only; approved, it waits for the city list (
   assert.equal(c2.symbol, "UTICANY");
 });
 
-test("the founder's own description: a pass is used at once; a flag pauses nothing until it is sent for review; a block can't be sent; an error changes nothing", async () => {
+test("the founder's own description: never used by itself (SCR-PLAIN-1); a flag pauses nothing until it is sent for review; a block can't be sent; an error changes nothing", async () => {
   const w = await reviewWorld();
   await w.useCoin();
-  // pass: the coin's description at once, screened, no reviewer needed
+  const DEF = "The city coin of Utica, New York, United States.";
+  // the checks find nothing: it is still flagged "review" (a person reads every founder's description), nothing changes, nothing pauses
   const ok = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
   assert.equal(ok.ok, true, JSON.stringify(ok));
-  assert.deepEqual([ok.screening.result, ok.used, ok.coin.description], ["pass", true, "The Handshake City on the Mohawk River, home of tomato pie."]);
-  assert.equal(ok.review.selected.origin, "description");
-  assert.equal(ok.review.description.source, "founder");
-  assert.equal((await w.card()).ok, true, "a passing description is launchable");
-  assert.equal((await w.card()).pitch, "The Handshake City on the Mohawk River, home of tomato pie.");
-  const sc = await w.row("SELECT result, rules_version, text_sha256 FROM coin_screenings ORDER BY id DESC LIMIT 1");
-  assert.deepEqual([sc.result, sc.rules_version], ["pass", RULES_VERSION]);
+  assert.deepEqual([ok.screening.result, ok.used, ok.coin.description], ["flag", undefined, DEF]);
+  assert.deepEqual(ok.screening.issues.map((x) => [x.code, x.message]), [["review", "Our automatic checks found nothing to point out, but a person reads every description a founder writes before a coin uses it."]]);
+  assert.deepEqual([ok.review.description.source, ok.review.hold], ["default", null]);
+  assert.equal((await w.card()).pitch, DEF, "the coin keeps Vicinity's sentence meanwhile");
+  const sc = await w.row("SELECT result, rules_version FROM coin_screenings ORDER BY id DESC LIMIT 1");
+  assert.deepEqual([sc.result, sc.rules_version], ["flag", RULES_VERSION]);
+  // ...even the most ordinary words, and words no check can tell from an honest sentence
+  for (const text of ["Kill the mayor of Utica.", "Give us one coin and we give you two.", "Keep Utica white and proud."]) {
+    const r = await w.rv("description", { text });
+    assert.deepEqual([r.screening.result, r.coin.description], ["flag", DEF], text);
+  }
+  // Vicinity's own sentence passes (the only description that does): nothing to read, it is the coin's already
+  const vic = await w.rv("description", { text: DEF });
+  assert.deepEqual([vic.screening.result, vic.coin.description], ["pass", DEF]);
   // flag: nothing changes, the issues are explained, the card offers revise / review / keep the default
   const fl = await w.rv("description", { text: "Utica coin: guaranteed profit, 100x to the moon soon." });
   assert.equal(fl.ok, true);
   assert.equal(fl.screening.result, "flag");
   assert.ok(fl.screening.issues.every((x) => x.message && x.code === "financial"), JSON.stringify(fl.screening.issues));
-  assert.equal(fl.coin.description, "The Handshake City on the Mohawk River, home of tomato pie.", "a flag changes nothing");
+  assert.equal(fl.coin.description, DEF, "a flag changes nothing");
   assert.equal(fl.review.hold, null, "a flag alone pauses nothing");
   assert.equal(fl.review.description.screening.result, "flag");
   // block: can't be sent for review
@@ -378,9 +387,9 @@ test("the founder's own description: a pass is used at once; a flag pauses nothi
   assert.deepEqual([er.status, er.error], [503, "screening_error"]);
   assert.match(er.message, /Nothing changed: your coin keeps its current description/);
   _setScreener(null);
-  assert.equal((await w.ready()).coin.description, "The Handshake City on the Mohawk River, home of tomato pie.");
+  assert.equal((await w.ready()).coin.description, DEF);
   // send the flagged one for review: a description request, the launch paused, the queue shows the flagged spans
-  const flagged = await w.row("SELECT id FROM coin_screenings WHERE result = 'flag' ORDER BY id DESC LIMIT 1");
+  const flagged = await w.row("SELECT id FROM coin_screenings WHERE result = 'flag' AND text = ? ORDER BY id DESC LIMIT 1", "Utica coin: guaranteed profit, 100x to the moon soon.");
   const sent = await w.rv("description/review", { screeningId: flagged.id });
   assert.equal(sent.ok, true, JSON.stringify(sent));
   assert.deepEqual([sent.review.request.kind, sent.review.request.status], ["description", "pending"]);
@@ -389,11 +398,11 @@ test("the founder's own description: a pass is used at once; a flag pauses nothi
   assert.equal((await w.card()).ok, false);
   const row = (await w.queue()).reviews[0];
   assert.equal(row.kind, "description");
-  assert.ok(row.checks.some((x) => x.check === "description_screening" && x.issues.length), JSON.stringify(row.checks));
+  assert.ok(row.checks.some((x) => x.check === "description_screening" && x.issues.length && x.text === "The checks flagged the description."), JSON.stringify(row.checks));
   // "Use the default" cancels it and launches with Vicinity's sentence
   const def = await w.rv("description/default");
   assert.equal(def.ok, true, JSON.stringify(def));
-  assert.deepEqual([def.coin.description, def.review.hold, def.review.request], ["The city coin of Utica, New York, United States.", null, null]);
+  assert.deepEqual([def.coin.description, def.review.hold, def.review.request], [DEF, null, null]);
   assert.equal(def.review.selected.origin, "default", "back to Vicinity's own version");
   // send it again and approve it: exactly that text becomes the coin's
   const again = await w.rv("description/review", { screeningId: flagged.id });
@@ -405,16 +414,29 @@ test("the founder's own description: a pass is used at once; a flag pauses nothi
   assert.equal(v.coin.description, "Utica coin: guaranteed profit, 100x to the moon soon.");
   assert.ok((await w.notices()).includes("Your description was approved."));
   assert.equal((await w.card()).ok, true, "a reviewer's approval of exactly that text is launchable, though the screener flags it");
+  // the one the checks found nothing in goes the same way: sent, the queue says to read every word, approved, launchable
+  const plain = await w.rv("description", { text: "The Handshake City on the Mohawk River, home of tomato pie." });
+  const sent2 = await w.rv("description/review", { screeningId: plain.screening.id });
+  assert.equal(sent2.ok, true, JSON.stringify(sent2));
+  const q = (await w.queue()).reviews.find((x) => x.id === sent2.review.request.id);
+  assert.ok(q.checks.some((x) => x.check === "description_screening" && /found nothing to point out\. Read every word/.test(x.text)), JSON.stringify(q.checks));
+  const ap2 = await w.decide({ id: sent2.review.request.id, action: "approve", contentHash: sent2.review.request.contentHash });
+  assert.equal(ap2.ok, true, JSON.stringify(ap2));
+  assert.equal((await w.card()).pitch, "The Handshake City on the Mohawk River, home of tomato pie.");
+  assert.equal((await w.ready()).review.description.source, "founder");
   // an old flag (more than a day) or one of other rules can't be sent
   advance(25 * 3600_000);
   await reprove(w.f);
   assert.equal((await w.rv("description/review", { screeningId: flagged.id })).error, "cannot_review");
 });
 
-test("launch re-check: a passing description that no longer passes under new rules blocks the launch (status and build), and the owner's list says so", async () => {
+test("launch re-check: a description that passed by itself under older rules (before every founder's words went to a person) blocks the launch until a person reviews it", async () => {
   const w = await reviewWorld();
   await w.useCoin();
-  await w.rv("description", { text: "The Handshake City on the Mohawk River." });
+  // an older engine let a founder's own words pass by themselves (a stand-in screener plays it)
+  _setScreener((text) => ({ result: "pass", issues: [], rulesVersion: RULES_VERSION, text }));
+  const used = await w.rv("description", { text: "The Handshake City on the Mohawk River." });
+  assert.equal(used.used, true, JSON.stringify(used));
   const c = await w.card();
   const b = await w.post(w.owner, "/api/admin/lp/approve/tx", { cluster: "devnet", ...seenOf(c), expiryDays: 7 });
   assert.equal(b.ok, true, JSON.stringify(b));
@@ -422,18 +444,24 @@ test("launch re-check: a passing description that no longer passes under new rul
   w.lp.S.accounts[await w.L.approval(BigInt(UTICA))] = approvalAccount({ cityId: UTICA, founder: w.f.w.address, rentPayer: w.owner.w.address, name: "Utica", symbol: "UTICA", expiresAt: Math.floor(Date.now() / 1000) + 7 * 86_400 });
   let st = await w.status();
   assert.equal(st.state, "ready", JSON.stringify(st));
-  // the rules change: the same words are flagged now
-  _setScreener((text) => ({ result: "flag", issues: [{ code: "abuse", severity: "flag", start: 0, end: 3 }], rulesVersion: "s1-newer", text }));
+  // the current rules (the real screener): a founder's own words no person read are never launched
+  _setScreener(null);
   st = await w.status();
   assert.deepEqual([st.state, st.why], ["paused", "description_recheck"]);
-  assert.equal(st.message, "Your description no longer passes the checks. Use the default description, or write a new one.");
+  assert.equal(st.message, "A person reads every description a founder writes before it can launch, and yours wasn't reviewed. Check it again and send it for review, or use the default description.");
   const tx = await w.post(w.f, "/api/lp/launch/tx", { cityId: UTICA, cluster: "devnet", mint: fresh() });
   assert.deepEqual([tx.status, tx.error], [409, "description_recheck"]);
   // an error in the re-check blocks too (never counted as a pass)
   _setScreener(() => ({ result: "error", issues: [], rulesVersion: RULES_VERSION, text: null }));
   assert.equal((await w.status()).why, "description_unchecked");
   _setScreener(null);
-  assert.equal((await w.status()).state, "ready");
+  // the founder checks it again and sends it to a person: the launch waits for that review (a reviewer decides once the owner withdraws
+  // the approval on chain, which was built from words no person read)
+  const again = await w.rv("description", { text: "The Handshake City on the Mohawk River." });
+  assert.deepEqual(again.screening.issues.map((x) => x.code), ["review"]);
+  const sent = await w.rv("description/review", { screeningId: again.screening.id });
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  assert.deepEqual([(await w.status()).state, (await w.status()).why], ["paused", "paused_description"]);
 });
 
 test("never publish unapproved content: a coin launched outside the site while a request waits gets the approved version; tampered art is refused", async () => {

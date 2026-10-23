@@ -953,13 +953,13 @@
   };
   const TAKEDOWN_REASONS = [["abuse", "Abusive or hateful"], ["illegal", "Not theirs to use (rights) or illegal"], ["scam", "Scam or misleading"], ["other", "Other"]];
   /**
-   * The founders' own words and pictures public on a coin now (GET /api/admin/coins/reviews inUse): a description that passed the checks
-   * by itself never comes through the queue, so every one is listed here with its takedown (POST /api/coins/takedown).
+   * The founders' own words and pictures public on a coin now (GET /api/admin/coins/reviews inUse), each with its takedown (POST
+   * /api/coins/takedown). A founder's own description reaches a coin only through a reviewer's approval (src/screen.js "review").
    */
   function inUseSection(list) {
     const s = el("section", "card adm-coinrev__inuse");
     s.append(el("h3", "adm-h3", "Founders' own words and pictures in use"),
-      el("p", "small muted", "A description that passes the checks by itself never comes through this queue. Each one here is public on its coin now. Take it down if it breaks the rules: the coin falls back to Vicinity's own words or design, everywhere, and the founder is told."));
+      el("p", "small muted", "Each one here is public on its coin now (a reviewer approved it). Take it down if it breaks the rules: the coin falls back to Vicinity's own words or design, everywhere, and the founder is told."));
     for (const x of list) {
       const row = el("article", "adm-coinrev__use");
       row.append(el("p", "small", `${x.city && x.city.name ? x.city.name : "—"}${x.city && x.city.country ? ` (${x.city.country})` : ""} · $${x.symbol} “${x.name}” · ${x.launched ? "launched" : "not launched yet"} · version ${x.version || "—"}`));

@@ -1,6 +1,7 @@
 // Evasion corpora for the description screener's tests (test/screen-wordlist.test.js): generated the way the verification's generator
-// made them (plain characters only), and the hand-written probes of its findings (SEC-1-R2, SCAM-1, SEC-2-R2-links, SEC-2-R2-handles).
-// Every string here must be flagged or refused, never passed.
+// made them (plain characters only), and the hand-written probes of its findings (SEC-1-R2, SCAM-1, SEC-2-R2-links, SEC-2-R2-handles;
+// round 5: SCR-NAME-1, SCR-PLAIN-1, SCR-SCAM-1, SCR-LINK-1). Every string here must be flagged or refused, never passed; and where a
+// check can say why, it must (a founder's own words are flagged "review" anyway: the checks only tell the reviewer what to look at).
 
 /** Slurs to respell (the plain-letter generator works on these). */
 export const SLUR_BASES = ["nigger", "nigga", "faggot", "tranny", "kike", "spic", "wetback", "beaner", "chinky", "gook", "raghead", "towelhead",
@@ -29,7 +30,7 @@ export function respell(w) {
 }
 /**
  * The generated corpus: every respelling of every base in a sentence, and again written as a name (a capital, then small letters) in a
- * sentence of everyday English, where a name may pass (src/screen.js allowedNames): about 2,000 [respelling, text] pairs.
+ * sentence of everyday English (where a name used to pass by itself, before SCR-NAME-1): about 2,000 [respelling, text] pairs.
  */
 export function slurCorpus() {
   const out = [];
@@ -114,3 +115,74 @@ export function handleCorpus() {
     "Our yt has Utica videos", "Utica moonboys on x", "Find uticamoonboys in the gc", "Ask moonboys on our discord server");
   return out;
 }
+
+/* ---------------------------------------------------------------- review round 5 */
+/** The sound substitutions of the verification's generator (SCR-NAME-1): gg to kk, cc or ck, g to k or c, i to y, e or ee, er to a, ah, uh, ur or ar... */
+const SOUND_RULES = [["gg", "kk"], ["gg", "cc"], ["gg", "ck"], ["g", "k"], ["g", "c"], ["i", "y"], ["i", "e"], ["i", "ee"], ["er", "a"], ["er", "ah"], ["er", "uh"],
+  ["er", "ur"], ["er", "ar"], ["a", "ah"], ["a", "er"], ["f", "v"], ["k", "c"], ["c", "k"], ["ck", "k"], ["ea", "eer"], ["e", "ee"], ["o", "oh"], ["oo", "u"], ["s", "z"],
+  ["y", "ie"]];
+/** Every spelling one sound substitution away from `w` (each rule at each place it applies). */
+export function soundSubstitutions(w) {
+  const out = new Set();
+  for (const [a, b] of SOUND_RULES) for (let i = w.indexOf(a); i >= 0; i = w.indexOf(a, i + 1)) out.add(w.slice(0, i) + b + w.slice(i + a.length));
+  out.delete(w);
+  return [...out];
+}
+/** The frames the verification wrote each spelling in: as a name, in everyday English. */
+export const NAME_FRAMES = [(x) => `Our lovely city of Utica welcomes everyone but the ${x} from the mill.`, (x) => `Every weekend the ${x} family hosts a picnic by the river in Utica.`];
+/**
+ * SCR-NAME-1's generator: one or two sound substitutions of every one-word entry of `bases` (SLURS and FOREIGN_SLURS), written as a
+ * name (a capital, then small letters) in the two frames, one frame each in turn: [spelling, text] pairs (about 6,500).
+ */
+export function soundCorpus(bases) {
+  const spellings = new Set();
+  for (const b of bases.filter((e) => /^[a-z]+$/.test(e))) for (const x of soundSubstitutions(b)) { spellings.add(x); for (const y of soundSubstitutions(x)) spellings.add(y); }
+  let f = 0;
+  return [...spellings].map((w) => { const name = w[0].toUpperCase() + w.slice(1); return [name, NAME_FRAMES[f++ % NAME_FRAMES.length](name)]; });
+}
+/** The spellings of SCR-NAME-1's examples (each in the first frame): Nikkas, Nicca, Nygga... */
+export const NAME_EXAMPLES = ["Nikkas", "Nicca", "Nygga", "Negga", "Nigka", "Niggarh", "Niggurh", "Fagkot", "Fagcot", "Kiker", "Jiggerboo", "Towelheerd", "Zipperheerd"];
+/**
+ * Hate, threats and crime written in dictionary words (SCR-PLAIN-1): no check can tell these from an honest sentence, so they are never
+ * used by themselves; a person reads every founder's description.
+ */
+export const PLAIN_PROBES = [
+  // hate without a slur
+  "Jews control the banks in Utica.", "The Holocaust never happened in Utica.", "Keep Utica white and proud.", "Muslims are terrorists, all of them.",
+  "Trans people are mentally ill.", "Utica will be the first city of the new reich.", "Utica eighty eight forever",
+  // slurs that are dictionary words, used as slurs
+  "No nips allowed in Utica.", "Keep the spades out of Utica.", "Utica has too many knee grows.", "The founder of the Syracuse coin is a dirty shylock.",
+  // threats, sex and crime
+  "Kill the mayor of Utica.", "Sellers will be shot.", "Teen girls of Utica want to chat.", "Buy cocaine with Utica coin.",
+];
+/** Drainers, scams and price promises in ordinary words (SCR-SCAM-1), with the reason each must carry. */
+export const SCAM_WORD_PROBES = [
+  ["Holders collect a bonus at moon dot city, just sign the message.", "wallet_ask"],
+  ["Collect your free share at moon dot city today, sign in with your wallet.", "wallet_ask"],
+  ["Get your gift at utica moon dot money: log in with your wallet and approve.", "wallet_ask"],
+  ["Give us one coin and we give you two.", "wallet_ask"],
+  ["Send any amount to the founder and receive double.", "wallet_ask"],
+  ["Your coins are frozen, unfreeze them on our page.", "wallet_ask"],
+  ["Pay the unlock fee to get your bonus.", "wallet_ask"],
+  ["Lend us your coins and we pay you back double.", "wallet_ask"],
+  ["Gas fees are covered, just approve the transaction in your wallet.", "wallet_ask"],
+  ["This coin will make you rich.", "financial"],
+  ["Price only goes up from here.", "financial"],
+  ["You will never lose money with Utica coin.", "financial"],
+  ["Ten fold return by spring.", "financial"],
+  ["Holders get paid every Sunday.", "financial"],
+  ["Utica will make every holder a millionaire.", "financial"],
+  ["Ten times your money by summer with Utica.", "financial"],
+  ["The value of Utica will double soon.", "financial"],
+];
+/** Links, contacts and handles written in words, and official claims (SCR-LINK-1), with the reason each must carry. */
+export const LINK_WORD_PROBES = [
+  ["Find us at moon dot city", "link_like"], ["Our website is good dot money", "link_like"], ["See moon point life", "link_like"],
+  ["Visit moon dot c o m", "link_like"], ["double u double u double u dot moon dot city", "link_like"],
+  ["Get the app at moon dot city slash app.", "link_like"], ["Email hello at moon dot city.", "contact"],
+  ["Call three one five five five five zero one two three.", "contact"], ["Text us on 315 five five five 0123 today.", "contact"],
+  ["Our handle is utica underscore coin.", "link_like"], ["Search for Utica Moon on the bird site.", "link_like"],
+  ["Watch us on the clock app every day.", "link_like"], ["The Utica police department supports this coin.", "brand"],
+  ["Vicinity says this is the safest coin.", "staff"], ["The White House holds Utica coin.", "brand"], ["The mayor picked Utica coin.", "brand"],
+  ["The president stands behind Utica coin.", "brand"],
+];

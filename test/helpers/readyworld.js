@@ -102,6 +102,25 @@ export function fakeChain(accounts = {}) {
 
 export const LP_ON = { LAUNCHPAD_CLUSTER: "devnet", LAUNCHPAD_PROGRAM_ID: PROGRAM, LAUNCHPAD_REWARDS_PROGRAM_ID: REWARDS, LAUNCHPAD_RPC_URL: "https://lp-rpc.test/devnet", LAUNCHPAD_DBC_CONFIGS: CONFIG };
 export const SYRACUSE = "5140405";
+/**
+ * A founder's own description made the coin's the only way there is (src/screen.js ENGINE 5, SCR-PLAIN-1: a founder's own words never
+ * pass by themselves): written (flagged "review", or for what the checks found), sent for review, approved by `admin` (an admin or the
+ * owner). Answers the founder's view after the approval. `w`: a world with post/get, the founder `f` and an `admin` (or pass one).
+ */
+export async function ownDescription(w, text, { admin = w.admin || w.owner, who = w.f, city = UTICA } = {}) {
+  const s = await w.post(who, "/api/coins/review/description", { cityId: city, text });
+  assert.equal(s.ok, true, JSON.stringify(s));
+  assert.equal(s.screening.result, "flag", `a founder's own words always go to a person: ${JSON.stringify(s.screening)}`);
+  const sent = await w.post(who, "/api/coins/review/description/review", { cityId: city, screeningId: s.screening.id });
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  const r = sent.review.request;
+  const ap = await w.post(admin, "/api/admin/coins/reviews/decide", { id: r.id, action: "approve", contentHash: r.contentHash });
+  assert.equal(ap.ok, true, JSON.stringify(ap));
+  const v = await w.get(who, `/api/coins/ready?city=${city}`);
+  assert.equal(v.coin.description, s.screening.text);
+  return v;
+}
+
 // what the City coins card sends with "Approve on chain" (public/admin-lp.js): with the ready-made coin, the exact version it showed too
 export const seenOf = (c) => ({ cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt, ...(c.ready ? { contentHash: c.ready.contentHash } : {}) });
 

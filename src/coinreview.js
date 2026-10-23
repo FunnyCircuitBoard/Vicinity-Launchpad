@@ -3,8 +3,9 @@
  * "Request changes" before launch, the review status, the founder's own description with screening, and the admin queue.
  *
  *   The selection    The city's choice (coin_ready, src/coinart-store.js) is what the owner approves on chain and what launches. Only
- *                    four things change it: "Use this coin" / Reset (Vicinity's defaults, src/coinready.js), a founder description that
- *                    PASSED the screening (src/screen.js), "Use the default description", and a reviewer's approval of a request. All of
+ *                    four things change it: "Use this coin" / Reset (Vicinity's defaults, src/coinready.js), a description that PASSED
+ *                    the screening (src/screen.js: only Vicinity's own sentence; a founder's own words are always FLAGGED "review", so
+ *                    they go through a person), "Use the default description", and a reviewer's approval of a request. All of
  *                    them write through src/coinready.js choiceStatements (conditional in the database: never over an approval being
  *                    built, a launch or a waiting LaunchLab contract), and none while the coin is approved on chain (it is fixed there).
  *   Requests         A founder's draft (another picture, ticker or name, and a "why" for the reviewer) is private until it is
@@ -29,7 +30,7 @@
  *   POST /api/coins/review/cancel                  { cityId, requestId }   a draft or a pending request is cancelled; a decided one dismissed
  *   POST /api/coins/review/edit                    { cityId, requestId }   a pending one is withdrawn (or a "changes needed" one revised) into a new draft
  *   POST /api/coins/review/reset                   { cityId }              back to Vicinity's defaults
- *   POST /api/coins/review/description             { cityId, text }        screened: a pass is used at once
+ *   POST /api/coins/review/description             { cityId, text }        screened: a founder's words are flagged, at best "review"
  *   POST /api/coins/review/description/review      { cityId, screeningId } a flagged one sent to the reviewers
  *   POST /api/coins/review/description/default     { cityId }              the default description (cancels a pending description request)
  *   GET  /api/coins/review/ticker-check?city=&t=   is this ticker free to request?
@@ -54,7 +55,6 @@ import { coinDefaults } from "./coindefaults.js";
 import { TEMPLATE_VERSION, coinSvg, sha256Hex } from "./coinart.js";
 import { TAKEDOWN, approvedBasis, approvedDescription, approvedRequest, artBySvg, artBytes, artPath, chosenOf, cityDescription, ensureReadySchema, takenDownAt } from "./coinart-store.js";
 import { canonicalContent, choiceStatements, coinState, ensureArt, founderAnswer, renderPng, svgOf, symbolTaken, versionLabel } from "./coinready.js";
-import { RULES_VERSION, explained, screenDescription, screenName, screenReason, screenTicker } from "./screen.js";
 import { nameProblem } from "./lpadmin.js";
 import { checkName, checkSymbol } from "./coinmeta.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
@@ -222,11 +222,15 @@ export async function pendingReviews(db) {
   return r ? r.n : 0;
 }
 
-/** The screening context of a city's coin: its own words and the registry's other cities (by name, for "the Syracuse coin"). */
+/**
+ * The screening context of a city's coin: its own words, the registry's other cities (by name, for "the Syracuse coin") and Vicinity's
+ * own sentence for it (the only description that passes by itself: a founder's own words always go to a person, src/screen.js).
+ */
 async function screenCtx(env, d, sel = null) {
   const names = await cityNames(env);
   const own = new Set([d.city && d.city.name, sel && sel.name, d.name].filter(Boolean).map(normName));
-  return { city: d.city, ticker: sel ? sel.symbol : d.ticker, name: sel ? sel.name : d.name, otherCity: (n) => !own.has(normName(n)) && names.has(normName(n)) };
+  return { city: d.city, ticker: sel ? sel.symbol : d.ticker, name: sel ? sel.name : d.name, vicinityText: d.description || null,
+    otherCity: (n) => !own.has(normName(n)) && names.has(normName(n)) };
 }
 const normName = (s) => String(s || "").normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 let namesCache = null; // every registry city's name (normalized), once per server
@@ -245,7 +249,22 @@ export const _resetReview = () => { namesCache = null; screener = null; };
 let screener = null;
 /** Tests hand in a stand-in screener (a list that fails, rules that changed); the routes and the launch checks use it. */
 export const _setScreener = (fn) => { screener = fn; };
-const screenText = (text, ctx) => (screener ? screener(text, ctx) : screenDescription(text, ctx));
+/**
+ * src/screen.js, with its word lists and its vocabulary (about 1.2 MB of source), is loaded the first time a screening is needed or
+ * shown, never at startup: an isolate that serves the site with COIN_V2_REVIEW off never evaluates it (PARITY-STARTUP-1). A module
+ * that cannot load is a screening that cannot run: an error, never a pass.
+ */
+let screenModule = null;
+const screening = () => (screenModule ||= import("./screen.js").catch((e) => { screenModule = null; throw e; }));
+const unscreened = (text) => ({ result: "error", issues: [], rulesVersion: null, text: typeof text === "string" ? text : null });
+/** One screening by `fn` (screenDescription, screenName, screenTicker, screenReason) of src/screen.js; "error" if it cannot load. */
+async function screenBy(fn, text, ctx) {
+  try { return (await screening())[fn](text, ctx); } catch { return unscreened(text); }
+}
+const screenText = async (text, ctx) => (screener ? screener(text, ctx) : screenBy("screenDescription", text, ctx));
+/** The issues in the founder's words (src/screen.js explained), and the rules version screenings are stored with. */
+const explained = async (issues, cityName) => (await screening()).explained(issues, cityName);
+const rulesVersion = async () => (await screening()).RULES_VERSION;
 
 /** The template picture of a coin with this ticker and name, if it was ever drawn: its sha256, or null. */
 async function templateArt(env, symbol, name) {
@@ -314,9 +333,10 @@ export async function selectionProblem(env, cityId, { c = undefined, d = null, c
   if (c.description !== cityDescription(c.content.city) && !(await approvedDescription(db, cityId, c.description))) {
     // an admin took this text down (src/cointakedown.js): only a person's review decided since brings it back (approvedDescription above)
     if (await takenDownAt(db, cityId, c.description)) return { code: "description_recheck", message: "Your description was taken down by Vicinity. Use the default description, or write a new one." };
-    const r = screenText(c.description, d.ok ? await screenCtx(env, d, c) : { city: c.content.city, ticker: c.symbol, name: c.name });
+    const r = await screenText(c.description, d.ok ? await screenCtx(env, d, c) : { city: c.content.city, ticker: c.symbol, name: c.name });
     if (r.result === "error") return { code: "description_unchecked", message: "We couldn't re-check your description just now. Try again in a minute, or use the default description." };
-    if (r.result !== "pass") return { code: "description_recheck", message: "Your description no longer passes the checks. Use the default description, or write a new one." };
+    // a founder's own words pass only through a person's review now (src/screen.js "review"): one chosen before that is reviewed too
+    if (r.result !== "pass") return { code: "description_recheck", message: "A person reads every description a founder writes before it can launch, and yours wasn't reviewed. Check it again and send it for review, or use the default description." };
   }
   if (nameProblem(c.name) || checkName(c.name) || checkSymbol(c.symbol) || PITCH_BAD.test(c.description || "")) {
     return { code: "bad_content", message: "Your coin's name, ticker or description can't be written into a coin as it is. Reset it to the Vicinity defaults." };
@@ -379,15 +399,15 @@ export async function reviewState(env, { seat, cityId, view }) {
       ORDER BY id DESC`).bind(String(cityId), sel.chosen_at).all()) : null;
   const downRows = (down && down.results) || [];
   return {
-    on: true, rulesVersion: RULES_VERSION, nextRound: NEXT_ROUND,
+    on: true, rulesVersion: await rulesVersion(), nextRound: NEXT_ROUND,
     defaults: d.ok ? { name: d.name, symbol: d.ticker, description: d.description } : null,
     selected: sel ? { origin: sel.origin || "default", contentHash: sel.content_hash, version: versionLabel(sel.content_hash), name: sel.name, symbol: sel.symbol,
       description: sel.description, art: artPath(sel.art_sha256), descriptionSource: descSource, upload: sel.template_version === "upload" } : null,
     request: req ? await requestView(env, req, { d, sel, gate: view && view.gate }) : null,
     description: {
       source: descSource, text: sel ? sel.description : d.ok ? d.description : null, takenDown: takenDownWords(downRows),
-      screening: lastShown ? { id: last.id, result: last.result, text: last.text, at: last.created_at, current: last.rules_version === RULES_VERSION,
-        issues: explained(JSON.parse(last.issues_json || "[]"), d.ok ? d.city.name : seat.city_name) } : null,
+      screening: lastShown ? { id: last.id, result: last.result, text: last.text, at: last.created_at, current: last.rules_version === (await rulesVersion()),
+        issues: await explained(JSON.parse(last.issues_json || "[]"), d.ok ? d.city.name : seat.city_name) } : null,
     },
     hold: problem,
     can: {
@@ -651,7 +671,7 @@ async function submitRoute(request, env, fetchImpl, now) {
   if (req.base_hash !== base.hash) return fail("draft_changed", 409, { message: "Your coin changed since you started this draft. Check the draft again, then submit." });
   const name = req.draft_name || base.name, symbol = req.draft_symbol || base.symbol;
   // the reviewer's why: 10 to 300 characters, nothing hidden (it is never public)
-  const why = screenReason(req.draft_reason || "");
+  const why = await screenBy("screenReason", req.draft_reason || "");
   if (why.result === "error") return fail("screening_error", 503);
   if (why.issues.some((x) => x.code === "length")) return fail("bad_reason", 400);
   if (why.result === "block") return fail("reason_refused", 400);
@@ -684,17 +704,17 @@ async function submitRoute(request, env, fetchImpl, now) {
   const own = await screenCtx(env, w.d, { name: base.name, symbol: base.symbol });
   if (name !== base.name) {
     if (nameProblem(name) || checkName(name) || !NAME_RE.test(name) || LINKISH.test(name) || HAS_ADDRESS.test(name)) return fail("bad_name", 400);
-    const s = screenName(name, own);
+    const s = await screenBy("screenName", name, own);
     if (s.result === "error") return fail("screening_error", 503);
-    if (s.result === "block") return fail("name_refused", 409, { issues: explained(s.issues, w.d.city.name) });
-    nameIssues = explained(s.issues, w.d.city.name);
+    if (s.result === "block") return fail("name_refused", 409, { issues: await explained(s.issues, w.d.city.name) });
+    nameIssues = await explained(s.issues, w.d.city.name);
   }
   if (symbol !== base.symbol) {
     // a ticker is read like a word too: a slur (spelled any way) refuses it, anything else the lists find is shown to the reviewer
-    const s = screenTicker(symbol, own);
+    const s = await screenBy("screenTicker", symbol, own);
     if (s.result === "error") return fail("screening_error", 503);
-    if (s.result === "block") return fail("ticker_refused", 409, { issues: explained(s.issues, w.d.city.name) });
-    nameIssues = [...nameIssues, ...explained(s.issues, w.d.city.name).map((x) => ({ ...x, field: "ticker" }))];
+    if (s.result === "block") return fail("ticker_refused", 409, { issues: await explained(s.issues, w.d.city.name) });
+    nameIssues = [...nameIssues, ...(await explained(s.issues, w.d.city.name)).map((x) => ({ ...x, field: "ticker" }))];
   }
   if (symbol !== base.symbol && symbol !== w.d.ticker) {
     const t = await tickerProblem(env, w.cityId, symbol, fetchImpl);
@@ -827,7 +847,7 @@ async function descriptionRoute(request, env, fetchImpl, now) {
   const frozen = await notFrozen(env, w, fetchImpl, now);
   if (frozen) return frozen;
   const base = await basisOf(env, { cityId: w.cityId, seat: w.seat, d: w.d, now, draw: true });
-  let r = screenText(typeof w.body.text === "string" ? w.body.text : "", await screenCtx(env, w.d, base));
+  let r = await screenText(typeof w.body.text === "string" ? w.body.text : "", await screenCtx(env, w.d, base));
   // words an admin took down as this city's description (src/cointakedown.js) are never used by themselves again: a person reviews them
   if ((r.result === "pass" || r.result === "flag") && r.text && (await takenDownAt(db, w.cityId, r.text))) {
     r = { ...r, result: "flag", issues: [...(r.issues || []), { code: "taken_down", severity: "flag", start: 0, end: r.text.length }] };
@@ -838,13 +858,13 @@ async function descriptionRoute(request, env, fetchImpl, now) {
     if (r.result === "error") { await row.run(); return fail("screening_error", 503); }
     await db.batch([row, dismissDescriptionCards(db, w, at)]); // a new text replaces the one that needed changes
     const id = (await db.prepare("SELECT id FROM coin_screenings WHERE city_id = ? AND user_id = ? AND created_at = ? ORDER BY id DESC LIMIT 1").bind(w.cityId, w.u.id, at).first()).id;
-    return answer(env, w, fetchImpl, now, { screening: { id, result: r.result, text: r.text, issues: explained(r.issues, w.d.city.name) } });
+    return answer(env, w, fetchImpl, now, { screening: { id, result: r.result, text: r.text, issues: await explained(r.issues, w.d.city.name) } });
   }
   if (r.text === base.description) { await db.batch([row, dismissDescriptionCards(db, w, at)]); return answer(env, w, fetchImpl, now, { screening: { result: "pass", text: r.text, issues: [] }, already: true }); }
   const v = await withDescription(env, w, base, r.text);
   const s = await select(env, { w, now, v: { ...v, origin: base.isDefaults && r.text === w.d.description ? "default" : "description" },
     before: [row, dismissDescriptionCards(db, w, at), ...(base.isDefaults && base.content && !base.choice ? [defaultsStmt(db, w, base, at)] : [])],
-    log: { actorId: w.u.id, role: "founder", action: "coin_description", reason: "screened", note: `${w.seat.city_name}: the founder's own description passed the checks, version ${versionLabel(v.hash)}` } });
+    log: { actorId: w.u.id, role: "founder", action: "coin_description", reason: "screened", note: `${w.seat.city_name}: ${r.text === w.d.description ? "Vicinity's own description again" : "a description that passed the checks"}, version ${versionLabel(v.hash)}` } });
   if (s.error) return s.error;
   return answer(env, w, fetchImpl, now, { screening: { result: "pass", text: r.text, issues: [] }, used: true });
 }
@@ -855,7 +875,7 @@ async function describeReviewRoute(request, env, fetchImpl, now) {
   if (w.error) return w.error;
   const db = env.DB, id = Number(w.body.screeningId);
   const sc = Number.isSafeInteger(id) ? await db.prepare("SELECT * FROM coin_screenings WHERE id = ?").bind(id).first() : null;
-  if (!sc || sc.city_id !== w.cityId || sc.user_id !== w.u.id || sc.target !== "description" || sc.result !== "flag" || sc.rules_version !== RULES_VERSION || Date.parse(sc.created_at) < now - DAY) {
+  if (!sc || sc.city_id !== w.cityId || sc.user_id !== w.u.id || sc.target !== "description" || sc.result !== "flag" || sc.rules_version !== (await rulesVersion()) || Date.parse(sc.created_at) < now - DAY) {
     return fail("cannot_review", 409);
   }
   const frozen = await notFrozen(env, w, fetchImpl, now);
@@ -894,7 +914,7 @@ async function describeDefaultRoute(request, env, fetchImpl, now) {
   const before = pend ? [db.prepare("UPDATE coin_requests SET status = 'cancelled', closed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'").bind(at, at, pend.id)] : [];
   // keeping the default puts the last flagged check and a "changes needed" description card away: the default is checked now (it is
   // the newest check, so the flagged one is no longer shown) and that card is dismissed, whether or not the coin had the default already
-  const kept = screenText(w.d.description, await screenCtx(env, w.d));
+  const kept = await screenText(w.d.description, await screenCtx(env, w.d));
   if (kept.result === "pass") before.push(await screeningStmt(db, { cityId: w.cityId, userId: w.u.id, target: "description", r: { ...kept, text: w.d.description }, at }));
   before.push(dismissDescriptionCards(db, w, at));
   const base = await basisOf(env, { cityId: w.cityId, seat: w.seat, d: w.d, now, draw: true });
@@ -1015,7 +1035,13 @@ async function reviewRow(env, r, now, fetchImpl) {
     }
     if (r.kind === "description" && r.screening_id) {
       const sc = await db.prepare("SELECT issues_json, text FROM coin_screenings WHERE id = ?").bind(r.screening_id).first();
-      if (sc) checks.push({ check: "description_screening", ok: false, text: "The checks flagged the description.", issues: explained(JSON.parse(sc.issues_json || "[]"), city && city.name) });
+      if (sc) {
+        const issues = await explained(JSON.parse(sc.issues_json || "[]"), city && city.name);
+        // "review" alone: the checks found nothing, which proves nothing about ordinary words (src/screen.js): read it all
+        const text = issues.every((x) => x.code === "review") ? "The automatic checks found nothing to point out. Read every word: no check can tell an honest sentence from a threat, a scam or hate written in ordinary words."
+          : "The checks flagged the description.";
+        checks.push({ check: "description_screening", ok: false, text, issues });
+      }
     }
     // words an admin took down from this city's coin before (src/cointakedown.js): approving them puts them back
     const downs = await rd(() => db.prepare(`SELECT target, text, created_at FROM coin_screenings WHERE city_id = ? AND rules_version = '${TAKEDOWN}' ORDER BY id DESC LIMIT 50`).bind(String(r.city_id)).all());

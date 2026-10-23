@@ -11,15 +11,16 @@ in one round instead of one card at a time (DESIGN.md 6.5 and 9.4; owner decisio
 2. Read the four groups:
    - **Approve**: a founder whose chosen Vicinity coin passes every check (the seat, the wallet, the founder amount read live,
      no ban, the ticker from the city list and not launched or approved for another city, no change request or description waiting,
-     the description passing the current rules, the city has no coin). The approval lasts 14 days.
+     the description Vicinity's sentence or the founder's own words a reviewer approved, the city has no coin). The approval lasts
+     14 days.
    - **Renew**: an approval with under 48 hours left (or expired). It is withdrawn and made again in the same transaction.
    - **Revoke**: an approval that should no longer stand: the approved wallet lost the seat, the founder is banned, a change request
      or description waits for review, or the coin may no longer launch as it is. The program would let that wallet launch until it
      expires, so it is withdrawn; its rent comes back.
    - **Blocked**: nothing is built; each row says why.
 3. Read each row's **Description**: it goes into the coin's metadata for ever. A row says whose words they are: "Vicinity's
-   sentence" (the city list's) or "The founder's own words" (they passed the automatic checks, but no person has read them). A row
-   with the founder's own words starts unticked: read it, then tick it. Untick any city to leave it out of today's round (it comes
+   sentence" (the city list's) or "The founder's own words" (a reviewer approved them: a founder's own words never pass the automatic
+   checks by themselves). A row with the founder's own words starts unticked: read it too, then tick it. Untick any city to leave it out of today's round (it comes
    back in the next one).
 4. Press **Sign today's approvals**. The site checks every city again and builds the transactions (up to 5 cities each). The page
    shows each transaction and checks the list of its instructions (the one this site worked out when it built them) against the
