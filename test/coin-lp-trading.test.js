@@ -81,3 +81,19 @@ test("with the swap off a full launchpad curve shows no Buy either (it has no Ra
   const p = await coinPage({ stage: "full", swap: false });
   assert.deepEqual(p.buys(), [true, true, true]);
 });
+
+test("the contract note of a launchpad coin: Vicinity recorded it from the blockchain after an on-chain approval, never 'an admin recorded'; an older coin keeps its words", async () => {
+  const p = await coinPage({ stage: "curve" });
+  assert.equal(p.page.$("#coin-ca-note").textContent, "The one $UTICA Vicinity recorded from the blockchain for Utica, launched on the Vicinity launchpad after an on-chain approval. Check the address before you buy.");
+  assert.doesNotMatch(p.page.$("#coin-ca-note").textContent, /an admin recorded/);
+  assert.equal(p.page.$("#coin-ca-badge-text").textContent, "Recorded by Vicinity");
+  // a city coin whose contract an admin recorded (the old Raydium LaunchLab path): its words are unchanged
+  const q = await coinPage({ stage: () => "curve" });
+  const answer = coinAnswer("curve");
+  q.win.fetch = async (path) => {
+    const body = String(path).split("?")[0] === "/api/coin" ? { ...answer, market: { ...answer.market, launchpad: null, lpCurve: null } } : { ok: false, error: "not_found" };
+    return { ok: body.ok !== false, status: body.ok === false ? 404 : 200, json: async () => body };
+  };
+  await q.refresh();
+  assert.equal(q.page.$("#coin-ca-note").textContent, "The one $UTICA an admin recorded for Utica. Check the address before you buy.");
+});

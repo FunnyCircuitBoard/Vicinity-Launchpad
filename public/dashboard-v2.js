@@ -47,6 +47,8 @@
   const HEADER = 67; // the site header: 66px plus its 1px border
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
+  // the coins' words while the old LaunchLab path is closed: nobody checks such a contract any more, it can only be rejected
+  const QUEUE_COINS_CLOSED = ["old contract to settle", "old contracts to settle"];
 
   let ctx = null, active = "home", pending = null, lastMod = null, coin = null, coinKnown = false, coinQueueN = 0, fcardAction = null, lastTarget = null, targetTimer = 0;
   // the glass pill behind the chosen tab: its box now ({ x, y, w, h }, or null until it has measured a tab), its slide on the way, and
@@ -55,11 +57,21 @@
   // the tabs gliding to new places after a change on screen (reflow: tab -> its animation), and whether such a change is running
   const tabGlides = new Map();
   let reflowing = false;
-  // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
+  // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known (state null: its status is on
+  // its way, or could not be asked)
   let lp = { on: false, state: null };
-  // a contract sent through the old LaunchLab path before the launchpad was set up: with lp.on nobody records it, an admin can only
-  // reject it (src/coins.js), and nothing launches while it waits (src/lplaunch.js says the same words)
-  const LEGACY_CONTRACT = "A contract sent for this city through the old Raydium LaunchLab path is still waiting. Nothing can launch until an admin settles it.";
+  // the old Raydium LaunchLab path as the server says it in the coin's own answer (GET /api/coins launchLabClosed, through dashboard.js
+  // coin() and coinQueue()): true closed (the launchpad's settings are there), false open, null not said yet. The old path's words show
+  // ONLY when the server said it is open (labOpen); not said yet, the card says nothing it would have to take back.
+  let lab = null;
+  const lpEra = () => lp.on || lab === true; // city coins launch on the Vicinity launchpad here
+  const labOpen = () => !lpEra() && lab === false;
+  // a contract sent through the old LaunchLab path before the launchpad was set up: with the launchpad set up nobody records it, an
+  // admin can only reject it (src/coins.js), and nothing launches while it waits (src/lplaunch.js says the same words). What it means
+  // comes first, so a line cut short on a phone still says it.
+  const LEGACY_CONTRACT = "Nothing can launch until an admin settles the contract sent for this city through the old Raydium LaunchLab path.";
+  // the launchpad's words while the launch card's status is on its way (or could not be asked): true whatever it will say
+  const LP_PENDING = "Your coin launches on the Vicinity launchpad, after an admin approves it on chain.";
   const me = () => (ctx ? ctx.me() : null);
   const countryName = (cc) => (ctx ? ctx.countryName(cc) : cc);
   const behavior = () => (window.V.reduced ? "auto" : "smooth");
@@ -75,7 +87,7 @@
   // in-app notices (NOTIFY=on): /api/me carries `unread` (a number) only while the switch is on; the tab exists only then
   const notifyOn = () => { const m = me(); return Boolean(m && typeof m.unread === "number"); };
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
-  const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
+  const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? (lpEra() ? "Old contract waiting" : "Contract being checked")
     : lp.on && lp.state === "ready" ? "Approved" : "Designed");
 
   /* ---------- set-up: the cards move into their panels, the old two-column tools retire ---------- */
@@ -392,7 +404,7 @@
     const n = (k) => (m && Array.isArray(m[k]) ? (k === "proposals" ? m[k].filter((x) => x.canApprove).length : m[k].length) : 0);
     const counts = { posts: n("posts"), proposals: n("proposals"), appeals: n("appeals"), objections: n("objections"), towns: n("towns"), coins: coinQueueN };
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const parts = QUEUE.filter(([k]) => counts[k]).map(([k, one, many]) => `${counts[k]} ${counts[k] === 1 ? one : many}`);
+    const parts = QUEUE.map((q) => (q[0] === "coins" && lpEra() ? ["coins", ...QUEUE_COINS_CLOSED] : q)).filter(([k]) => counts[k]).map(([k, one, many]) => `${counts[k]} ${counts[k] === 1 ? one : many}`);
     return { counts, total, parts };
   }
   function badge() {
@@ -437,10 +449,12 @@
     const e = n && n.election;
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
     if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
-    if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
+    // the old path's step only while the server says that path is open (never from a guess: a status call still on its way, a probe that failed)
+    if (seated && coin && !coin.mint && !coin.waiting && labOpen()) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
     // with the Vicinity launchpad set up, a contract sent through the old LaunchLab path is never recorded, only rejected (src/coins.js)
-    if (seated && coin && coin.waiting) add("Contract being checked", lp.on ? LEGACY_CONTRACT : "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
+    if (seated && coin && coin.waiting && lpEra()) add("Old contract waiting", LEGACY_CONTRACT, "info", "city", "#coin", true);
+    else if (seated && coin && coin.waiting && labOpen()) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
     const q = queueCounts();
     if (modOn() && q.total > 0) add(`${q.total} waiting for you`, q.parts.join(" · "), "warn", "moderate", q.total === q.counts.coins ? "#coin-admin" : "#mod");
     if (sq && sq.joinable && !sq.joinable.full) add(`A squad is forming in ${city}`, `${sq.joinable.members.length} of ${sq.joinable.max} members · join to pool holdings`, "info", "founder", "#squad");
@@ -622,15 +636,19 @@
     else if (!coinKnown) { note.textContent = ""; go.hidden = true; fcardAction = null; }
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }
-    else if (coin.waiting) { note.textContent = lp.on ? LEGACY_CONTRACT : "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
-    else if (lp.on) {
-      const s = lp.state;
+    else if (!lpEra() && !labOpen()) { note.textContent = ""; go.hidden = true; fcardAction = null; } // which path is not said yet: nothing to take back
+    else if (coin.waiting) { note.textContent = lpEra() ? LEGACY_CONTRACT : "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
+    else if (lpEra()) {
+      // the launch card's word (lp.state); none yet (its status on its way, or the launch card could not be shown): LP_PENDING, no button;
+      // a status that could not be read ("error": the card says why): LP_PENDING too, never "not approved" from a guess
+      const s = lp.on ? lp.state : null;
       note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."
         : s === "launched" ? "Your coin is live on the Vicinity launchpad."
           : s === "expired" ? "Your approval expired. Ask an admin to approve your coin again."
             : s === "paused" ? "Launches are paused for now. Your approval stays."
-              : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.";
-      button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
+              : s === "not_approved" ? "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here." : LP_PENDING;
+      if (s) button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
+      else { go.hidden = true; fcardAction = null; }
     }
     else { note.textContent = "Launch it on Raydium LaunchLab, then add the contract here. An admin (never you) checks and records it."; button("Add the contract", "btn btn--primary", () => goTo("#cs-mint")); }
     $("#fcard-alt").hidden = !((st === "active" || st === "steward") && modOn());
@@ -809,6 +827,7 @@
   }
   function setCoin(c) {
     coin = c && c.coin ? c.coin : null; coinKnown = true;
+    if (c && typeof c.launchLabClosed === "boolean") lab = c.launchLabClosed;
     const d = me(); if (!d) return;
     today(d); cityHeader(d); founderCard(d); studioSync(); postProcess(); balancesDraw();
   }
@@ -817,8 +836,9 @@
     reflow(() => { gate(); badge(); }); // /api/mod answers after the strip is on screen: the bar re-divides as one glide
     const m = me(); if (m) { today(m); founderCard(m); }
   }
-  function coinQueue(n) {
+  function coinQueue(n, closed) {
     coinQueueN = n;
+    if (typeof closed === "boolean") lab = closed;
     $("#coin-admin-card").hidden = $("#coin-admin").hidden;
     reflow(badge);
     const m = me(); if (m) today(m);

@@ -70,7 +70,7 @@ const TABLE = {
     "lp-launch", "lp-launch-title",
     "progress", "progress-title", "p-city", "p-pct", "fs-state", "p-bar", "p-steps", "fs-rank", "fs-rank-text", "fs-rank-note", "p-panel", "p-window", "p-error", "squad",
     "studio-card", "studio-title", "studio-city", "studio-state", "coin-studio", "studio-step-1", "cs-name", "cs-ticker-label", "cs-ticker", "cs-pitch", "cs-count", "studio-step-2", "studio-step-3", "cs-logo", "cs-logo-remove", "cs-save", "cs-err", "cs-mint", "cs-mint-send", "danger-zone", "danger-body", "founder-foot"],
-  moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-waiting"],
+  moderate: ["mod", "mod-scope", "mod-sections", "coin-admin-card", "coin-admin", "coin-admin-title", "coin-waiting"],
   profile: ["profile-modal", "profile-title", "profile-avatar", "profile-since", "profile-close", "profile-username-h", "username-form", "username-input", "username-err", "bio-sec", "profile-bio-h", "bio-form", "bio-input", "bio-count", "bio-hint", "bio-save", "bio-err",
     "profile-net-sec", "profile-net-h", "profile-net", "profile-net-link", "profile-account-h", "profile-wallet", "profile-copy", "profile-link", "profile-unlink", "profile-provider", "profile-home", "email-row", "email-desc", "email-view", "email-form", "email-input", "email-code-form", "email-code-input",
     "phone-row", "phone-view", "phone-form", "phone-input", "contact-err", "profile-public-note", "profile-help-h", "profile-logout", "profile-username-meta", "profile-bio-meta", "profile-wallet-meta",
@@ -294,8 +294,8 @@ test("dashboard.js fetches dashboard-v2.js only when /api/me says dashboardV2 ==
   assert.match(start, /if \(!v2 && params\.get\("claim"\)\) \$\("#progress"\)\.scrollIntoView/, "the old ?claim scroll stays for the flag-off path");
   assert.ok(dash.includes("window.V.openProfile = openProfile") && dash.includes('"#profile"'), "what test/site.test.js pins is still there");
   // every call into v2 is guarded, so with v2 === null (the flag off, or the script failing to load) the old code runs exactly as before
-  for (const call of ["v2.render(d)", "v2.mod(d)", "v2.coinQueue(list.length)"]) assert.ok(dash.includes(`if (v2) ${call}`), call);
-  assert.match(dash, /const v2Coin = \(\) => \{ if \(v2\) v2\.coin\(\{ coin: coinData, vicMint \}\); \};/);
+  for (const call of ["v2.render(d)", "v2.mod(d)", "v2.coinQueue(list.length, closed)"]) assert.ok(dash.includes(`if (v2) ${call}`), call);
+  assert.match(dash, /const v2Coin = \(\) => \{ if \(v2\) v2\.coin\(\{ coin: coinData, vicMint, launchLabClosed: labClosed \}\); \};/);
   assert.equal((dash.match(/v2Coin\(\);/g) || []).length, 3, "after the coin loads, after a design is saved, after a contract is sent");
   assert.match(dash, /seat\.status === "active" \|\| \(v2 && seat\.status === "steward"\)/, "a Seed Steward gets the studio only under v2 (the server allows both)");
   assert.match(dash, /if \(!tabbed\) \{ \$\("#dash-skel"\)\.hidden = true; if \(d\.dashboardV2 !== true\) \{ try \{ localStorage\.removeItem\(V2_KEY\); \} catch \{\} \} \}/, "the skeleton hint is dropped the moment the switch is off");

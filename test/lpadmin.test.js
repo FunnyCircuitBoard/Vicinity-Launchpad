@@ -19,6 +19,7 @@ import * as IX from "../src/sol/lpadmin-ix.js";
 import { advance, browser, clock, newWorld, person, realClock, useClock } from "./helpers/world.js";
 import { seedCoin, seedSeat } from "./helpers/launchpad.js";
 import { addr, meteoraAsTested } from "./helpers/lpchain.js";
+import { LEGACY_REJECTED } from "../src/coins.js";
 
 const VECTORS = JSON.parse(readFileSync(new URL("./fixtures/squads/vectors.json", import.meta.url), "utf8"));
 // The live mainnet price curve EZVHCg… as read from the chain: made on 12 Oct 2026 with DBC 0.2.1, so PoolConfig.version 0.
@@ -694,20 +695,60 @@ test("approval candidates: a city whose Raydium LaunchLab contract is still wait
   assert.deepEqual([by(5128581).ok, by(5128581).reasons], [true, []]);
   const uti = by(5142056);
   assert.equal(uti.ok, false);
-  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it under Contracts waiting for a check (Moderate tab), then approve this city."]);
+  assert.deepEqual(uti.reasons, ["A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card (or on your dashboard's Moderate tab, /dashboard#moderate), then approve this city."]);
   assert.ok(!JSON.stringify(r).includes(addr(105)), "the waiting address itself is not in the answer");
   const from = w.chain.S.log.length;
   const a = await w.call("/api/admin/lp/approve/tx", seenOf(uti));
   assert.deepEqual([a.status, a.data.error, a.data.reasons], [409, "blocked", uti.reasons]);
   assert.equal(built(w, from), 0, "nothing built");
   assert.equal((await w.env.DB.prepare("SELECT pending_mint FROM city_coins WHERE city_id = '5142056'").first()).pending_mint, addr(105), "the waiting contract is left as it is");
-  // the card's own remedy works with the launchpad set up: recording it is refused, rejecting it (with a reason) settles the city,
-  // which is then a candidate like any other
+  // the card's own remedy works with the launchpad set up: recording it is refused, rejecting it settles the city (logged in fixed,
+  // neutral words, whatever note is sent), which is then a candidate like any other
   assert.equal((await w.call("/api/coins/mint/decide", { city: "5142056", mint: addr(105), approve: true, note: "Checked" })).data.error, "launchpad_only");
   const rej = await w.call("/api/coins/mint/decide", { city: "5142056", mint: addr(105), approve: false, note: "One city, one coin: it launches on the Vicinity launchpad." });
   assert.equal(rej.data.ok, true, JSON.stringify(rej.data));
   const r2 = (await w.call("/api/admin/lp/candidates")).data;
   assert.equal(r2.candidates.find((c) => c.cityId === "5142056").ok, true);
+});
+
+test("City coins tab: the owner rejects a waiting Raydium LaunchLab contract from the city's own card (no home community needed, his own design too), nothing on chain, the same fixed words as the dashboard", async () => {
+  const config = addr(101);
+  const w = await world({ env: { LAUNCHPAD_DBC_CONFIGS: config, NOTIFY: "on" } });
+  const L = launchpadPdas(PROGRAM);
+  Object.assign(w.chain.S.accounts, {
+    [await L.launchpad()]: { owner: PROGRAM, data: b64(layoutAccount("Launchpad", { admin: w.wallet, rewards_program: REWARDS })) },
+    [await L.launchConfig(config)]: { owner: PROGRAM, data: b64(layoutAccount("LaunchConfig", { dbc_config: config, quote_mint: ADDRESSES.wsol, enabled: 1 })) },
+  });
+  const f = await person(w.env);
+  // Utica: a founder's contract waits; Syracuse: the owner himself designed it (as its founder) and a contract waits there too
+  await seedCoin(w.env.DB, { city: 5142056, name: "Utica", coin: "Utica Coin", pending: addr(105), seat: await seedSeat(w.env, f, { city: 5142056, name: "Utica" }) });
+  await seedCoin(w.env.DB, { city: 5140405, name: "Syracuse", coin: "Salt City", pending: addr(106), seat: await seedSeat(w.env, w.owner, { city: 5140405, name: "Syracuse" }) });
+  const ownerId = (await w.env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(w.wallet).first()).id;
+  await w.env.DB.prepare("UPDATE city_coins SET user_id = ? WHERE city_id = '5140405'").bind(ownerId).run();
+  await w.env.DB.prepare("UPDATE city_coins SET user_id = (SELECT id FROM users WHERE wallet = ?) WHERE city_id = '5142056'").bind(f.w.address).run(); // the founder who sent it
+  assert.equal((await w.env.DB.prepare("SELECT home_city FROM users WHERE id = ?").bind(ownerId).first()).home_city, null, "the owner has no home community");
+  const cards = async () => (await w.call("/api/admin/lp/candidates")).data.candidates;
+  const by = async (id) => (await cards()).find((c) => c.cityId === String(id));
+  assert.deepEqual([(await by(5142056)).legacyContract, (await by(5142056)).ok], [true, false], "the card knows a contract waits (it offers the button)");
+  const from = w.chain.S.log.length;
+  for (const cityId of ["5142056", "5140405"]) {
+    const r = await w.call("/api/admin/lp/legacy/reject", { cityId });
+    assert.deepEqual([r.status, r.data.ok], [200, true], JSON.stringify(r.data));
+  }
+  assert.equal(built(w, from), 0, "nothing built, nothing signed");
+  const rows = (await w.env.DB.prepare("SELECT city_id, pending_mint FROM city_coins WHERE city_id IN ('5142056', '5140405') ORDER BY city_id").all()).results;
+  assert.deepEqual(rows.map((x) => [x.city_id, x.pending_mint]), [["5140405", null], ["5142056", null]]);
+  const notes = (await w.env.DB.prepare("SELECT note FROM mod_actions WHERE action = 'coin_contract_rejected' ORDER BY id").all()).results.map((x) => x.note);
+  assert.deepEqual(notes, [`Utica: ${LEGACY_REJECTED}`, `Syracuse: ${LEGACY_REJECTED}`], "the same fixed words as the dashboard's queue, never the address");
+  assert.equal((await w.env.DB.prepare("SELECT COUNT(*) AS n FROM admin_audit WHERE action = 'lp_legacy_reject'").first()).n, 2);
+  const told = (await w.env.DB.prepare("SELECT kind, text FROM notices WHERE user_id = (SELECT id FROM users WHERE wallet = ?)").bind(f.w.address).all()).results;
+  assert.deepEqual(told.map((x) => ({ ...x })), [{ kind: "founder", text: `Utica: ${LEGACY_REJECTED}` }]);
+  const uti = await by(5142056);
+  assert.deepEqual([uti.ok, "legacyContract" in uti], [true, false], "settled: a candidate like any other");
+  // nothing left: a plain answer; only the owner (the tab's rule) and only while the launchpad is set up
+  const again = await w.call("/api/admin/lp/legacy/reject", { cityId: "5142056" });
+  assert.deepEqual([again.status, again.data.error], [404, "not_found"]);
+  assert.equal((await w.call("/api/admin/lp/legacy/reject", { cityId: "5142056" }, { who: f })).status, 403);
 });
 
 test("names: the program's own rule (1 to 32 UTF-8 bytes, no control or invisible characters)", () => {

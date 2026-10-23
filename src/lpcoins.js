@@ -260,9 +260,11 @@ async function lockDesign(env, row, chain, now) {
   const name = chain && typeof chain.name === "string" && chain.name ? chain.name : null;
   const pair = chain ? pairOfQuote(chain.quoteMint) : null;
   const usable = pair && ["SOL", "USDC"].includes(pair) ? pair : null; // RAY/USDT are not quote mints the design form can name truthfully here
-  // a contract still waiting from the old Raydium LaunchLab path is dropped by this update (one city, one coin): the log line names it
+  // a contract still waiting from the old Raydium LaunchLab path is dropped by this update (one city, one coin): the public log line
+  // says so WITHOUT its address (nobody ever checked it: it could be a look-alike named after the city, and the site never shows it);
+  // the address is kept for the staff only, in admin_audit
   const was = await db.prepare("SELECT pending_mint FROM city_coins WHERE city_id = ? AND mint IS NULL").bind(String(row.city_id)).first().catch(() => null);
-  const dropped = was && was.pending_mint ? ` A Raydium LaunchLab contract that was still waiting for this city (${was.pending_mint}) was dropped: one city has one coin.` : "";
+  const dropped = was && was.pending_mint ? " A Raydium LaunchLab contract that was still waiting for this city was dropped: one city has one coin." : "";
   let r;
   try {
     r = await db.prepare(`UPDATE city_coins SET mint = ?, pending_mint = NULL, pending_at = NULL, launched_at = ?, launched_by = NULL,
@@ -284,6 +286,11 @@ async function lockDesign(env, row, chain, now) {
       VALUES (?, 'founder', 'coin_launched', 'city_coin', NULL, ?, ?, ?, 'launch', ?, ?, 'done')`)
     .bind(design.user_id, design.user_id, design.country, String(row.city_id),
       `${design.city_name}: launched on the Vicinity launchpad (Solana ${row.cluster}), contract ${row.mint}. Recorded from the blockchain; the coin design is locked.${dropped}`, iso(now)).run();
+  if (dropped) {
+    await db.prepare("INSERT INTO admin_audit (actor, action, target, detail, created_at) VALUES ('site', 'coin_contract_dropped', ?, ?, ?)")
+      .bind(String(row.city_id), `the waiting Raydium LaunchLab contract ${was.pending_mint} was dropped when ${row.mint} was recorded from the blockchain`, iso(now)).run()
+      .catch((e) => console.error("lp record: dropped contract not kept in admin_audit", codeOf(e)));
+  }
   return true;
 }
 
