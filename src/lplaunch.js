@@ -218,6 +218,20 @@ function launchProblem(st, s, wallet, nowS, { slack = 0 } = {}) {
   return null;
 }
 
+/**
+ * One city, one coin, whatever the switches say: a contract sent for this city through the old Raydium LaunchLab path (src/coins.js
+ * city_coins.pending_mint) that still waits for a check may be a coin already, so nothing launches here until an admin settles it.
+ * It is the first thing the founder is told (before "not approved" and the rest: no approval is given while it waits), after only a
+ * coin already on chain and an approval for another wallet. The words lead with what it means, so a cut line on a phone still says it.
+ */
+export const LEGACY_CONTRACT_WAITING = "Nothing can launch until an admin settles the contract sent for this city through the old Raydium LaunchLab path.";
+async function legacyContractWaiting(env, cityId) {
+  try {
+    const row = await env.DB.prepare("SELECT pending_mint FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
+    return Boolean(row && row.pending_mint);
+  } catch (e) { if (/no such table/i.test(String((e && e.message) || e))) return false; throw e; }
+}
+
 /* ---------------------------------------------------------------- GET /api/lp/launch/status */
 async function launchStatus(request, env, fetchImpl, now) {
   const s = lpSetup(env), q = new URL(request.url).searchParams;
@@ -269,6 +283,7 @@ async function launchStatus(request, env, fetchImpl, now) {
   }
   let p = launchProblem(st, s, who.wallet, nowS);
   if (p && p.error === "founder_mismatch") return err(p.error, p.message, 403, { state: p.state, approval: out.approval });
+  if (await legacyContractWaiting(env, cityId)) p = { state: "paused", error: "legacy_contract", message: LEGACY_CONTRACT_WAITING };
   // otherwise ready: Meteora's programs must still be the tested builds (the card says why launches wait, before the founder presses)
   if (!p) { const h = await meteoraHold(env, fetchImpl, now); if (h) p = { state: "paused", error: h.error, message: h.message }; }
   out.state = p ? p.state : "ready";
@@ -308,6 +323,10 @@ async function launchTx(request, env, fetchImpl, now) {
   let st;
   try { st = await launchState(env, s, cityId, fetchImpl); } catch (e) { console.error("launch read failed", codeOf(e)); return err("rpc_unavailable", "The blockchain could not be reached just now. Nothing was built. Try again in a minute.", 503); }
   const p = launchProblem(st, s, who.wallet, Math.floor(now / 1000), { slack: EXPIRY_SLACK_S });
+  // the same order as the status: a coin already on chain, an approval for another wallet, then a contract still waiting from the
+  // old LaunchLab path (before anything is built), then the rest
+  if (p && (p.error === "already_launched" || p.error === "founder_mismatch")) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
+  if (await legacyContractWaiting(env, cityId)) return err("legacy_contract", `${LEGACY_CONTRACT_WAITING} Nothing was built.`, 409, { state: "paused" });
   if (p) return err(p.error, p.message, p.status || 409, { state: p.state, ...(st.coin ? { mint: st.coin.mint } : {}) });
   // never a launch on a Meteora build the team has not tested (409), nor one blind while that cannot be read (503); read fresh (the
   // deploy slots again, on the node whose genesis hash was checked), so an upgrade a minute ago is seen now

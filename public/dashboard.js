@@ -50,8 +50,12 @@
   const when = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
   let me = null, checkedAt = 0;
-  // the launch on our own launchpad (lpMount below): is it switched on here, asked once; the city whose launch card is shown
+  // the launch on our own launchpad (lpMount below): is it switched on here (the server's word in every GET /api/coins answer,
+  // launchLabClosed, or the probe asked once); the city whose launch card is shown
   let lpOn = false, lpProbed = false, lpCity = null;
+  // the old Raydium LaunchLab path as the server says it in the coin's own answer (src/coins.js: launchLabClosed: true while the
+  // launchpad's settings are there; no key: open): true closed, false open, null no answer yet. Its words never show from a guess (labSaid).
+  let labClosed = null;
   // the tabbed dashboard (DASHBOARD_V2=on): its code is fetched only when /api/me says so, and this stays null otherwise
   let v2 = null;
   const V2_KEY = "vicinity:dash-v2";
@@ -1196,10 +1200,12 @@
     mint_changed: "The founder submitted a different address since you opened this one. Reload the queue and check the new one.",
     not_a_mint: "The blockchain says that address is not a token with a supply. Nothing was recorded.",
     chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
+    // the server's own words: a founder's "can't be added here", an admin's "can only be rejected, not recorded"
+    launchpad_only: (d) => d.message || "City coins launch on the Vicinity launchpad now. Nothing was changed.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
   let coinP = null; // the /api/coins answer on its way (render starts it; the Wallet tab waits for it, its mints come from there)
-  const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint }); };
+  const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint, launchLabClosed: labClosed }); };
   // the city coin's label ("$UTICA", or the city's name while it has no ticker) and the short text on its disc
   const cityTk = () => coinLabel(me && me.community);
   const cityDisc = () => coinDisc(me && me.community) || "CITY";
@@ -1212,6 +1218,7 @@
     const r = await api(`/api/coins?city=${encodeURIComponent(c.id)}`);
     if (!r || r.ok === false) return;
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
+    labSaid(r);
     renderCoin(); renderTrade(); v2Coin(); lpMount();
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
@@ -1235,7 +1242,7 @@
     $$("[data-city-ticker]").forEach((e) => (e.textContent = c.ticker ? tk : `${c.name} coin`));
     const st = $("#coin-status");
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
-    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? "Contract being checked" : cd ? "Designed" : "Not designed yet";
+    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked") : cd ? "Designed" : "Not designed yet";
     // the founder sees their working picture (the server sends logoDraft to them and the staff only); everyone else the approved one or none
     if (!(mine && studioDirty)) paintCoin(cd ? { ...cd, logo: mine ? cd.logoDraft || cd.logo : cd.logo } : { name: c.name, color: "gold", logo: null, pair: null });
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
@@ -1350,28 +1357,52 @@
     $$("[data-launchlab-copy]").forEach((e) => (e.hidden = lpOn));
     $$("[data-lp-only]").forEach((e) => (e.hidden = !lpOn));
   }
+  /** The server's word on the old LaunchLab path, from a GET /api/coins answer: closed switches the launchpad's words on at once. */
+  function labSaid(r) {
+    if (!r || r.ok === false) return;
+    labClosed = r.launchLabClosed === true;
+    if (labClosed && !lpOn) { lpOn = true; lpCopy(); }
+  }
   async function lpMount() {
     const L = window.LPLaunch;
     if (!L || typeof L.probe !== "function") return;
-    if (!lpProbed) { lpProbed = true; lpOn = Boolean(await L.probe()); if (lpOn) { lpCopy(); renderCoin(); } }
+    // the probe can only switch the launchpad's words on: a probe that failed never undoes what the server said (labSaid)
+    if (!lpProbed) { lpProbed = true; if (Boolean(await L.probe()) && !lpOn) { lpOn = true; lpCopy(); renderCoin(); renderTrade(); } }
     if (!lpOn) return;
     const c = me && me.community, seat = c && c.seat, card = $("#lp-launch");
     const mine = Boolean(seat && seat.you && (seat.status === "active" || seat.status === "steward"));
     if (!mine) { card.hidden = true; lpCity = null; if (v2) v2.lp({ on: true, state: null }); return; }
     if (lpCity === c.id) return;
     lpCity = c.id;
+    if (v2) v2.lp({ on: true, state: null }); // the launchpad's words at once (state null: the status is on its way), never the old path's
     const r = await L.founder(card, { cityId: c.id, design: coinData, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
     if (coinData && coinData.launched && r.state !== "launched") card.hidden = true; // launched on Raydium LaunchLab before: nothing to launch here
     if (v2) v2.lp(r);
   }
 
-  // admins: contracts founders sent, waiting for someone else to check them
+  // admins: contracts founders sent, waiting for someone else to check them. While the Vicinity launchpad is set up (the queue's own
+  // answer says so: launchLabClosed) that old LaunchLab path is closed: a contract sent before can only be REJECTED (the server refuses
+  // to record one), which settles the city for the launchpad, so the queue shows Reject only, says why, and asks for no reason: the
+  // server logs fixed, neutral words and tells the founder (LEGACY_REJECTED in src/coins.js; the contract is not judged)
+  const LEGACY_REJECTED = "City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded.";
+  function settleForm(host, go) {
+    host.querySelector(".reason-form")?.remove();
+    const f = el("form", "reason-form reason-form--settle");
+    const ok = el("button", "btn btn--primary btn--sm", "Reject it"); ok.type = "submit";
+    f.append(el("p", "tiny muted", `The public log and the founder get these words: “${LEGACY_REJECTED}”`), ok, actBtn("Cancel", () => f.remove()));
+    f.addEventListener("submit", async (e) => { e.preventDefault(); ok.disabled = true; await go(); ok.disabled = false; f.remove(); });
+    host.append(f);
+  }
   async function loadCoinQueue() {
     const r = await api("/api/coins?waiting=1");
     const list = r && r.ok ? r.waiting : [];
+    const closed = Boolean(r && r.launchLabClosed === true) || lpOn;
     $("#coin-admin").hidden = !list.length;
-    if (v2) v2.coinQueue(list.length);
-    window.VRole.queue({ coins: list.length });
+    const title = closed ? "Old LaunchLab contracts to settle" : "Contracts waiting for a check";
+    $("#coin-admin-title").textContent = title;
+    const card = $("#coin-admin-card"); if (card) card.setAttribute("aria-label", closed ? title : "Coin contracts waiting for a check");
+    if (v2) v2.coinQueue(list.length, closed);
+    window.VRole.queue({ coins: list.length, coinsClosed: closed });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
       const li = el("li", "coin-check");
       const link = el("a", "mono coin-check__mint", w.pendingMint); // in full: a look-alike address can match the first and last few characters link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
@@ -1382,10 +1413,14 @@
       li.append(head, mintRow);
       // the decision carries the address the admin looked at: the server records only if it is still the one waiting
       const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note }));
-      const acts = el("div", "coin-check__actions");
-      acts.append(
-        actBtn("Record it", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }, "btn btn--primary btn--sm"),
-        actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
+      const acts = el("div", `coin-check__actions${closed ? " coin-check__actions--one" : ""}`);
+      if (closed) li.append(el("p", "tiny muted coin-check__closed", "City coins launch on the Vicinity launchpad now, so this contract can't be recorded as the city's coin. Reject it to settle the city: then its coin can be approved and launched on the launchpad."));
+      else acts.append(actBtn("Record it", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }, "btn btn--primary btn--sm"));
+      acts.append(closed
+        ? actBtn("Reject", () => settleForm(li, async () => {
+          const x = await decide(false); toast(x.ok ? `Rejected: ${w.cityName} is settled` : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
+        }), "btn btn--glass btn--sm")
+        : actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
           const x = await decide(false, note || REASONS[reason]); toast(x.ok ? "Rejected" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
         }), "btn btn--glass btn--sm"));
       li.append(acts);
@@ -1522,7 +1557,8 @@
       go2.hidden = true;
       $("#tr-note").textContent = !vicMint
         ? "Trading opens the moment $VICINITY launches on Raydium LaunchLab. Its contract is published on the Token page first."
-        : `${tk} trades once ${me.community.name}'s founder launches it and an admin records its contract.`;
+        : lpOn ? `${tk} trades once an admin approves it on chain and ${me.community.name}'s founder launches it on the Vicinity launchpad.`
+          : `${tk} trades once ${me.community.name}'s founder launches it and an admin records its contract.`;
     } else {
       go.textContent = `${route === "swap" ? "Swap" : flipped ? `Sell ${a[0]}` : `Buy ${b[0]}`} on Jupiter ↗`;
       go.href = `https://jup.ag/swap/${swapSide(a[1])}-${swapSide(b[1])}`; go.target = "_blank"; go.rel = "noopener";

@@ -254,3 +254,27 @@ test("a cancelled wallet: the page says so and records nothing", async () => {
   assert.equal(t.calls.some((c) => c.path === "/api/admin/lp/record"), false);
   assert.ok(t.button("Cancel"), "the owner can close it");
 });
+
+test("a city whose Raydium LaunchLab contract still waits: 'Reject the old contract' on its card (candidate or approved) asks first, posts only the city, then reads the list again; no other card has it", async () => {
+  const W = (c) => ({ ...c, legacyContract: true });
+  const settled = new Set();
+  const list = () => ({ ...CANDIDATES,
+    candidates: CANDIDATES.candidates.map((c) => (c.cityId === "5140405" && !settled.has("5140405") ? W({ ...c, reasons: [...c.reasons, "A Raydium LaunchLab contract sent for this city through the old path is still waiting."] }) : c)),
+    approvals: CANDIDATES.approvals.map((a) => (settled.has(a.cityId) ? a : W(a))) });
+  const t = await tab({ answers: {
+    "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": list,
+    "/api/admin/lp/legacy/reject": (b) => { settled.add(b.cityId); return { ok: true, cityId: b.cityId }; },
+  } });
+  const rejects = () => t.panel.querySelectorAll("button").filter((b) => b.textContent === "Reject the old contract");
+  assert.equal(rejects().length, 2, "Syracuse (a candidate) and Albany (approved): not New York City");
+  const confirms = [];
+  t.win.confirm = (m) => { confirms.push(m); return confirms.length > 1; };
+  rejects()[0].click(); await tick(20);
+  assert.match(confirms[0], /City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded\./, "it shows the words the log and the founder get");
+  assert.equal(t.calls.filter((c) => c.path.startsWith("/api/admin/lp/legacy/reject")).length, 0, "cancelled: nothing sent");
+  rejects()[0].click(); await tick(30);
+  const sent = t.calls.filter((c) => c.path.startsWith("/api/admin/lp/legacy/reject"));
+  assert.deepEqual(sent.map((c) => [c.post, plain(c.body)]), [[true, { cityId: "5140405", cluster: "mainnet" }]], "a POST (a fresh wallet proof, like every POST of the tab) with the city only");
+  assert.deepEqual(t.toasts, ["Rejected: the city is settled"]);
+  assert.equal(rejects().length, 1, "the list read again: Syracuse is settled, Albany still waits");
+});

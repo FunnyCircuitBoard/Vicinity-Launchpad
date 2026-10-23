@@ -19,7 +19,8 @@
  *   picture     your coin picture was approved, not approved (with the reason: the note stays on the coin card) or taken down
  *               (src/admin.js, src/coins.js)
  *   founder     a claim or challenge window opened in your home city, a verdict in a window you applied to, an objection against
- *               your seat was decided, your Seed Steward probation ended (src/seats.js, src/admin.js)
+ *               your seat was decided, your Seed Steward probation ended (src/seats.js, src/admin.js), the contract you sent through
+ *               the old Raydium LaunchLab path was not recorded because city coins launch on the Vicinity launchpad now (src/coins.js)
  *   election    a Country Manager election opened or closed in your home country (src/elections.js)
  * Rules kept here, in one place:
  *   - the text is built by the server from facts the person could already see on the site (usernames, cities, the rules' reasons in

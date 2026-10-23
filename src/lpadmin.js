@@ -52,6 +52,7 @@ import { compileLegacy, MAX_TX_BYTES, wrapUnsigned } from "./sol/message.js";
 import { DBC_CONFIG_DEFAULTS, DBC_PROGRAM_SHA256, EXPECTED_POOL_CONFIG } from "./sol/dbc-config-data.js";
 import { checkMultisig } from "./sol/squads.js";
 import { holdDesign } from "./lpcoins.js";
+import { settleLegacyContract } from "./coins.js";
 import { feeSchedule } from "./fees.js";
 import { _forgetProgramHashes, fingerprint, programHashes, programRefusal, programSummary } from "./programpins.js";
 import * as IX from "./sol/lpadmin-ix.js";
@@ -758,7 +759,7 @@ const symbolOk = (t) => typeof t === "string" && /^[A-Z0-9]{1,10}$/.test(t);
 async function candidateList(env, ctx, fetchImpl, now) {
   const s = lpSetup(env), db = env.DB;
   await ensureLogoSchema(db);
-  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.seat_id,
+  const rows = (await db.prepare(`SELECT cc.city_id, cc.city_name, cc.country, cc.name, cc.pitch, cc.media_id, cc.approved_media_id, cc.logo_status, cc.updated_at, cc.pair, cc.mint, cc.pending_mint, cc.seat_id,
       s.id AS live_seat, s.status AS seat_status, s.wallet AS seat_wallet, u.wallet AS user_wallet, u.handle
     FROM city_coins cc
     LEFT JOIN seats s ON s.city_id = cc.city_id AND s.status IN ('provisional', 'active', 'grace', 'steward')
@@ -785,10 +786,14 @@ async function candidateList(env, ctx, fetchImpl, now) {
     const r = rows[i], id = ids[i];
     if (!id) continue;
     const ap = decodeApproval(acc.get(await L.approval(id)) || null, s.programId);
-    const coin = acc.get(await L.coin(id)) || null;
+    // launched only when the program's own Coin record is there (owner, discriminator and size, as src/lplaunch.js launchState reads
+    // it): anyone can send lamports to a city's Coin address (a plain system account), which must not block that city's approval
+    const coin = decodeCoin(acc.get(await L.coin(id)) || null, s.programId);
     const t = await tickerOf(env, r.city_id); // the list's ticker: what an approval binds on chain (never a chain symbol read back)
     const shown = await displayTicker(env, { cityId: r.city_id, mint: r.mint || null, chainSymbol: r.mint ? undefined : null }); // a launched coin shows the chain's
-    const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: shown ? shown.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null };
+    const base = { cityId: String(id), cityName: r.city_name, country: r.country, name: r.name, pair: r.pair, ticker: shown ? shown.ticker : null, founder: r.seat_wallet || null, handle: r.handle || null,
+      // a Raydium LaunchLab contract still waits for this city: the card offers "Reject the old contract" (POST legacy/reject)
+      ...(r.pending_mint ? { legacyContract: true } : {}) };
     if (coin || r.mint) { launched.push({ ...base, mint: r.mint || null }); continue; }
     if (ap) {
       // the program checks only the approved wallet, the expiry and the pause: a wallet that lost the founder seat can still launch
@@ -799,12 +804,17 @@ async function candidateList(env, ctx, fetchImpl, now) {
         if (!r.live_seat) warnings.push("The approved wallet no longer holds the founder seat (the city has no founder now), but it can still launch this city's coin on chain until the approval expires. Revoke it.");
         else if (r.seat_wallet !== ap.founder) warnings.push(`The approved wallet no longer holds the founder seat (it is now ${r.seat_wallet}), but it can still launch this city's coin on chain until the approval expires. Revoke it.`);
         else if (!["active", "steward"].includes(r.seat_status)) warnings.push(`The founder's seat is ${r.seat_status === "grace" ? "in its grace period (their balance fell below the bar)" : r.seat_status === "provisional" ? "not final (still in its appeal window)" : r.seat_status}. This website will not let them launch, but the approval still works on chain until it expires. Revoke it unless they recover soon.`);
+        // one city, one coin: a contract sent through the old Raydium LaunchLab path still waits for this city (it may be a coin already)
+        if (r.pending_mint) warnings.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already). This website will not let the founder launch while it waits, but the approval still works on chain until it expires. Revoke it, then reject that contract with “Reject the old contract” on this card.");
       }
       approvals.push({ ...base, approval: { founder: ap.founder, name: ap.name, symbol: ap.symbol, expiresAt: iso(ap.expiresAt * 1000), expired, rentPayer: ap.rentPayer },
         seat: { wallet: r.seat_wallet || null, status: r.live_seat ? r.seat_status : null }, warnings });
       continue;
     }
     const reasons = [...global];
+    // a contract sent through the old Raydium LaunchLab path before the launchpad was set up (src/coins.js closes that path now):
+    // the city may already have a coin there, and one city has one coin, so it is skipped until an admin rejects that contract
+    if (r.pending_mint) reasons.push("A Raydium LaunchLab contract sent for this city through the old path is still waiting (the city may have that coin already, and one city has one coin). It can't be recorded any more: reject it with “Reject the old contract” on this card, then approve this city.");
     if (r.pair !== "SOL") reasons.push(`The coin is paired with ${r.pair}; only SOL-paired coins can launch on the Vicinity curve for now. The founder must pick SOL.`);
     const np = nameProblem(r.name);
     if (np) reasons.push(np);
@@ -1111,7 +1121,7 @@ async function status(env, ctx, fetchImpl, now) {
 
 /* ---------------------------------------------------------------- the router */
 const GET = new Set(["", "status", "pins", "summary", "squads", "candidates", "coins", "platform/plan"]);
-const POST = new Set(["tx", "record", "approve/tx", "revoke/tx", "collect/tx", "init-city/tx", "forward/tx", "pause/tx", "platform/tx"]);
+const POST = new Set(["tx", "record", "approve/tx", "revoke/tx", "collect/tx", "init-city/tx", "forward/tx", "pause/tx", "platform/tx", "legacy/reject"]);
 
 /** /api/admin/lp/<sub> for the owner (src/admin.js already checked the gate, the role and, on POST, a fresh proof and the origin). */
 export async function handleLpAdmin(request, ctx, sub, now = Date.now()) {
@@ -1134,6 +1144,15 @@ export async function handleLpAdmin(request, ctx, sub, now = Date.now()) {
   }
   const mismatch = checkCluster(env, isPost ? body.cluster : url.searchParams.get("cluster"));
   if (mismatch) return respond(mismatch);
+  // a Raydium LaunchLab contract still waiting for a city, rejected from its card (the owner may have no home community, which the
+  // dashboard's queue needs, or may be the coin's own designer): the same rule as the dashboard's (src/coins.js settleLegacyContract).
+  // Nothing on chain: it works whatever the blockchain answers
+  if (sub === "legacy/reject") {
+    const st = await settleLegacyContract(env, { cityId: String(body.cityId || ""), actorId: ctx.user && ctx.user.id, now });
+    if (!st.ok) return json({ ok: false, error: st.error, message: st.error === "not_found" ? "No contract from the old Raydium LaunchLab path waits for this city (any more). Nothing was changed." : undefined }, st.status);
+    await audit(env.DB, ctx.wallet, "lp_legacy_reject", String(body.cityId), "a waiting Raydium LaunchLab contract was rejected (not recorded)", now).run();
+    return json({ ok: true, cityId: String(body.cityId) });
+  }
   const g = await checkGenesis(env, fetchImpl);
   if (!g.ok) return respond(g);
   try {
