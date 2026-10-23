@@ -1351,7 +1351,8 @@ test("founder card on a page Back brings back as the browser kept it, after a Co
   const before = statusNow({ inVault: R.founder.claimable, onCurve: "0", earned: R.founder.earned, collected: R.founder.collected, slot: 100 });
   const session = new Map(), timers = [];
   let st = before;
-  const p = await dashboard({ "/api/lp/launch/status": () => st, "/api/fee-status": () => R }, { session, timers });
+  // the page's clock is the test's (useClock): the later page's mark below is taken from the same clock, never the real date
+  const p = await dashboard({ "/api/lp/launch/status": () => st, "/api/fee-status": () => R }, { session, timers, now: Date.now() });
   assert.deepEqual([p.card.querySelector(".lp-fees").hidden, p.btn("Collect your fees").hidden], [false, false]);
   // the later page's Collect landed with no slot given: that page kept only the moment (noteUnclear); the status now cannot read its fees
   session.set("lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: Date.now() } }));
@@ -1640,8 +1641,8 @@ test("the dashboard card and the coin page wait the same after a Collect in the 
   // could not read its fees and the coin page both show nothing of the coin's fees from the edge's copy
   const R = answerOf("graduated", READ_AT, 100), mark = Date.now() - 30000;
   const session = new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: mark } })]]);
-  const d = await dashboard({ "/api/lp/launch/status": { ...LAUNCHED, founderFees: null }, "/api/fee-status": () => R }, { session, timers: [] });
-  const k = await coinPage({ status: () => R, session });
+  const d = await dashboard({ "/api/lp/launch/status": { ...LAUNCHED, founderFees: null }, "/api/fee-status": () => R }, { session, timers: [], now: mark + 30000 });
+  const k = await coinPage({ status: () => R, session, now: mark + 30000 });
   assert.deepEqual([d.card.querySelector(".lp-fees").hidden, k.page.$("#coin-sofar").hidden], [true, true]);
   // after the wait both show the reading (by then any copy at the edge or a server is from after that Collect)
   const d2 = await dashboard({ "/api/lp/launch/status": { ...LAUNCHED, founderFees: null }, "/api/fee-status": () => R }, { session, timers: [], now: mark + 300000 });
