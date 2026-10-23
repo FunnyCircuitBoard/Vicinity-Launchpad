@@ -220,3 +220,18 @@ test("NEW-1: every founder's own words and picture in use are listed with their 
   assert.deepEqual(t.posts.at(-1), ["/api/coins/takedown", { city: "5140405", what: "art", sha: SHA, reason: "abuse", note: "A logo they don't own." }]);
   delete REVIEWS.inUse;
 });
+
+test("COPY-1: approving asks in plain grammar: a description 'becomes' the coin's; a picture, ticker and name 'become' the coin's", async () => {
+  const art = "/coin-meta/art/" + "b".repeat(64) + ".png";
+  const pending = (id, kind, proposed) => ({ id, kind, status: "pending", label: "Pending", city: { id: "5142056", name: "Utica", country: "US" }, founder: { handle: "uticafounder", wallet: "7Np41*****4K2" },
+    submittedAt: ago(30), decidedAt: null, version: HASH.slice(0, 8), contentHash: HASH, current: { name: "Utica", symbol: "UTICA", description: "The city coin of Utica, New York, United States.", art },
+    proposed: { name: "Utica", symbol: "UTICA", description: "The city coin of Utica, New York, United States.", art, upload: false, ...proposed }, diff: [], checks: [], why: null, decision: null, registryState: null, registryPatch: null });
+  REVIEWS.reviews = [pending(11, "description", { description: "The Handshake City on the Mohawk River." }), pending(12, "change", { name: "Utica Falls", symbol: "UTICANY" })];
+  const t = await open("admin");
+  const approve = (i) => t.doc.querySelectorAll(".adm-coinrev__item")[i].querySelectorAll("button").find((b) => b.textContent === "Approve this version").click();
+  approve(0); await tick();
+  assert.match(t.asked.at(-1), / Its description becomes the coin's \(the launch still needs the owner's approval on the blockchain\)\.$/);
+  approve(1); await tick();
+  assert.match(t.asked.at(-1), / Its picture, ticker and name become the coin's \(the launch still needs the owner's approval on the blockchain\)\.$/);
+  assert.deepEqual(t.posts.slice(-2).map(([p, b]) => [p, b.id, b.action]), [["/api/admin/coins/reviews/decide", 11, "approve"], ["/api/admin/coins/reviews/decide", 12, "approve"]]);
+});

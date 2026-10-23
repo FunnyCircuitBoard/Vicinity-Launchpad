@@ -1054,7 +1054,7 @@
     const note = textInput("Note for the founder (optional, 3 to 300 characters)"); note.maxLength = 300; note.className = "adm-pic__note"; note.setAttribute("aria-label", "Note for the founder");
     const form = el("div", "adm-pic__reject"); form.append(reason, note); act.append(form);
     act.append(btn("Approve this version", async () => {
-      if (sure(`Approve version ${x.version} exactly as shown? ${x.kind === "description" ? "Its description" : "Its picture, ticker and name"} become the coin's (the launch still needs the owner's approval on the blockchain).`)) {
+      if (sure(`Approve version ${x.version} exactly as shown? ${x.kind === "description" ? "Its description becomes" : "Its picture, ticker and name become"} the coin's (the launch still needs the owner's approval on the blockchain).`)) {
         okMsg(await post("/api/admin/coins/reviews/decide", { id: x.id, action: "approve", contentHash: x.contentHash }), "Approved");
       }
     }));
