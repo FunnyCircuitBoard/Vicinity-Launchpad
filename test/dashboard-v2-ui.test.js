@@ -89,3 +89,10 @@ test("the sticky strip and the router agree on the header height, and the deep-l
 test("a Moderate deep link waits for /api/mod only until the person picks another tab", () => {
   assert.match(v2, /if \(tab === "moderate" && !modOn\(\)\) \{ pending = "moderate"; tab = "home"; push = false; replace = true; \}[^\n]*\n\s*else if \(push\) pending = null;/);
 });
+
+test("FS1-3: the Founder card points DOWN to the city coin card: it sits above #coin-ready in the Founder tab, so it never says 'above'", () => {
+  const founder = /founder: \[([^\]]*)\]/.exec(v2)[1].split(",").map((s) => s.trim().replace(/"/g, ""));
+  assert.ok(founder.indexOf("#fcard") >= 0 && founder.indexOf("#fcard") < founder.indexOf("#coin-ready"), founder.join(" "));
+  assert.match(v2, /note\.textContent = "Choose your city coin below \(Use this coin\); then Vicinity's owner approves it on the blockchain\.";/);
+  assert.doesNotMatch(v2, /Choose your city coin above/, "the Founder card is the only card of dashboard-v2.js that says where the coin card is");
+});

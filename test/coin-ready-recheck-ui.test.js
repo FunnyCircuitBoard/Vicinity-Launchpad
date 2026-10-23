@@ -159,6 +159,56 @@ test("F2: the Today line that sends the founder to Use this coin says what the s
   assert.doesNotMatch(await today(view({ chosen: CHOSEN, inUse: true, preview: null }), readyRow()), /Choose Utica's coin|coin is ready/);
 });
 
+test("FS1-2: a FORMER founder's studio design (earlierOther) is never 'your earlier design' to the new founder, on the Today line or the card", async () => {
+  const EARLIER = /Your earlier (coin )?design/;
+  const FORMER_TODAY = /A former founder's design is kept, but city coins are made by Vicinity now\. Check this coin, then use it\./;
+  const FORMER_CARD = "A former founder's coin design is kept, but it is not launched: city coins are made by Vicinity now. Use this coin to choose yours.";
+  // (a) nothing chosen; the design row is the former founder's studio design (the common live case after a seat change)
+  const a = await open({ ready: view({ chosen: null, inUse: false, earlier: false, earlierOther: true }), coin: readyRow({ madeBy: undefined, name: "Utica Coin", pitch: "The Handshake City." }) });
+  const ta = a.text("#today-list") || "";
+  assert.match(ta, /Choose Utica's coin/);
+  assert.match(ta, FORMER_TODAY);
+  assert.doesNotMatch(ta, EARLIER);
+  assert.equal(a.text("#cr-note"), FORMER_CARD);
+  // (b) a former founder's choice whose design row changed since: never "your coin's design was changed since you chose it"
+  const b = await open({ ready: view({ chosen: { ...CHOSEN, current: false, mine: false }, inUse: false, earlier: false, earlierOther: true }), coin: readyRow({ madeBy: undefined, name: "Utica Coin" }) });
+  const tb = b.text("#today-list") || "";
+  assert.match(tb, FORMER_TODAY);
+  assert.doesNotMatch(tb, /since you chose it|Your earlier design/);
+  assert.equal(b.text("#cr-note"), FORMER_CARD);
+  // (c) the founder's OWN earlier design (earlier) is still said as theirs
+  const c = await open({ ready: view({ chosen: null, inUse: false, earlier: true, earlierOther: false }), coin: readyRow({ madeBy: undefined, name: "Utica Coin", pitch: "The Handshake City." }) });
+  assert.match(c.text("#today-list") || "", /Your earlier design is kept, but city coins are made by Vicinity now\. Check yours, then use it\./);
+  assert.match(c.text("#cr-note"), /^Your earlier coin design is kept, but it is not launched/);
+});
+
+test("FS1-1: after a seat change, the new founder's coin card never calls a former founder's choice 'the coin you chose'", async () => {
+  const preview = { label: "Preview, not launched", ticker: "UTICA", name: "Utica", description: COIN.description, chosen: true, version: HASH.slice(0, 8), city: CITY, art: ART };
+  // the server's preview.chosen is true for the city's current choice, whoever's seat made it; chosen.mine says whose
+  const p = await open({ ready: view({ chosen: { ...CHOSEN, mine: false }, inUse: false, preview }), coin: readyRow() });
+  assert.equal(p.$("#coin-preview").hidden, false);
+  assert.equal(p.text("#coin-preview-note"), "A former founder of this city chose this coin: use it in your Founder tab to make it yours. Nothing has launched yet.");
+  assert.doesNotMatch(p.text("#coin-preview-note"), /coin you chose/);
+  assert.match(p.text("#cr-note"), /^A former founder of this city chose this coin\./, "the card and the coin card agree");
+  // their own choice, in use: as before
+  const own = await open({ ready: view({ chosen: CHOSEN, inUse: true, preview }), coin: readyRow() });
+  assert.equal(own.text("#coin-preview-note"), "This is the coin you chose. Nothing has launched yet.");
+  // approved for them: as before
+  const ap = await open({ ready: view({ chosen: CHOSEN, inUse: true, preview, gate: { code: "approved", message: "Your coin is approved on the blockchain with its current design. It launches exactly as approved." } }), coin: readyRow() });
+  assert.equal(ap.text("#coin-preview-note"), "This is your city coin, approved on the blockchain. It has not launched yet.");
+});
+
+test("N-new-1: the founder's own coin, approved on chain or being approved, is tagged as theirs, never 'Not available now'", async () => {
+  const preview = { label: "Preview, not launched", ticker: "UTICA", name: "Utica", chosen: true, city: CITY, art: ART };
+  const ap = await open({ ready: view({ chosen: CHOSEN, inUse: true, preview, gate: { code: "approved", message: "Your coin is approved on the blockchain with its current design. It launches exactly as approved." } }), coin: readyRow() });
+  assert.deepEqual([ap.text("#cr-state"), ap.$("#cr-state").className], ["Approved", "tag tag--ok"]);
+  const held = await open({ ready: view({ chosen: CHOSEN, inUse: true, preview, gate: { code: "held", message: "The owner is approving your coin right now, so its design is fixed for a few minutes. Try again in 5 minutes." } }), coin: readyRow() });
+  assert.deepEqual([held.text("#cr-state"), held.$("#cr-state").className], ["Your coin", "tag tag--ok"]);
+  // any other gate (or an approval that is not this founder's coin): as before
+  const low = await open({ ready: view({ chosen: CHOSEN, inUse: true, gate: { code: "below_amount", message: "Your balance is below the founder amount." } }), coin: readyRow() });
+  assert.equal(low.text("#cr-state"), "Not available now");
+});
+
 /* ---------- the Launchpad ---------- */
 const LP_SRC = readFileSync(new URL("../public/launchpad.js", import.meta.url), "utf8");
 const LP_HTML = readFileSync(new URL("../public/launchpad.html", import.meta.url), "utf8");

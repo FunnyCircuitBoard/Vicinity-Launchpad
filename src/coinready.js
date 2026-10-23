@@ -228,7 +228,9 @@ const liveCheck = async (env, seat, fetchImpl) => { try { return await holdsFoun
 const stewardInGrace = (seat, now) => seat.status === "steward" && Boolean(seat.grace_until) && Date.parse(seat.grace_until) > now;
 
 /* ---------------------------------------------------------------- the answers */
-const designRowOf = (env, cityId) => env.DB.prepare("SELECT updated_at FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
+// user_id: the account that saved the row last (a studio save or "Use this coin" writes its own), so a page can tell the founder's own
+// earlier design from a former founder's
+const designRowOf = (env, cityId) => env.DB.prepare("SELECT updated_at, user_id FROM city_coins WHERE city_id = ?").bind(String(cityId)).first();
 /**
  * The preview of the coin this city WILL launch, or null (the one rule for the founder's page and everyone else's; reads only, no
  * chain read). Only for a city that has a founder; never for a launched coin (shown as itself), a city with a Raydium LaunchLab
@@ -310,15 +312,17 @@ async function founderView(env, { u, seat, cityId, fetchImpl, now, live, chain =
   // chosen: the city's choice, with its own words; mine: chosen with THIS founder's seat (a former founder's choice is not theirs)
   const chosen = c ? { contentHash: c.content_hash, version: versionLabel(c.content_hash), at: c.chosen_at, current: c.current, art: artPath(c.art_sha256), launched: Boolean(c.mint),
     ticker: c.symbol, name: c.name, mine: c.seat_id === seat.id } : null;
-  // earlier: the city's design row is not the chosen ready-made coin (a studio design made before; it is kept, but it is not launched)
-  const earlier = Boolean(design && !(c && c.current));
+  // the city's design row is not the chosen ready-made coin (a studio design made before; it is kept, but it is not launched): earlier
+  // when this founder's own account saved it, earlierOther when another did (a former founder of the city: never "your earlier design")
+  const aside = Boolean(design && !(c && c.current));
+  const earlier = aside && String(design.user_id) === String(u.id), earlierOther = aside && !earlier;
   // approved from the chosen version (or being approved right now), or launched with it: the card shows THAT version, which is what
   // launches or launched, never the defaults as they read today
   if (c && c.content && ((c.current && g && ["approved", "held"].includes(g.code)) || c.mint)) {
     const v = versionCoin(c, d);
-    return { ok: true, mode: "founder", city: v.city, coin: v.coin, chosen, inUse: Boolean(chosen.current && chosen.mine), earlier, gate: g, preview };
+    return { ok: true, mode: "founder", city: v.city, coin: v.coin, chosen, inUse: Boolean(chosen.current && chosen.mine), earlier, earlierOther, gate: g, preview };
   }
-  if (!d.ok) return { ok: true, mode: "founder", city: { id: cityId, name: seat.city_name, country: seat.country }, coin: null, chosen, inUse: false, earlier, gate: g, preview };
+  if (!d.ok) return { ok: true, mode: "founder", city: { id: cityId, name: seat.city_name, country: seat.country }, coin: null, chosen, inUse: false, earlier, earlierOther, gate: g, preview };
   const art = await storedArt(env, d);
   const contentHash = art ? await sha256Hex(canonicalContent({ city: d.city, name: d.name, symbol: d.ticker, description: d.description, artSha256: art.sha256, templateVersion: TEMPLATE_VERSION })) : null;
   return {
@@ -326,7 +330,7 @@ async function founderView(env, { u, seat, cityId, fetchImpl, now, live, chain =
     city: { id: d.city.id, name: d.city.name, region: d.city.region, regionCode: d.city.regionCode, country: d.city.country, countryName: d.city.countryName },
     coin: { ticker: d.ticker, name: d.name, description: d.description, pair: d.pair, templateVersion: TEMPLATE_VERSION, source: SOURCE,
       art: art ? artPath(art.sha256) : null, contentHash, version: versionLabel(contentHash) },
-    chosen, inUse: Boolean(chosen && chosen.current && chosen.mine && contentHash && chosen.contentHash === contentHash), earlier, gate: g, preview,
+    chosen, inUse: Boolean(chosen && chosen.current && chosen.mine && contentHash && chosen.contentHash === contentHash), earlier, earlierOther, gate: g, preview,
   };
 }
 async function previewView(env, cityId) {

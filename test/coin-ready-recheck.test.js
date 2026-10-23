@@ -373,3 +373,34 @@ test("S1R-3 / F1: a choice the city list moved away from is Vicinity's design st
     .bind(PROGRAM, UTICA, w.f.w.address, w.owner.w.address).run();
   assert.deepEqual(said(await pub()), ["vicinity", false]);
 });
+
+test("FS1-2: a former founder's studio design is never the new founder's 'earlier' design: earlierOther says it is another founder's", async () => {
+  const w = await world({ ready: null });
+  assert.equal((await w.post(w.f, "/api/coins/design", { name: "Utica Coin", pitch: "The Handshake City.", pair: "SOL", color: "emerald" })).ok, true);
+  w.env.COIN_V2_READY = "on";
+  // the founder who designed it: their earlier design
+  const own = await view(w, w.f);
+  assert.deepEqual([own.chosen, own.earlier, own.earlierOther], [null, true, false], JSON.stringify(own));
+  // the same person seated again (a new seat): still their own design (the design row names the account that saved it)
+  const fu = await w.env.DB.prepare("SELECT id, wallet FROM users WHERE wallet = ?").bind(w.f.w.address).first();
+  const release = () => w.env.DB.prepare("UPDATE seats SET status = 'released' WHERE city_id = ? AND user_id = ? AND status <> 'released'").bind(UTICA, fu.id).run();
+  await release();
+  const at = new Date(Date.now()).toISOString();
+  await w.env.DB.prepare("INSERT INTO seats (city_id, city_name, country, user_id, wallet, policy, threshold, status, created_at, activated_at) VALUES (?, 'Utica', 'US', ?, ?, 3, 1000000, 'active', ?, ?)")
+    .bind(UTICA, fu.id, fu.wallet, at, at).run();
+  const again = await view(w, w.f);
+  assert.deepEqual([again.earlier, again.earlierOther], [true, false], JSON.stringify(again));
+  // their seat is released; another founder takes the city: the design is a former founder's, not theirs
+  await release();
+  const nb = await seat(w, UTICA, "Utica");
+  const v = await view(w, nb);
+  assert.deepEqual([v.chosen, v.earlier, v.earlierOther, v.inUse, v.gate], [null, false, true, false, null], JSON.stringify(v));
+  // once the new founder uses the coin, the former founder's design is kept aside and nothing is "earlier" any more
+  await reprove(nb);
+  const a = await w.post(nb, "/api/coins/ready/art", { cityId: UTICA });
+  assert.equal(a.ok, true, JSON.stringify(a));
+  const u = await w.post(nb, "/api/coins/ready/use", { cityId: UTICA, contentHash: a.coin.contentHash });
+  assert.equal(u.ok, true, JSON.stringify(u));
+  assert.deepEqual([u.earlier, u.earlierOther, u.inUse], [false, false, true]);
+  assert.equal((await w.env.DB.prepare("SELECT COUNT(*) AS n FROM coin_legacy_designs WHERE city_id = ?").bind(UTICA).first()).n, 1);
+});

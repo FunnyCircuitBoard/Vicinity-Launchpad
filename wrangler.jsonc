@@ -120,7 +120,8 @@
     { "pattern": "www.vicinity.city", "custom_domain": true }
   ],
   // The two fonts the city-coin picture is drawn with (src/coinart-wasm.js imports them): plain bytes, not code. The renderer's wasm
-  // (@resvg/resvg-wasm/index_bg.wasm) is compiled at upload by wrangler's default CompiledWasm rule.
+  // (@resvg/resvg-wasm/index_bg.wasm) is a CompiledWasm module by wrangler's default rule: compiled when the isolate starts (about 5 ms);
+  // only its instantiation and the first drawing are lazy (src/coinart-wasm.js).
   "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
   // The database; the code creates and upgrades its tables the first time they're used.
   "d1_databases": [{ "binding": "DB", "database_name": "vicinity-claims", "database_id": "e0e01286-ca8f-49dd-82c0-638fa24abb40" }],

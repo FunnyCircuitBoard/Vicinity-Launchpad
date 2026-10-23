@@ -119,8 +119,11 @@ test("the launchpad set up (production): the launch card and the Founder card se
   const page = await open({ lp: true, coin: designRow(), ready: view({ earlier: true }) });
   const launch = page.text("#lp-launch") || "";
   assert.doesNotMatch(launch, /coin studio/, "the studio is closed while the switch is on");
+  // the launch card is below the coin card, the Founder card above it (dashboard-v2.js ORDER.founder): each points the right way (FS1-3)
   assert.match(launch, /Choose your city coin above \(Use this coin\); then Vicinity's owner approves it on the blockchain\./);
-  assert.equal(page.text("#fcard-note"), "Choose your city coin above (Use this coin); then Vicinity's owner approves it on the blockchain.");
+  assert.equal(page.text("#fcard-note"), "Choose your city coin below (Use this coin); then Vicinity's owner approves it on the blockchain.");
+  const founder = [...page.$("#panel-founder").children].map((n) => n.id);
+  assert.ok(founder.indexOf("fcard") < founder.indexOf("coin-ready") && founder.indexOf("coin-ready") < founder.indexOf("lp-launch"), founder.join(","));
   assert.equal(page.text("#fcard-go"), "See your city coin");
   assert.match(page.text("#cr-note"), /Your earlier coin design is kept, but it is not launched/);
   assert.match(page.text("#today-list") || "", /Choose Utica's coin/);

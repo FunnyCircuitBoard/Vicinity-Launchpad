@@ -79,7 +79,9 @@ choice still holds (`src/coinready.js` `choiceHolds`): its ticker and name are t
 it, or the list cannot be read. One the list moved away from is `chosen: false`: still Vicinity's design, but the pages say "Not chosen
 yet" (or "Not launched" with no founder) and no "chosen <date>", as the owner's list ("no longer matches the city list") and the founder's
 card (a new version to use) do. The founder's Today line is worded from the same answer's flags as their card: a new version of their
-choice, a former founder's choice, their earlier studio design kept aside, or a coin ready.
+choice, a former founder's choice, their own earlier studio design kept aside (`earlier`: the design row was saved by their account), a
+former founder's studio design (`earlierOther`), or a coin ready. The coin card's preview says "the coin you chose" only for the founder's
+own choice (`chosen.mine`); after a seat change it says a former founder chose it.
 
 ## Measured (18 Oct 2026)
 

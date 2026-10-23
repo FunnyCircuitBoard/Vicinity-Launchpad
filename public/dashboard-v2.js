@@ -491,8 +491,9 @@
   /**
    * The Today line that sends the founder to "Use this coin": its title and its words, from the server's own flags (src/coinready.js
    * founderView), the way public/coin-ready.js words its note: a choice made by a former founder, the founder's own choice that the city
-   * list or Vicinity's design has moved past (a new version), their choice whose design row changed since, an earlier studio design kept
-   * aside (earlier), or no design at all. Never "your earlier design" for a design that was Vicinity's or a former founder's.
+   * list or Vicinity's design has moved past (a new version), their choice whose design row changed since, their own earlier studio design
+   * kept aside (earlier), a former founder's (earlierOther), or no design at all. Never "your earlier design" for a design that was
+   * Vicinity's or a former founder's.
    */
   function readyStep(rf, city) {
     const ch = rf.chosen && !rf.chosen.launched ? rf.chosen : null;
@@ -500,6 +501,7 @@
     if (ch && ch.current) return [`Choose ${city}'s coin again`, "Vicinity's design or the city list changed since you chose. Check the new version, then use it."];
     if (ch && ch.mine) return [`Choose ${city}'s coin again`, "Your coin's design was changed since you chose it. Check it, then use it again."];
     if (rf.earlier) return [`Choose ${city}'s coin`, "Your earlier design is kept, but city coins are made by Vicinity now. Check yours, then use it."];
+    if (rf.earlierOther) return [`Choose ${city}'s coin`, "A former founder's design is kept, but city coins are made by Vicinity now. Check this coin, then use it."];
     return [`${city}'s coin is ready`, "The Vicinity design with your city's ticker, from the city list. Check it, then use it."];
   }
   function today(d) {
@@ -715,7 +717,8 @@
       // something stands in the way of "Use this coin" (an approval for another wallet or of an earlier design, a low balance...): why
       else if (rf.gate) { note.textContent = rf.gate.message; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
       else if (!coin) { note.textContent = `${seat.city}'s coin is ready: the Vicinity design with its ticker, from the city list. Check it, then use it.`; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
-      else { note.textContent = "Choose your city coin above (Use this coin); then Vicinity's owner approves it on the blockchain."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+      // (the Founder card is the first card of the Founder tab, the coin card right under it: ORDER.founder)
+      else { note.textContent = "Choose your city coin below (Use this coin); then Vicinity's owner approves it on the blockchain."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
     }
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }

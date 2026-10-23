@@ -71,12 +71,17 @@
     const use = $("#cr-use"), st = $("#cr-state");
     let state = ["Ready to choose", "tag--gold"], note = "";
     if (chosen && chosen.launched) { state = ["Launched", "tag--ok"]; note = "Your coin launched with this design. Its picture and words are fixed for good."; }
+    // the founder's own coin, approved on chain or being approved right now: it is theirs, said as that (the gate's words say the rest)
+    else if (gate && r.inUse && ["approved", "held"].includes(gate.code)) state = [gate.code === "approved" ? "Approved" : "Your coin", "tag--ok"];
     else if (gate) state = ["Not available now", "tag--warn"];
     else if (r.inUse) { state = ["Your coin", "tag--ok"]; note = "This is your coin's design now. Next, Vicinity's owner approves it on the blockchain; then you launch it from your Founder tab."; }
     else if (chosen && chosen.current && !chosen.mine) note = "A former founder of this city chose this coin. Use it to make it yours: Vicinity's owner approves only the current founder's choice.";
     else if (chosen && chosen.current) note = "Vicinity's design or the city list changed since you chose your coin. This is the new version: use it to keep your coin up to date.";
-    else if (chosen) note = "Your coin's design was changed since you chose it. Use this coin to choose it again.";
+    else if (chosen && chosen.mine) note = "Your coin's design was changed since you chose it. Use this coin to choose it again.";
+    // a design row kept aside: "your earlier design" only when this founder's own account saved it (earlier); a former founder's is said as
+    // that (earlierOther), never as theirs
     else if (r.earlier) note = "Your earlier coin design is kept, but it is not launched: city coins are made by Vicinity now. Use this coin to choose yours.";
+    else if (r.earlierOther) note = "A former founder's coin design is kept, but it is not launched: city coins are made by Vicinity now. Use this coin to choose yours.";
     st.textContent = state[0]; st.className = `tag ${state[1]}`;
     text("#cr-note", note);
     const usable = Boolean(coin && coin.contentHash && !gate && !r.inUse && !(chosen && chosen.launched));
@@ -89,9 +94,11 @@
   }
 
   /* ---------- the coin card's preview ---------- */
-  function paintPreview(p, { founder = false, approved = false } = {}) {
+  // mine: the founder's page only; the chosen coin was chosen with THEIR seat (the server's preview.chosen is true for the city's current
+  // choice whoever made it: after a seat change, a former founder's)
+  function paintPreview(p, { founder = false, approved = false, mine = false } = {}) {
     const box = $("#coin-preview"), coinCard = $("#coin"), kick = $("#coin-kicker");
-    painted = [p, { founder, approved }]; // repaint() puts it back after dashboard.js draws the coin card again
+    painted = [p, { founder, approved, mine }]; // repaint() puts it back after dashboard.js draws the coin card again
     if (!box || !coinCard) return;
     // the card's eyebrow says who made what it shows: dashboard.js keeps its own words in data-base (the founder's design as before),
     // and Vicinity's coin is named while the preview stands in
@@ -106,14 +113,17 @@
     text("#coin-preview-name", [p.name, p.city && p.city.region, p.city && p.city.countryName].filter(Boolean).join(" · "));
     text("#coin-preview-note", founder
       ? (approved ? "This is your city coin, approved on the blockchain. It has not launched yet."
-        : p.chosen ? "This is the coin you chose. Nothing has launched yet."
-          : `This is what $${p.ticker} will look like. You choose it in your Founder tab; nothing has launched yet.`)
+        : p.chosen && mine ? "This is the coin you chose. Nothing has launched yet."
+          : p.chosen ? "A former founder of this city chose this coin: use it in your Founder tab to make it yours. Nothing has launched yet."
+            : `This is what $${p.ticker} will look like. You choose it in your Founder tab; nothing has launched yet.`)
       : p.chosen ? `This is the coin chosen for ${p.name}: made by Vicinity from the city list. Nothing has launched yet.`
         : `This is what $${p.ticker} will look like once ${p.name}'s founder launches it. Made by Vicinity from the city list; nothing has launched yet.`);
     const st = $("#coin-status");
     if (st) { st.textContent = "Not launched"; st.className = "tag tag--warn"; }
     text("#coin-note", "");
   }
+  /** How the founder's page words the preview: approved for them on chain, and whether the chosen coin is their own choice (mine). */
+  const founderOpts = (r) => ({ founder: true, approved: Boolean(r.gate && r.gate.code === "approved"), mine: Boolean(r.chosen && r.chosen.mine) });
   /**
    * The founder's preview: the server's (src/coinready.js previewOf), only while nothing stands in the way, or for the CHOSEN coin
    * being or already approved (gates held and approved: that coin is what launches). Any other gate (a waiting contract, a launched
@@ -138,7 +148,7 @@
     last = r;
     if (r.mode === "founder") {
       paintFounder(r);
-      paintPreview(founderPreview(r), { founder: true, approved: Boolean(r.gate && r.gate.code === "approved") });
+      paintPreview(founderPreview(r), founderOpts(r));
       if (r.coin && !r.coin.art && !r.gate) draw(c.id);
     } else {
       show("#coin-ready", false);
@@ -151,7 +161,7 @@
     if (drawingFor === cityId) return;
     drawingFor = cityId;
     const r = await ctx.api("/api/coins/ready/art", { cityId });
-    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), { founder: true, approved: Boolean(r.gate && r.gate.code === "approved") }); told(r); return; }
+    if (r && r.ok && r.mode === "founder") { last = r; paintFounder(r); paintPreview(founderPreview(r), founderOpts(r)); told(r); return; }
     text("#cr-art-wait", "Your coin's picture couldn't be made just now. Reload the page to try again.");
     drawingFor = null;
   }
@@ -168,7 +178,7 @@
       const st = $("#cr-state");
       if (st) st.focus();
       paintFounder(r);
-      paintPreview(founderPreview(r), { founder: true, approved: Boolean(r.gate && r.gate.code === "approved") });
+      paintPreview(founderPreview(r), founderOpts(r));
       told(r);
       ctx.toast(`$${r.coin.ticker} is your coin`);
       if (ctx.changed) ctx.changed(); // the coin card and the launch card read the new design
