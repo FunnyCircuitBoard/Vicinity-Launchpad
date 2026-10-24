@@ -1,0 +1,156 @@
+/* Citycoin.dev design tokens: Civic Atlas (master change order v5, DS-02 and DS-04).
+   Light is the default. Dark applies with <html data-theme="dark">, or when the device prefers dark and the page
+   has not set data-theme="light". Every name is prefixed --cc- so nothing collides with the current site variables.
+   Contrast ratios for each recommended pair are in docs/citycoin-master/brand/README.md.
+   Not referenced by any page yet: wiring it in is a later rollout step. */
+
+:root {
+  color-scheme: light;
+
+  /* Brand colors (the same in both themes) */
+  --cc-navy: #0C2344;        /* primary text, navigation, brand structure, text on gold buttons */
+  --cc-gold: #F8C13A;        /* primary action and accent, .dev in the wordmark; never small white text on gold */
+  --cc-teal: #00CBB6;        /* community, map and illustration accent; not a text color on light surfaces */
+  --cc-teal-dark: #007E74;   /* accessible teal for small text and links on light surfaces */
+  --cc-white: #FFFFFF;
+
+  /* Surfaces (light) */
+  --cc-canvas: #F5F7FB;
+  --cc-card: #FFFFFF;
+  --cc-border: #DCE4EE;          /* decorative 1px dividers and card edges */
+  --cc-border-strong: #74859B;   /* control edges that must be seen: inputs, checkboxes (3:1 or more) */
+
+  /* Text and roles (light) */
+  --cc-text: #0C2344;
+  --cc-heading: #0C2344;
+  --cc-text-2: #52647A;          /* secondary text */
+  --cc-text-disabled: #6C7D92;
+  --cc-link: #007E74;
+  --cc-accent: #00CBB6;
+  --cc-primary: #F8C13A;
+  --cc-on-primary: #0C2344;      /* text and icons on gold */
+  --cc-on-navy: #FFFFFF;         /* text and icons on navy surfaces */
+  --cc-theme-color: #F5F7FB;     /* value for <meta name="theme-color"> */
+
+  /* Focus */
+  --cc-focus: #007E74;
+  --cc-focus-on-navy: #F8C13A;
+  --cc-focus-width: 2px;
+  --cc-focus-offset: 2px;
+
+  /* Typography: the site's existing OFL UI sans (Inter, self-hosted by public/style.css) or the system UI font */
+  --cc-font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cc-font-display: var(--cc-font-ui);
+  --cc-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --cc-weight-body: 400;
+  --cc-weight-strong: 600;
+  --cc-weight-display: 800;
+  --cc-fs-sm: 14px;
+  --cc-fs-body: 16px;            /* body default */
+  --cc-fs-lg: 18px;
+  --cc-fs-xl: 20px;
+  --cc-fs-2xl: 24px;
+  --cc-fs-3xl: 32px;
+  --cc-fs-4xl: 40px;
+  --cc-lh-body: 1.5;
+  --cc-lh-heading: 1.2;
+
+  /* Layout: 8px rhythm */
+  --cc-space-half: 4px;
+  --cc-space-1: 8px;
+  --cc-space-2: 16px;
+  --cc-space-3: 24px;
+  --cc-space-4: 32px;
+  --cc-space-5: 40px;
+  --cc-space-6: 48px;
+  --cc-space-8: 64px;
+  --cc-space-10: 80px;
+  --cc-radius-sm: 8px;           /* chips, small badges */
+  --cc-radius-control: 12px;     /* buttons, inputs */
+  --cc-radius-card: 16px;        /* cards and panels (12-16px range) */
+  --cc-radius-pill: 999px;
+  --cc-border-width: 1px;
+  --cc-tap: 44px;                /* preferred interactive height and width */
+  --cc-shadow-1: 0 1px 2px rgba(12, 35, 68, 0.06), 0 1px 3px rgba(12, 35, 68, 0.08);
+  --cc-shadow-2: 0 4px 12px rgba(12, 35, 68, 0.10);
+
+  /* Motion: short and purposeful */
+  --cc-dur-fast: 120ms;
+  --cc-dur: 180ms;
+  --cc-dur-slow: 240ms;
+  --cc-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Dark counterpart (Night Exchange roles): same gold and teal roles, verified pairs only */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cc-canvas: #071426;
+  --cc-card: #102A49;
+  --cc-border: #2A4A72;
+  --cc-border-strong: #6F87A6;
+  --cc-text: #EAF0F7;
+  --cc-heading: #EAF0F7;
+  --cc-text-2: #A9B8CB;
+  --cc-text-disabled: #7D8FA8;
+  --cc-link: #00CBB6;
+  --cc-focus: #00CBB6;
+  --cc-theme-color: #071426;
+  --cc-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --cc-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.40);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --cc-canvas: #071426;
+    --cc-card: #102A49;
+    --cc-border: #2A4A72;
+    --cc-border-strong: #6F87A6;
+    --cc-text: #EAF0F7;
+    --cc-heading: #EAF0F7;
+    --cc-text-2: #A9B8CB;
+    --cc-text-disabled: #7D8FA8;
+    --cc-link: #00CBB6;
+    --cc-focus: #00CBB6;
+    --cc-theme-color: #071426;
+    --cc-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --cc-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.40);
+  }
+}
+
+/* Visible focus for keyboard users (zero specificity, so components can refine it) */
+:where(:focus-visible) {
+  outline: var(--cc-focus-width) solid var(--cc-focus);
+  outline-offset: var(--cc-focus-offset);
+}
+:where(.cc-on-navy) :where(:focus-visible) {
+  outline-color: var(--cc-focus-on-navy);
+}
+
+/* Money, balances, countdowns and timers: digits keep their width */
+.cc-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Minimum touch target */
+.cc-tap {
+  min-height: var(--cc-tap);
+  min-width: var(--cc-tap);
+}
+
+/* Respect the device's reduced-motion setting */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --cc-dur-fast: 0ms;
+    --cc-dur: 0ms;
+    --cc-dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
