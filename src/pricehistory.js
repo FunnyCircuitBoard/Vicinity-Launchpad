@@ -15,7 +15,7 @@
  * last of each day; 15-minute candles older than 30 days are rolled into 4-hour candles (exact) and removed.
  */
 import { ensureMarketSchema } from "./store.js";
-import { activeMint, launchedAtOf } from "./official.js";
+import { launchedAtOf, tokenMint } from "./official.js";
 import { PAIRS } from "./coins.js";
 import { liveMarkets, fetchKline, recentCandles } from "./marketlive.js";
 import { codeOf } from "./sources.js";
@@ -29,7 +29,9 @@ const shortErr = (e) => codeOf(e);
 /** The coins whose market is recorded: $VICINITY (paired with SOL) and every city coin an admin recorded, nothing else. */
 export async function allowListedCoins(env) {
   const out = [];
-  const vic = activeMint(env);
+  // the main token (MAIN_TOKEN_V5 off: $VICINITY, from its launch; on: the configured mint, whose launch time is not one of $VICINITY's:
+  // launchedAtOf knows only the legacy mint, so the new token's chart starts with its own samples)
+  const vic = tokenMint(env);
   if (vic) out.push({ mint: vic, pairMint: SOL, launchedAt: launchedAtOf(vic) });
   const rows = (await env.DB.prepare("SELECT mint, pair, launched_at FROM city_coins WHERE mint IS NOT NULL ORDER BY launched_at, city_id LIMIT 10000").all()).results;
   for (const r of rows) if (r.mint !== vic && PAIRS[r.pair]) out.push({ mint: r.mint, pairMint: PAIRS[r.pair].mint, launchedAt: null });

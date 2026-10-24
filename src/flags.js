@@ -114,3 +114,27 @@ export const coinV2ReviewOn = (env) => coinV2ReadyOn(env) && String((env && env.
  * COIN_V2_READY on; anything else is the site exactly as before.
  */
 export const coinV2BatchOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_BATCH) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * MAIN_TOKEN_V5=on (owner amendment 01, Citycoin.dev master v5 stage S02A) moves every main-token consumer from the legacy setting
+ * VICINITY_MINT to the configured, shape-checked MAIN_TOKEN_MINT (src/maintoken.js mainMint; src/official.js tokenMint), shows $VICINITY
+ * as a legacy token (its team wallets, its Jupiter Lock and its Raydium LaunchLab launch are its own facts, never the new token's), takes
+ * the official social links from OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL (an unset link is not shown), and freezes the legacy seat and
+ * election machinery, which measures $VICINITY. It counts only while every precondition holds (src/v5policy.js mainTokenV5: the pages
+ * and client scripts were built for it, which the page build refuses until the label migration S48; BRAND is that build's label set;
+ * MAIN_TOKEN_MINT and the links are accepted; the v5 configuration check accepts the deployment, LEGACY_SEATS=frozen included), so read it
+ * through mainTokenV5(env), never alone. Exactly "on" (trimmed, any letter case), and then only with those preconditions; anything else,
+ * unset included, is the site exactly as before: VICINITY_MINT is the token, the footer shows today's X account, and no new key, route,
+ * table or column exists.
+ */
+export const mainTokenV5On = (env) => String((env && env.MAIN_TOKEN_V5) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * PUBLIC_V5=on (Citycoin.dev master v5, stage S07; schema-and-api.md sections 2.2 and 4.9) publishes the v5 policy: GET /api/policy
+ * gains the key `master` and GET /api/policy/master exists (src/v5policy.js). It counts only while the v5 configuration check
+ * (validatePolicy on this Worker's settings) accepts the deployment: a refused configuration keeps it off ("keeps every dependent
+ * feature off while any error exists"), so read it through src/v5policy.js publicV5(env), never alone. Exactly "on" (trimmed, any letter
+ * case); anything else, unset included, is the site exactly as before: /api/policy answers as today and /api/policy/master is an unknown
+ * path (the same 404 as any other).
+ */
+export const publicV5On = (env) => String((env && env.PUBLIC_V5) ?? "").trim().toLowerCase() === "on";

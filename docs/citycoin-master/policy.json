@@ -5,7 +5,7 @@
   "status": {
     "policy": "approved_target",
     "deployment": "not_deployed",
-    "statement": "DESIGN. These are the approved target values of MASTER CHANGE ORDER V5 (23 Oct 2026). Approval of this policy is not evidence that anything is built, deployed, audited or active: live status comes only from deployment and chain state (master section 16, Configuration acceptance). No module of the live site reads this file or src/masterpolicy.js yet. Owner amendment 01 (24 Oct 2026) replaces the fixed main-token mint with a centrally configured main token: an owner-supplied mint (MAIN_TOKEN_MINT) that is verified on chain before use and stays null until then. The old $VICINITY mint is a legacy token, history only.",
+    "statement": "DESIGN. These are the approved target values of MASTER CHANGE ORDER V5 (23 Oct 2026). Approval of this policy is not evidence that anything is built, deployed, audited or active: live status comes only from deployment and chain state (master section 16, Configuration acceptance). No v5 value is in force on the live site. In this repository's Worker code, src/maintoken.js reads the amendment-01 helpers (stage S02A) and src/v5policy.js validates the Worker's settings against this policy and, only while the PUBLIC_V5 switch is on and the configuration is accepted, publishes it (stage S07). Owner amendment 01 (24 Oct 2026) replaces the fixed main-token mint with a centrally configured main token: an owner-supplied mint (MAIN_TOKEN_MINT) that is verified on chain before use and stays null until then. The old $VICINITY mint is a legacy token, history only.",
     "baseline": "live site main 4aa408e; draft program vicinity_curve ec148c2 (not deployed anywhere public)",
     "prepared": "2026-10-24"
   },

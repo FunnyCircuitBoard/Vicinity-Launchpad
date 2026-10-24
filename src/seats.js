@@ -36,14 +36,28 @@ import { useAttestation } from "./attest.js";
 import { DAY, POLICY, founderAmount, iso } from "./policy.js";
 import { averages, dayOf, latestBalances, samplesStale, tenure } from "./ledger.js";
 import { LIVE, activeBan, adminWallets, amountsFor, liveSeatOfCity, liveSeatOfUser } from "./roles.js";
-import { LAUNCHPAD_OPENS_AT, activeMint } from "./official.js";
+import { LAUNCHPAD_OPENS_AT, tokenMint } from "./official.js";
 import { countryCities } from "./cities.js";
 import { sha256hex } from "./blobs.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { notifyOn, profilesOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { attempt, notify, notifyMany } from "./notify.js";
 
 const F = POLICY.founder;
+
+/**
+ * The legacy seats measure $VICINITY (balances, hold streaks, the 14-day averages). While MAIN_TOKEN_V5 counts ($VICINITY is then a
+ * legacy token, history only; owner amendment 01 section 5.4, and the v5 configuration check refuses the switch unless LEGACY_SEATS=frozen)
+ * they make no new decision: the job's seats and elections steps do nothing (no window closed, no seat activated, put in grace or
+ * released, no term or election moved), and every seat, squad, endorsement, objection, resign and election writer answers 410
+ * (src/index.js). The reads (the map, a city's picture, the published results) stay: history. With the switch off nothing changes.
+ */
+export const legacySeatsFrozen = (env) => mainTokenV5(env);
+/** The writers' answer while frozen (410), or null. */
+export const seatsFrozen = (env) => (legacySeatsFrozen(env)
+  ? json({ ok: false, error: "seats_frozen", message: "Founder seats, squads and elections are closed for changes while the main token changes. Nothing was changed." }, 410)
+  : null);
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 
@@ -120,7 +134,7 @@ export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, t
   const homeReadyAt = u.home_city && u.home_at ? iso(Date.parse(u.home_at) + F.localDays * DAY) : null;
   const out = { ok: false, threshold: null, tenure: null, amount: 0, cooldownUntil: null, homeReadyAt,
     cityId: null, cityName: null, country: null, challenging: null, darkAdoption: false };
-  if (!activeMint(env)) return { ...out, error: "not_launched" };
+  if (!tokenMint(env)) return { ...out, error: "not_launched" };
   // Which city? Home by default; a different one only via dark-city adoption.
   const city = target && target.id ? target
     : u.home_city ? { id: u.home_city, name: u.home_name, country: u.home_country } : null;
@@ -631,6 +645,7 @@ export async function holdsFounderAmount(env, seat, fetchImpl = fetch) {
 
 /** The scheduled job's part: close windows, make seats final, confirm stewards, grace and release. */
 export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
+  if (legacySeatsFrozen(env)) return { skipped: "legacy_seats_frozen" }; // nothing read, nothing written (see legacySeatsFrozen)
   const db = env.DB;
   const out = { closed: 0, activated: 0, confirmed: 0, grace: 0, restored: 0, released: 0 };
   for (const w of (await db.prepare("SELECT * FROM windows WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results) {
@@ -757,7 +772,7 @@ export async function handleSquadCreate(request, env, now = Date.now()) {
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
   if (!u.wallet) return json({ ok: false, error: "no_wallet" }, 400); // a squad pools wallets: link one first
-  if (!activeMint(env)) return json({ ok: false, error: "not_launched" }, 403);
+  if (!tokenMint(env)) return json({ ok: false, error: "not_launched" }, 403);
   if (!u.home_city) return json({ ok: false, error: "no_home" }, 403);
   if (await liveSeatOfCity(db, u.home_city)) return json({ ok: false, error: "city_taken" }, 409);
   if (await liveSeatOfUser(db, u.id)) return json({ ok: false, error: "has_seat" }, 403);
@@ -1035,7 +1050,7 @@ export async function cityPicture(env, cityId, viewer, now = Date.now(), fetchIm
   let quorum = null;
   if (seat && seat.status === "steward") {
     const wallets = await checkedInWallets(db, cityId);
-    const amounts = activeMint(env) && wallets.length ? await amountsFor(env, wallets, fetchImpl) : new Map();
+    const amounts = tokenMint(env) && wallets.length ? await amountsFor(env, wallets, fetchImpl) : new Map();
     quorum = { have: wallets.filter((w) => (amounts.get(w) || 0) > 0).length, need: F.stewardQuorum };
   }
   return {

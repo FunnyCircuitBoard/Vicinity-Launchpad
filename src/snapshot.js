@@ -17,7 +17,7 @@
 import { json, readJson } from "./http.js";
 import { access } from "./access.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
-import { averages, dayOf } from "./ledger.js";
+import { averages, dayOf, legacyDayKey } from "./ledger.js";
 import { OFFICIAL, SUPPORTER_SNAPSHOT_AT } from "./official.js";
 import { getBlob, putBlob, sha256hex } from "./blobs.js";
 import { adminWallets } from "./roles.js";
@@ -73,10 +73,12 @@ export async function verifyProof(leaf, proof, root) {
 export async function computeSnapshot(env, cutoffIso, now = Date.now()) {
   const db = env.DB;
   const cutoff = Date.parse(cutoffIso), endDay = dayOf(cutoff - DAY);
-  const { averages: avg, samples, days } = await averages(env, endDay, S.averageDays, null);
+  // Founding Supporters held $VICINITY: the averages, the balances at the cutoff, their labels and decimals and the sample list all come
+  // from the $VICINITY series and the balance_samples table (its samples only), whatever MAIN_TOKEN_V5 says, so one token is measured
+  const { averages: avg, samples, days } = await averages(env, endDay, S.averageDays, null, { keyOf: legacyDayKey });
   if (!samples) throw new Error("no balance history before the cutoff");
   let last = null;
-  for (let i = 0; i < 3 && !last; i++) last = await getBlob(db, `day:${dayOf(cutoff - (i + 1) * DAY)}`);
+  for (let i = 0; i < 3 && !last; i++) last = await getBlob(db, legacyDayKey(dayOf(cutoff - (i + 1) * DAY)));
   if (!last) throw new Error("no balances just before the cutoff");
   // every labelled holder (pools, curves, program accounts), and the team's wallets and locks by name, labelled or not
   const excluded = new Set([...Object.keys(last.labels || {}), ...(OFFICIAL.teamWallets || []), ...(OFFICIAL.teamLocks || []).map((l) => l.address)]);

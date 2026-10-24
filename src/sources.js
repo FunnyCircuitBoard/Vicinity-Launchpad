@@ -12,7 +12,8 @@
  *            A value of null means "the source answered and has nothing for this key" (kept like any answer); undefined means
  *            "unknown: the source could not be asked". Callers running at the same time share one call.
  */
-export const USER_AGENT = "vicinity.city/1.0 (+https://vicinity.city)";
+import { USER_AGENT } from "./site-config.js"; // "vicinity.city/1.0 (+https://vicinity.city)", built by src/site-config.js (getJson has no environment)
+export { USER_AGENT };
 const MAX_BYTES = 1_000_000;
 
 export class SourceError extends Error {

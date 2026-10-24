@@ -45,6 +45,7 @@ import { formatAmount, parseAmount } from "./sol/input.js";
 import { issueTicket, simulate, simulationError } from "./relay.js";
 import { mintsFor } from "./portfolio.js";
 import { OFFICIAL } from "./official.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { launchpadCluster, lpSetup } from "./cluster.js";
 import { codeOf } from "./sources.js";
 
@@ -160,7 +161,7 @@ export async function supportedAssets(env, now = Date.now()) {
     { id: SOL, mint: null, kind: "sol", symbol: "SOL", name: "Solana", label: "SOL", decimals: 9, tickerSource: null, city: null },
     ...list.map((m) => ({
       id: m.mint, mint: m.mint, kind: m.kind, symbol: m.symbol, name: m.name, decimals: null, tickerSource: m.tickerSource || null, city: m.city || null,
-      label: m.kind === "vicinity" ? "$VICINITY" : m.tickerSource ? `$${String(m.symbol).replace(/^\$/, "")}` : m.name || "city coin",
+      label: m.kind === "vicinity" ? (mainTokenV5(env) ? m.name : "$VICINITY") : m.kind === "legacy" ? "$VICINITY (legacy)" : m.tickerSource ? `$${String(m.symbol).replace(/^\$/, "")}` : m.name || "city coin",
     })),
   ];
 }
@@ -292,7 +293,7 @@ export async function handleSendBuild(request, env, fetchImpl = fetch, now = Dat
   let list;
   try { list = await supportedAssets(env, now); } catch (e) { console.error("send assets failed", codeOf(e)); return json({ ok: false, error: "unavailable" }, 503, noStore); }
   let asset = list.find((x) => x.id === assetId) || null;
-  if (!asset) return json({ ok: false, error: "unsupported_asset", message: "Only SOL, $VICINITY and Vicinity city coins can be sent from here." }, 400, noStore);
+  if (!asset) return json({ ok: false, error: "unsupported_asset", message: mainTokenV5(env) ? "Only SOL, the main token, your legacy $VICINITY and Vicinity city coins can be sent from here." : "Only SOL, $VICINITY and Vicinity city coins can be sent from here." }, 400, noStore);
   // the destination's free checks before any chain call
   const mints = list.map((x) => x.mint).filter(Boolean);
   const first = destinationProblem(to, u.wallet, env, { mints });

@@ -30,6 +30,8 @@ import { autoUsername, cleanText } from "./text.js";
 import { isSolanaAddress } from "./solana.js";
 import { POLICY, DAY, iso } from "./policy.js";
 import { withMint } from "./official.js";
+import { mainTokenStatus } from "./maintoken.js";
+import { mainTokenRefusals, mainTokenV5 } from "./v5policy.js";
 import { lpSetup } from "./cluster.js";
 import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
@@ -528,6 +530,10 @@ async function handleConfig(ctx) {
       ADMIN_WALLETS: Boolean(env.ADMIN_WALLETS),
       SNAPSHOT_CUTOFF: Boolean(env.SNAPSHOT_CUTOFF),
     },
+    // owner amendment 01 (src/maintoken.js): the main-token switch, the presence of its three settings and their check's error codes, and
+    // whether the switch counts (src/v5policy.js mainTokenV5) with the codes of what holds it off; the key exists only once the switch or
+    // one of the settings is set (so today's answer is unchanged)
+    ...(mainTokenStatus(env) ? { mainToken: { ...mainTokenStatus(env), active: mainTokenV5(env), heldBy: mainTokenStatus(env).MAIN_TOKEN_V5 ? mainTokenRefusals(env) : [] } } : {}),
     // what THIS server saw of the RPC providers (src/rpcpool.js), by role only (primary, backup, launchpad, devnet), never a URL:
     // when one last refused or failed, why (http_429, rpc_-32429, timeout ...), and until when it is asked last
     rpc: rpcHealth(),

@@ -7,7 +7,7 @@
  *   Holder           → holds any $VICINITY
  *   Member           → signed in, not holding (yet)
  */
-import { activeMint } from "./official.js";
+import { tokenMint } from "./official.js";
 import { liveAmounts } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { iso } from "./policy.js";
@@ -17,7 +17,7 @@ export const VOTE_WEIGHT = { member: 1, holder: 1, founder: 2, manager: 3, admin
 export const LIVE = ["provisional", "active", "grace", "steward"];
 
 export const adminWallets = (env) => String((env && env.ADMIN_WALLETS) || "").split(/[\s,]+/).filter(isSolanaAddress);
-export const amountsFor = (env, wallets, fetchImpl = fetch, opts = {}) => liveAmounts(env, wallets, fetchImpl, { ...opts, mint: activeMint(env) });
+export const amountsFor = (env, wallets, fetchImpl = fetch, opts = {}) => liveAmounts(env, wallets, fetchImpl, { ...opts, mint: tokenMint(env) });
 
 export const liveSeatOfUser = (db, userId) =>
   db.prepare("SELECT * FROM seats WHERE user_id = ? AND status IN ('provisional', 'active', 'grace', 'steward')").bind(userId).first();
@@ -41,7 +41,7 @@ export async function managerOf(env, cc, now = Date.now()) {
  *   { admin, launched, amount, holder, seat, founderCity, managerCountry, level, weight }
  */
 export async function powersOf(env, user, fetchImpl = fetch, now = Date.now()) {
-  const launched = Boolean(activeMint(env));
+  const launched = Boolean(tokenMint(env));
   // an account without a wallet (onboarding v3) holds nothing and is nobody's admin: no blockchain look for it
   const admin = Boolean(user.wallet) && adminWallets(env).includes(user.wallet);
   const amount = launched && user.wallet ? (await amountsFor(env, [user.wallet], fetchImpl)).get(user.wallet) || 0 : 0;

@@ -4,6 +4,8 @@
  *
  * Public:
  *   GET  /api/health · /api/official · /api/check?q= · /api/policy (the rules, their version, and job health)
+ *   GET  /api/policy/master                                  the v5 policy, only while PUBLIC_V5=on and the configuration is accepted
+ *                                                            (src/v5policy.js; /api/policy then also carries `master`); else 404 not_found
  *   GET  /api/token · /api/holders · /api/rank?address=      live token facts, holders, one wallet's rank
  *   GET  /api/message?address&action=verify|login            the exact text a wallet signs
  *   POST /api/verify                                         check a signed message (nothing stored)
@@ -66,7 +68,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
-import { activeMint, checkOfficial, marketLink, officialFor, teamWalletLabel, withMint } from "./official.js";
+import { activeMint, checkOfficial, mainCacheTag, marketLink, officialFor, teamFor, teamWalletLabel, tokenMint, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamLock, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -83,7 +85,7 @@ import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHan
 import { handleDelete, handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleMute, handleMutes } from "./mutes.js";
 import { handleNotices, handleNoticesPrefs, handleNoticesRead } from "./notify.js";
-import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
+import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw, seatsFrozen } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
 import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
@@ -103,7 +105,7 @@ import { CHART_TTL, handleCoin, handleCoinChart } from "./coin.js";
 import { CHART_TFS } from "./pricehistory.js";
 import { publicLimit } from "./guards.js";
 import { launchpadTradingOn, swapOn } from "./cluster.js";
-import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx } from "./swap.js";
+import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx, mainTokenRoute } from "./swap.js";
 import { handleBalances, handleSend, handleStatus } from "./relay.js";
 import { handleTradeQuote, handleTradeTx } from "./lptrade.js";
 import { sameSite } from "./http.js";
@@ -115,6 +117,10 @@ import { handleFees } from "./fees.js";
 import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus.js";
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
+import { DEFAULT_SITE, isForwardHost, siteConfig } from "./site-config.js";
+import { checkDeploymentConfig } from "./maintoken.js";
+import { checkPolicyConfig, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
+import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -166,7 +172,7 @@ export async function handleVerify(request, env = {}, now = Date.now(), fetchImp
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
   const out = { verified: true, address, verifiedAt: new Date(now).toISOString(), launched: false };
-  const mint = activeMint(env);
+  const mint = tokenMint(env);
   if (mint) {
     out.launched = true;
     try {
@@ -230,12 +236,18 @@ async function rankResponse(env, mint, address, fetchImpl) {
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);
     // a team wallet's label rides along (the rank check names "Team wallet (FOMO)" from it, list or no list)
-    const team = isTeamWallet(address);
-    return json({ launched: true, full: false, address, amount, rank: null, total: null, team, ...(team ? { label: teamWalletLabel(address) } : {}), ...(isTeamLock(address) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
+    const facts = teamFor(env, mint), team = isTeamWallet(address, facts);
+    return json({ launched: true, full: false, address, amount, rank: null, total: null, team, ...(team ? { label: teamWalletLabel(address) } : {}), ...(isTeamLock(address, facts) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
   } catch {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }
 }
+
+/** The v5 public policy's options: the clock, and the main token's purchase-link state from the existing quote path (src/swap.js). */
+const v5Options = (env, fetchImpl) => {
+  const now = Date.now();
+  return { now, routeFor: (mint) => mainTokenRoute(env, mint, fetchImpl, now) };
+};
 
 // Routes that exist only in the new sign-up (SIGNUP_FLOW=v2), besides everything under /api/signup/.
 const V2_EXACT = new Set(["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]);
@@ -304,7 +316,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // the Launchpad's coin list (LAUNCHPAD_V2=on): same rule; one answer per region every 30 seconds (edge cache + a copy per server)
   if (path === "/api/launchpad") {
     if (!launchpadV2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
-    return only("GET") || needsDb() || cached("launchpad-" + (activeMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
+    return only("GET") || needsDb() || cached("launchpad-" + (tokenMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
   }
   // one coin's page and chart (LAUNCHPAD_V2=on): allow-listed mints only (src/coin.js), edge-cached, counted on a cache miss
   if (path === "/api/coin" || path === "/api/coin/chart") {
@@ -326,8 +338,8 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       && !(lpSetup(env).on && ["/api/swap/send", "/api/swap/status"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
     const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
-      case "/api/swap/config": return only("GET") || cached("swap-config-" + (activeMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
-      case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()), 300, () => handleSwapTokens(request, env, fetchImpl));
+      case "/api/swap/config": return only("GET") || cached("swap-config-" + (tokenMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
+      case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()) + mainCacheTag(env), 300, () => handleSwapTokens(request, env, fetchImpl));
       case "/api/swap/quote": return post(() => handleSwapQuote(request, env, fetchImpl));
       case "/api/swap/tx": return post(() => handleSwapTx(request, env, fetchImpl));
       case "/api/swap/send": return post(() => needsDb() || handleSend(request, env, fetchImpl)); // the ticket is verified with the database's salt: without one nothing is relayed
@@ -423,9 +435,19 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return only("GET") || json({ ok: true, service: "vicinity-map", milestone: 2 });
     case "/api/official":
       return only("GET") || json(officialFor(env));
-    case "/api/policy":
-      return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
-        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
+    case "/api/policy": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      const out = { policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(tokenMint(env)),
+        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } };
+      // the v5 policy (PUBLIC_V5=on with the configuration accepted, src/v5policy.js); otherwise exactly today's answer
+      if (publicV5(env)) out.master = await publicMaster(env, v5Options(env, fetchImpl));
+      return json(out);
+    }
+    case "/api/policy/master":
+      // PUBLIC_V5=on with the configuration accepted (src/v5policy.js); otherwise exactly what any unknown path answers (any method)
+      if (!publicV5(env)) return json({ error: "not_found" }, 404);
+      return only("GET") || json(await masterPolicyAnswer(env, v5Options(env, fetchImpl)));
     case "/api/check": {
       const blocked = only("GET");
       if (blocked) return blocked;
@@ -449,7 +471,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/token": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, registry: withMint(env).tokens });
       return cached("token-" + mint, 60, async () => {
         try {
@@ -462,7 +484,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/holders": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, holders: [] });
       // pages start at a multiple of 1,000, so the edge cache holds one answer per page and nothing else; the first page keeps its old key
       const offset = Math.floor(Math.min(Math.max(0, Number(url.searchParams.get("offset")) || 0), 10_000_000) / HOLDERS_PAGE) * HOLDERS_PAGE;
@@ -473,7 +495,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (blocked) return blocked;
       const address = url.searchParams.get("address");
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, address, founderMin: founderAmount(0) });
       // the attempt is counted only when the 30-second cache has no answer: looking at the same wallet again is free
       return cached(`rank-${mint}-${address}`, 30, async () => (await publicLimit(env, request, "rank")) || rankResponse(env, mint, address, fetchImpl));
@@ -507,35 +529,36 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/claims": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      if (!env.DB) return json({ launched: Boolean(activeMint(env)), seats: [], windows: [] });
-      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server
-      return cached("seats", 30, async () => {
+      if (!env.DB) return json({ launched: Boolean(tokenMint(env)), seats: [], windows: [] });
+      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server (the key names the main token's mode:
+      // "seats" exactly while MAIN_TOKEN_V5 does not count, src/official.js mainCacheTag)
+      return cached("seats" + mainCacheTag(env), 30, async () => {
         await ensureSchema(env.DB);
         const res = await handleSeats(env);
         const body = await res.json();
-        return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+        return json({ ...body, launched: Boolean(tokenMint(env)), founderAmount: founderAmount(0) });
       });
     }
     case "/api/seats/apply":
-      return only("POST") || handleApply(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleApply(request, env, fetchImpl);
     case "/api/seats/withdraw":
-      return only("POST") || handleWithdraw(request, env);
+      return only("POST") || seatsFrozen(env) || handleWithdraw(request, env);
     case "/api/seats/endorse":
-      return only("POST") || handleEndorse(request, env);
+      return only("POST") || seatsFrozen(env) || handleEndorse(request, env);
     case "/api/seats/object":
-      return only("POST") || handleObject(request, env);
+      return only("POST") || seatsFrozen(env) || handleObject(request, env);
     case "/api/seats/resign":
-      return only("POST") || handleResign(request, env);
+      return only("POST") || seatsFrozen(env) || handleResign(request, env);
     case "/api/seats/objections/decide":
-      return only("POST") || handleDecideObjection(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleDecideObjection(request, env, fetchImpl);
     case "/api/seats/squad/create":
-      return only("POST") || handleSquadCreate(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadCreate(request, env);
     case "/api/seats/squad/join":
-      return only("POST") || handleSquadJoin(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadJoin(request, env);
     case "/api/seats/squad/leave":
-      return only("POST") || handleSquadLeave(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadLeave(request, env);
     case "/api/seats/squad/apply":
-      return only("POST") || handleSquadApply(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleSquadApply(request, env, fetchImpl);
 
     // city coins (designed by City Founders) and prices for the swap panel
     case "/api/coins": {
@@ -543,7 +566,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (blocked) return blocked;
       // the whole list is public and the same for everyone: cached. One city's coin (the founder's studio) and the admin queue are live.
       if (url.searchParams.get("city") || url.searchParams.get("waiting")) return handleCoins(request, env, fetchImpl);
-      return cached("coins", 30, () => handleCoins(request, env, fetchImpl));
+      return cached("coins" + mainCacheTag(env), 30, () => handleCoins(request, env, fetchImpl));
     }
     case "/api/coins/design":
       // COIN_V2_READY=on: every coin is the ready-made Vicinity coin ("Use this coin", src/coinready.js); the old studio stays closed
@@ -585,7 +608,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return json({ country: cc, rule, manager: mgr ? { name: mgr.name, city: mgr.city, endsAt: mgr.term.ends_at, since: mgr.term.starts_at } : null });
     }
     case "/api/elections/vote":
-      return only("POST") || handleElectionVote(request, env);
+      return only("POST") || seatsFrozen(env) || handleElectionVote(request, env);
 
     // accounts
     case "/api/auth/wallet":
@@ -630,7 +653,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/locate/handoff/claim":
       return only("POST") || db(() => handleHandoffClaim(request, env));
     case "/api/members":
-      return only("GET") || cached("members", 60, () => handleMembers(env));
+      return only("GET") || cached("members" + mainCacheTag(env), 60, () => handleMembers(env));
 
     // feeds
     case "/api/posts":
@@ -686,22 +709,36 @@ export function withSecurityHeaders(response) {
   return res;
 }
 
-/** vicinity.city is the address; the old one and the www versions forward there, keeping the path.
- *  Plain http:// visits are sent to https:// (except on this computer, for `wrangler dev`). */
-const CANONICAL_HOST = "vicinity.city";
-const FORWARD_HOSTS = new Set(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
+/** The old names (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name
+ *  SITE_ORIGINS serves in place) forward to today's canonical host, vicinity.city, keeping the path. The target is a constant, never the
+ *  request and not SITE_ORIGIN: a permanent cross-domain redirect to a configured origin belongs to the HOST_REDIRECT switch and its own
+ *  checks (stage S03), so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this computer,
+ *  for `wrangler dev`). */
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
 // `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
 const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
+// The configuration checks run once at the first request of an isolate, inside the handler's try and in a try of their own, so not even a
+// future fault in one of them can change an answer. They change no answer by themselves:
+// - amendment 01 (src/maintoken.js): with MAIN_TOKEN_V5 off it reports nothing; with it on, each named problem is logged once (its code
+//   and the key's name, never a value);
+// - the v5 policy (src/v5policy.js, stage S07): validatePolicy on this Worker's settings; each named error is logged once (code and path,
+//   never a value). With every v5 switch and setting unset it reports nothing.
+let configChecked = false;
+
 export default {
   async fetch(request, env, ctx) {
     try {
+      if (!configChecked) {
+        configChecked = true;
+        try { checkDeploymentConfig(env); checkPolicyConfig(env); } catch { /* a check is never worth a failed request */ }
+      }
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);
-      if (FORWARD_HOSTS.has(url.hostname) || insecure) {
-        if (FORWARD_HOSTS.has(url.hostname)) url.hostname = CANONICAL_HOST;
+      const site = siteConfig(env), forward = isForwardHost(site, url.hostname);
+      if (forward || insecure) {
+        if (forward) url.hostname = DEFAULT_SITE.host;
         url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
@@ -709,7 +746,10 @@ export default {
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
-      return withSecurityHeaders(await env.ASSETS.fetch(request));
+      // an asset the Worker fetches itself. In production no page comes this way (wrangler.jsonc run_worker_first lists only the paths
+      // above, and not_found_handling serves the 404 page from the assets without the Worker); with MAIN_TOKEN_V5 counting, an HTML answer
+      // gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
+      return withSecurityHeaders(await officialLinksInPage(await env.ASSETS.fetch(request), env));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);
       return json({ error: "internal_error" }, 500);

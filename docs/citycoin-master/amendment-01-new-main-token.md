@@ -57,14 +57,15 @@ or module may write a mint, X address or Telegram address of its own. The policy
 A set value is always shape-checked, even with every feature off. An unset link is never an error.
 
 **How `validatePolicy` maps switches to those features:** `SELECTION_V5` shadow or on (selection, including the dry run, reads
-balances); `MANAGER_APPS=on` (national rank); `MAIN_TOKEN_V5=on` (token page and purchase links); `LAUNCH_V5=on` or
+balances); `MANAGER_APPS=on` (national rank); `MAIN_TOKEN_V5=on` (token page and purchase links; it also needs `LEGACY_SEATS=frozen`,
+`MAIN_TOKEN_ON_WITH_LEGACY_SEATS`, because the legacy seats measure `$VICINITY`); `LAUNCH_V5=on` or
 `CC_TRADING=on` with `main_token` in `enabled_quote_configs` (main-token quote). An enabled main-token quote also needs chain facts
 keyed by the configured mint (`QUOTE_FACTS_MISSING` otherwise), a classic SPL Token owner, integer decimals read from chain, and no
 mint or freeze authority (`QUOTE_TOKEN_PROGRAM`, `QUOTE_DECIMALS`, `QUOTE_MINT_AUTHORITY`, `QUOTE_FREEZE_AUTHORITY`).
 A policy edited to name a legacy mint as `main_token.mint` or `quote_configs.main_token.quote_mint` fails with
 `MAIN_TOKEN_IS_LEGACY_MINT` as well as `POLICY_VALUE_MISMATCH`.
 
-**Helpers** (pure, in `src/masterpolicy.js`, imported by no live module yet):
+**Helpers** (pure, in `src/masterpolicy.js`; since stage S02A imported by exactly one module, the adapter `src/maintoken.js`, section 11):
 
 - `mainTokenConfig(env)` returns `{ configKey: "MAIN_TOKEN_MINT", mint, problem }`. `mint` is `null` when the key is unset, blank,
   malformed or a legacy mint, so a consumer can never pick up an unusable or legacy value; `problem` names the refusal. It never
@@ -154,7 +155,7 @@ All references are to main `4aa408e` (no tracked file in the worktree differs fr
 `isTeamWallet(`, `kind: "vicinity"`, and the purchase-link hosts (section 10). Today every consumer below reads the Worker setting
 `VICINITY_MINT` (wrangler.jsonc:32), whose value is the legacy mint, through `activeMint(env)` (src/official.js:267-268).
 
-**The rule for the migration:** one adapter, `mainMint(env)` (the `mainTokenConfig` helper wired into `src/official.js`), replaces
+**The rule for the migration:** one adapter, `mainMint(env)` (the `mainTokenConfig` helper, wired in `src/maintoken.js` and applied by `tokenMint(env)` in `src/official.js` since S02A), replaces
 `activeMint(env)` for every main-token use under `MAIN_TOKEN_V5=on`. `VICINITY_MINT` keeps its name (rebrand-inventory.md P06) and is
 read only to show legacy history. Many places today use `Boolean(activeMint(env))` to mean "the token has launched"
 (src/index.js:427, 510, 516; src/signup-finish.js:140; src/auth.js:657; src/roles.js:44; src/me.js:100; src/profiles.js:127).
@@ -321,3 +322,79 @@ None yet. The owner has not supplied any of the three values. This section recei
   scripts/pages/build.mjs at the cited lines.
 - No RPC call, no network request, no transaction, no keypair and no secret. Nothing about the new mint was read, because no mint
   has been supplied.
+
+## 11. Stage S02A implementation (local branch `cc/s02`, not merged, nothing deployed)
+
+Built on 24 October 2026 on top of stage S02. No value was supplied: `MAIN_TOKEN_MINT`, `OFFICIAL_X_URL` and `OFFICIAL_TELEGRAM_URL`
+stay unset, and `wrangler.jsonc` is unchanged. With `MAIN_TOKEN_V5` unset the site is today's: the built `public/` folder is byte
+for byte the committed one, and a scratch sweep of the real Worker (public and signed-in API answers with every header, the static
+asset fallback, the old-host and http redirects, two scheduled job runs, every D1 row and the D1 schema, every log line) gave the
+same bytes for the reference tree `361cbe2` and this branch (implementation-report.md section 11).
+
+| Piece | Where | With `MAIN_TOKEN_V5` on |
+|---|---|---|
+| The switch | src/flags.js `mainTokenV5On` (the setting); src/v5policy.js `mainTokenV5` (what every consumer reads) | Exactly "on" (trimmed, any letter case), and then it counts only while every precondition holds (see "Review fixes" below); anything else is off |
+| Adapters | src/maintoken.js `mainMint`, `officialLinks`, `mainTokenFeatures`, `checkDeploymentConfig`, `mainTokenStatus` | `mainMint` reads only `MAIN_TOKEN_MINT` through `mainTokenConfig` (never `VICINITY_MINT`, never a legacy or malformed mint); the configuration check runs at the first request of an isolate (src/index.js) and at each job start (src/jobs.js): off it reports nothing, on each named error is logged once per isolate as its code and key name only |
+| One reader for every consumer | src/official.js `tokenMint(env)` | Not counting: exactly `activeMint(env)`. Counting: `mainMint(env)`, which the switch needs (an unset or refused mint keeps the switch from counting, so the site never turns "not launched" because of it). Moved behind it: /api/token, /api/holders, /api/rank, /api/verify, /api/policy and /api/seats `launched`, the edge-cache keys (src/index.js, src/cointakedown.js), the coin page's allow-list (src/coin.js), /api/coins and the price allow-list (src/coins.js), the Launchpad's first card, its holder counts and the job's coin stats (src/launchpad.js), the price history (src/pricehistory.js), roles, seats, the dashboard and profiles (src/roles.js, src/seats.js, src/me.js, src/profiles.js), the portfolio and Send (src/portfolio.js, src/walletsend.js), the swap's token list (src/swap.js) and the balance sampler (src/ledger.js). The early-member flags (src/signup-finish.js, src/auth.js) and the legacy referral account (src/lpadmin.js) keep reading `VICINITY_MINT`: history and the legacy program. |
+| `$VICINITY` facts | src/official.js `teamFor`, `withMint`, `officialAddresses`, `checkOfficial`; src/chain.js | The team wallets and the Jupiter Lock never label, unrank or set aside anyone in the new token's holder list (they still do in every other list); /api/official names the configured mint (`tokens[0]` "Main token", no venue), lists `teamWallets` and `teamLocks` empty, and carries `$VICINITY` with its team wallets and lock under `legacyTokens` (swap false) and the configured links under `officialLinks`; the link checker answers the legacy mint, the old X account and market links for the legacy mint as legacy (`verdict: "warning"`, `legacy: true`); the /official page lists a "Legacy" group; the holding badges read "main tokens", "Early member" keeps its history wording |
+| Purchase links and the Buy panel default | src/swap.js `mainTokenRoute`, `mainTokenEntry`; src/launchpad.js `mainTokenLinks`; src/coin.js | The existing quote path (Jupiter lite `/swap/v1/quote`, 0.1 SOL into the mint, kept 5 minutes with a route, 1 minute without) decides: with a route the swap's list has the main token (`kind: "vicinity"`, decimals read from the chain, no symbol of `$VICINITY`'s) and the Launchpad card and coin page carry Jupiter, DEX Screener and Solscan links (never Raydium LaunchLab); without one there is no default, no Buy and no purchase link. `$VICINITY` gets no swap entry and no coin page. |
+| Balance history | src/ledger.js `dayKey` | A series of the new token's own (`mday:<mint>:<day>` blobs, which also hold the samples' records), never summed with a `$VICINITY` day and never written to `balance_samples`, which stays `$VICINITY`'s; the history's status (/api/policy, /rules), sampling cadence and staleness read the new series; no legacy hold streak is started, continued, ended or counted (`tenure` answers not qualified); its own old days are pruned; the `day:` series and the Founding Supporters data stay as history, and the snapshot always reads the `day:` series |
+| Social links, one source | src/official.js `socialProfiles`; src/footer-social.js; scripts/pages/build.mjs | The page build and the Worker's response-time rewrite use the same functions, so a built page and a rewritten one are the same bytes; only configured, checked links are shown, an unset link is removed (the dashboard's "Contact us on X" item with it), and the old account is never shown as official. The Worker sees no page in production, the 404 page included: `run_worker_first` is a list (`/api/*`, `/coin-meta/*`, `/official-coins.csv`), which also opts out of the navigation-request handling, and `not_found_handling: "404-page"` serves the 404 page from the assets without the Worker (wrangler.jsonc; measured by the S02/S02A/S07 review under `wrangler dev`). Every page gets its links from the page build, which reads `wrangler.jsonc`; that is why the switch counts only when the pages were built with it. (An earlier version of this row said the Worker serves the 404 page; that was wrong.) |
+| Admin and preflight | src/admin.js (`mainToken` in /api/admin/config); scripts/mainnet-preflight.mjs | Presence of the three settings and the check's error codes, never a value; both appear only once the switch or a setting is set |
+
+Deliberately not done in S02A, and why:
+
+- **The pages' and client scripts' own `$VICINITY` wording.** The token page copy (title, hero, FAQ, "Minting disabled", "60M team
+  tokens locked", the founder amount), the client scripts' labels for `kind: "vicinity"` ("$VICINITY", "Buy $VICINITY", the
+  Launchpad card's "Pair: $VICINITY / SOL"), the client-side purchase-link fallbacks (public/launchpad.js builds Raydium, Jupiter and
+  DEX Screener links from any card's mint; public/token.js builds its four tiles from the contract) and the page sources of section 5.5
+  live in `public/`. Changing them would change the live bytes with the switch off, and their new wording is the label migration of
+  stage S48. Until then the page build refuses `MAIN_TOKEN_V5=on` in `wrangler.jsonc` (scripts/pages/build.mjs `pageSocials`), which
+  enforces section 3's rule that the switch rolls out with the brand rollout or after it. Since the review fixes below, a dashboard-only
+  setting cannot bypass that check either: the Worker counts the switch only when the deployed pages were built with it.
+- **The Terms of Use contact clauses** that name the old X account: a new Terms version needs the owner's approval (section 6).
+- **The on-chain name and symbol of the new token**: shown as "Main token" with no symbol until the verification record exists; no
+  name is invented.
+- **A mint column for `balance_samples`**: not added, so the D1 schema stays today's. The sampler's cadence still reads the table's
+  last row; under the switch its shrink guard compares with the new token's own last sample instead.
+
+
+**Review fixes (same local branch, not merged, nothing deployed).** The review of S02, S02A and S07 found that the switch, once set, could
+take effect without its preconditions: a dashboard-only `MAIN_TOKEN_V5=on` moved every server consumer while every page and client script
+still named `$VICINITY` (the footers, /official, "Buy $VICINITY" on the new token), an unset or refused mint turned the site "not launched",
+the legacy seat job measured founders on the new token and demoted them, the snapshot mixed the two tokens, the balance history reported
+`$VICINITY` samples as the new token's, and the swap still bought `$VICINITY`. Fixed, with switches-off parity proved again
+(implementation-report.md section 11):
+
+- **The switch fails closed** (src/v5policy.js `mainTokenV5`, read by every consumer). It counts only while all of these hold, and
+  otherwise the whole Worker answers exactly as with it off, logging each reason once (`main token switch refused <code>`):
+  `MAIN_TOKEN_V5_PAGES_NOT_BUILT`: the deployed pages were built with the switch (src/pages-built.js, written by the page build from
+  `wrangler.jsonc`; the build refuses the switch until the label migration S48 and whenever the Worker would refuse its configuration,
+  so today the file says `false`); `MAIN_TOKEN_V5_BRAND_MISMATCH`: `BRAND` is the label set the pages were built with;
+  `MAIN_TOKEN_V5_CONFIG_REFUSED`: `MAIN_TOKEN_MINT` and the links are accepted; `MAIN_TOKEN_V5_POLICY_REFUSED`: the v5 configuration check
+  accepts the deployment, which now also needs `LEGACY_SEATS=frozen`. A switch set only in the Cloudflare dashboard therefore does nothing.
+- **Legacy seats.** While the switch counts, the seats and elections job steps do nothing and every seat, squad, endorsement, objection,
+  resign and election writer answers 410 `seats_frozen` (reads stay): the run-time half of `LEGACY_SEATS=frozen` until S16.
+- **No swap of `$VICINITY`** under the switch: quote and transaction builds refuse it as input or output (`legacy_token`, 409), and the
+  token search leaves it out. Holders can still send their own.
+- **One token per number.** The Founding Supporters snapshot reads the `$VICINITY` series only; the balance history of the main token
+  never enters `balance_samples`; the seats, coins, members and token-search edge-cache keys carry the main token's mode while it counts.
+- **Status words.** A configured mint is "Configured" in the registry and `configured_unverified` in the public policy, never "Live" or
+  `active` on a shape check; `legacy_tokens` and `official_links.legacy` in the public policy carry a status (`approved_target` while
+  `$VICINITY` is still the token in use, `active` once the switch counts).
+- **Not changed, still S48's:** the pages' and client scripts' own `$VICINITY` wording and the client-side link fallbacks (listed above).
+  They can no longer appear next to the new token, because the switch cannot count before the build that migrates them.
+
+**Stage S07 (same local branch, not merged, nothing deployed): the amendment in the public policy.** Behind the `PUBLIC_V5` switch,
+and only while the v5 configuration check accepts the deployment (schema-and-api.md sections 2.2 and 4.9; src/v5policy.js), the
+`master` key of `GET /api/policy` and `GET /api/policy/master` carry `main_token`, `legacy_tokens` and `official_links`:
+
+- `main_token.mint` is the configured, shape-checked `MAIN_TOKEN_MINT` only while `MAIN_TOKEN_V5` counts, the moment the site's own
+  consumers read it (section 4.3: the switch goes on only after the verification record exists); otherwise `null`. A value set ahead of
+  the switch is checked but not announced. `verified` stays `null` until the verification record of section 9 is machine-readable,
+  and `purchase_links` reads `"hidden"` until the existing quote path finds a route for the configured mint.
+- `legacy_tokens` is the policy's block: `$VICINITY`, its legacy mint, history only, no automatic swap or migration.
+- `official_links.x_url` and `telegram_url` follow the footer's rule (configured, checked, and only while `MAIN_TOKEN_V5` is on), `null`
+  otherwise; `official_links.legacy.x_url` is always the old account.
+- The configuration check names a malformed or legacy value even with every switch off (a set value is always shape-checked), and any
+  such error keeps `PUBLIC_V5` off. While `MAIN_TOKEN_V5` is on, these three keys are reported by src/maintoken.js only, once.

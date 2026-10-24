@@ -7,6 +7,8 @@
  *
  * `deps.smtpImpl` lets tests fake the whole SMTP conversation; `deps.fetchImpl` fakes Resend.
  */
+import { brandOf } from "./brand.js";
+
 const SMTP_TIMEOUT_MS = 12_000;
 
 const b64 = (s) => btoa(String(s).replace(/[^\x00-\xff]/g, "?"));
@@ -95,8 +97,9 @@ async function sendViaGmail(env, { to, subject, text, html }, smtpImpl) {
       await conn.cmd(`MAIL FROM:<${user}>`, 250);
       await conn.cmd(`RCPT TO:<${to}>`, [250, 251]);
       await conn.cmd("DATA", 354);
-      await conn.data(html ? mimeMessage({ from: `Vicinity <${user}>`, to, subject, text, html })
-                           : rawMessage({ from: `Vicinity <${user}>`, to, subject, text }));
+      const from = `${brandOf(env).senderName} <${user}>`; // the display name from src/brand.js ("Vicinity" while BRAND is unset)
+      await conn.data(html ? mimeMessage({ from, to, subject, text, html })
+                           : rawMessage({ from, to, subject, text }));
       await conn.cmd("QUIT", 221);
       return { ok: true };
     })();
@@ -108,7 +111,8 @@ async function sendViaGmail(env, { to, subject, text, html }, smtpImpl) {
 
 export async function sendViaResend(env, { to, subject, text, html }, fetchImpl) {
   if (!env.RESEND_API_KEY) return { ok: false, error: "email_unavailable" };
-  const from = env.EMAIL_FROM || "Vicinity <noreply@vicinity.city>";
+  // the display name follows src/brand.js; the address stays on vicinity.city until the mail provider verifies another sending domain
+  const from = env.EMAIL_FROM || `${brandOf(env).senderName} <noreply@vicinity.city>`;
   const body = { from, to: [to], subject, text };
   if (html) body.html = html;
   let res;

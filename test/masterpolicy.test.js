@@ -3,7 +3,8 @@
 // inputs with named errors, and its pure helpers (six-hour selection clock, 250 bps fee split, activity points) must be exact.
 // Owner amendment 01 (24 Oct 2026): the main token is a centrally configured, owner-supplied and verified mint (MAIN_TOKEN_MINT,
 // null until supplied), the official X and Telegram links are configured the same way, and $VICINITY is a legacy token.
-// DESIGN only: no live module imports src/masterpolicy.js yet, and the last test keeps it that way.
+// Stage S02A: the amendment-01 adapter src/maintoken.js imports src/masterpolicy.js; stage S07 adds the run-time policy adapter
+// src/v5policy.js. No other module does, and the last test keeps it that way.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -491,11 +492,15 @@ test("amendment 01: validateDeploymentConfig names every refusal, and allows uns
 
 test("amendment 01: validatePolicy applies the same rules to the deployment inputs and the switches that need the main token", () => {
   const v = (flags, inputs = {}, environment = "test") => validatePolicy(withDeployment(MASTER_POLICY, { environment, flags, inputs }));
-  let r = v({ MAIN_TOKEN_V5: "on" });
+  let r = v({ MAIN_TOKEN_V5: "on", LEGACY_SEATS: "frozen" });
   assert.deepEqual(codes(r), ["MAIN_TOKEN_MINT_MISSING"]);
   assert.equal(r.errors[0].path, "deployment.inputs.MAIN_TOKEN_MINT");
   assert.match(r.errors[0].message, /MAIN_TOKEN_V5=on/);
-  assert.deepEqual(v({ MAIN_TOKEN_V5: "on" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT }), { ok: true, errors: [] });
+  assert.deepEqual(v({ MAIN_TOKEN_V5: "on", LEGACY_SEATS: "frozen" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT }), { ok: true, errors: [] });
+  // the legacy seats measure $VICINITY: the main token changes only once they are frozen (review finding SWON-1)
+  r = v({ MAIN_TOKEN_V5: "on" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT });
+  assert.deepEqual(codes(r), ["MAIN_TOKEN_ON_WITH_LEGACY_SEATS"]);
+  assert.equal(r.errors[0].path, "deployment.flags.LEGACY_SEATS");
   assert.ok(has(v({ MANAGER_APPS: "on" }), "MAIN_TOKEN_MINT_MISSING"));
   assert.ok(has(v({ SELECTION_V5: "shadow" }), "MAIN_TOKEN_MINT_MISSING"));
   // with every switch off, unset values are fine, and set values are still shape-checked
@@ -732,7 +737,7 @@ test("activity: malformed input is refused rather than guessed", () => {
 
 /* ------------------------------------------------------------------ no live change */
 
-test("no existing module imports src/masterpolicy.js yet (no live change)", () => {
+test("only the adapters src/maintoken.js (stage S02A) and src/v5policy.js (stage S07) import src/masterpolicy.js; no page, script or other module does", () => {
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(new URL(dir, root))) {
@@ -745,6 +750,15 @@ test("no existing module imports src/masterpolicy.js yet (no live change)", () =
   for (const dir of ["src/", "public/", "scripts/"]) walk(dir);
   assert.ok(files.includes("src/index.js") && files.includes("src/masterpolicy.js"));
   const importers = files.filter((f) => f !== "src/masterpolicy.js" && /masterpolicy/.test(readFileSync(new URL(f, root), "utf8")));
-  assert.deepEqual(importers, []);
+  assert.deepEqual(importers, ["src/maintoken.js", "src/v5policy.js"]);
+  const named = (f) => {
+    const line = readFileSync(new URL(f, root), "utf8").match(/^import \{([^}]*)\} from "\.\/masterpolicy\.js";$/m);
+    assert.ok(line, `${f} imports src/masterpolicy.js with one named import`);
+    return line[1].split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).sort();
+  };
+  // src/maintoken.js takes only the amendment-01 pieces: the main-token configuration, the official links and their configuration check
+  assert.deepEqual(named("src/maintoken.js"), ["MASTER_POLICY", "mainTokenConfig", "officialLinks", "validateDeploymentConfig"]);
+  // src/v5policy.js takes the document, the switch list, the whole configuration check and the selection clock (for the public schedule)
+  assert.deepEqual(named("src/v5policy.js"), ["FLAG_VALUES", "MASTER_POLICY", "nextSelectionBoundary", "validatePolicy"]);
   assert.doesNotMatch(readFileSync(new URL("wrangler.jsonc", root), "utf8"), /masterpolicy/);
 });

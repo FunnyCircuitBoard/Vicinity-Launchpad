@@ -12,7 +12,7 @@ import { cleanEmail, consumeEmailCode, getSession, isFresh, providers, renewSess
 import { linkLocked, linkWindow, lockedAnswer, mayDisown, ownerCould, ownerFresh } from "./walletlink.js";
 import { access } from "./access.js";
 import { countRecent, noteEvent, useAttestation } from "./attest.js";
-import { activeMint } from "./official.js";
+import { teamFor, tokenMint } from "./official.js";
 import { getHolding, holderSnapshot, isTeamWallet, rankOf } from "./chain.js";
 import { DAY, HOUR, POLICY, iso } from "./policy.js";
 import { VOTE_WEIGHT, activeBan, adminWallets, amountsFor, liveSeatOfUser, managerOf } from "./roles.js";
@@ -23,6 +23,7 @@ import { communityById } from "./community.js";
 import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
 import { coinV2ReadyOn, dashboardV2On, feedV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { unreadCount } from "./notify.js";
 import { countsOf } from "./profile-core.js";
 import { googleAdded, removeGoogle } from "./logins.js";
@@ -40,7 +41,9 @@ export const publicUser = (u) => ({
 /** Badges that depend on holding: these can be lost by selling. */
 const HOLDING_BADGES = new Set(["holder", "founder_ready", "whale", "top100", "top10", "city_founder", "country_manager"]);
 
-export function badgesFor({ u, launched, amount, position, seat, manager, admin, checkins, posts, tenure, threshold }) {
+// `unit`: what the holding badges are measured in, in words: "$VICINITY" (today), or "main tokens" with MAIN_TOKEN_V5 on (owner amendment
+// 01: they measure the configured main token, never $VICINITY). "Early member" stays history: joined before $VICINITY launched.
+export function badgesFor({ u, launched, amount, position, seat, manager, admin, checkins, posts, tenure, threshold, unit = "$VICINITY" }) {
   const pct = (v, of) => Math.max(0, Math.min(1, v / of));
   const T = threshold || POLICY.founder.ladder.base;
   const list = [
@@ -48,10 +51,10 @@ export function badgesFor({ u, launched, amount, position, seat, manager, admin,
     { id: "verified", icon: "✅", name: "Verified account", detail: "A verified Google login or e-mail.", earned: true },
     { id: "wallet", icon: "🔗", name: "Wallet linked", detail: "A Solana wallet linked to your account with one free signature. It unlocks holdings, rank, badges and the founder path.", earned: Boolean(u.wallet) },
     { id: "local", icon: "📍", name: "Local", detail: "Home community confirmed by location.", earned: Boolean(u.home_city) },
-    { id: "holder", icon: "🏅", name: "Holder", detail: launched ? "Hold any $VICINITY." : "Hold $VICINITY once it launches.", earned: amount > 0, progress: amount > 0 ? 1 : 0 },
-    { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ $VICINITY for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
+    { id: "holder", icon: "🏅", name: "Holder", detail: launched ? `Hold any ${unit}.` : `Hold ${unit} once it launches.`, earned: amount > 0, progress: amount > 0 ? 1 : 0 },
+    { id: "founder_ready", icon: "🔑", name: "Founder-ready", detail: `Held ${T.toLocaleString("en-US")}+ ${unit} for ${POLICY.founder.qualifyingDays} days: may apply to found your city.`,
       earned: Boolean(tenure && tenure.qualified && amount >= T), progress: tenure ? pct(tenure.days, tenure.needed) : 0 },
-    { id: "whale", icon: "🐋", name: "Big holder", detail: "Hold 10,000,000+ $VICINITY.", earned: amount >= 10_000_000, progress: pct(amount, 10_000_000) },
+    { id: "whale", icon: "🐋", name: "Big holder", detail: `Hold 10,000,000+ ${unit}.`, earned: amount >= 10_000_000, progress: pct(amount, 10_000_000) },
     { id: "top100", icon: "💯", name: "Top 100", detail: "One of the 100 biggest holders (pools and team wallets not counted).", earned: Boolean(position?.rank && position.rank <= 100) },
     { id: "top10", icon: "🏆", name: "Top 10", detail: "One of the 10 biggest holders (pools and team wallets not counted).", earned: Boolean(position?.rank && position.rank <= 10) },
     { id: "city_founder", icon: "👑", name: seat && seat.status === "steward" ? "Seed Steward" : "City Founder",
@@ -85,8 +88,8 @@ async function leaderboard(env, column, value, snap, fetchImpl) {
     const key = `${column}:${value}:${members}`;
     if (!byKey.has(key)) {
       const wallets = (await env.DB.prepare(`SELECT wallet FROM users WHERE ${column} = ? AND provider != 'testlab' AND wallet IS NOT NULL LIMIT 20000`).bind(value).all()).results.map((r) => r.wallet);
-      const amounts = await amountsFor(env, wallets, fetchImpl);
-      byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([w, a]) => a > 0 && !isTeamWallet(w)).sort((a, b) => b[1] - a[1]));
+      const amounts = await amountsFor(env, wallets, fetchImpl), team = teamFor(env, tokenMint(env));
+      byKey.set(key, wallets.map((w) => [w, amounts.get(w) || 0]).filter(([w, a]) => a > 0 && !isTeamWallet(w, team)).sort((a, b) => b[1] - a[1]));
     }
     list = byKey.get(key);
   }
@@ -97,7 +100,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   const u = s.user, db = env.DB;
   // An account without a wallet (onboarding v3: the wallet is linked later, from the dashboard) holds nothing, ranks nowhere and
   // can be nobody's admin: no blockchain look at all for it. The leaderboards below skip such members too.
-  const mint = activeMint(env), launched = Boolean(mint), wallet = u.wallet || null, team = Boolean(wallet) && isTeamWallet(wallet);
+  const mint = tokenMint(env), launched = Boolean(mint), wallet = u.wallet || null, team = Boolean(wallet) && isTeamWallet(wallet, teamFor(env, mint));
   let snap = null, chain = launched ? "live" : "prelaunch";
   if (launched) { try { snap = await holderSnapshot(env, mint, fetchImpl); } catch { chain = "partial"; } }
   let amount = 0, position = null;
@@ -153,7 +156,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   const act = await db.prepare(
     `SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0${alive}`,
   ).bind(u.id).first();
-  const badges = badgesFor({ u, launched, amount, position, seat, manager: isManager, admin, checkins: act?.days || 0, posts: act?.posts || 0, tenure: elig.tenure, threshold: elig.threshold });
+  const badges = badgesFor({ u, launched, amount, position, seat, manager: isManager, admin, checkins: act?.days || 0, posts: act?.posts || 0, tenure: elig.tenure, threshold: elig.threshold, unit: mainTokenV5(env) ? "main tokens" : "$VICINITY" });
   const earned = badges.filter((b) => b.earned).map((b) => b.id);
   let lost = [];
   try { lost = JSON.parse(u.badges || "[]").filter((id) => HOLDING_BADGES.has(id) && !earned.includes(id)); } catch {}
@@ -463,11 +466,11 @@ export async function handleMembers(env) {
   // never 0, so the map keeps the counts it saw last instead of turning every active city open until the next answer.
   let balances = null;
   try { balances = (await latestBalances(env, Date.now()))?.balances || null; } catch { balances = null; }
-  const holders = balances ? new Map() : null, counts = new Map();
+  const holders = balances ? new Map() : null, counts = new Map(), holderTeam = teamFor(env, tokenMint(env));
   for (const u of placed.results) {
     const c = counts.get(u.home_city) || { id: u.home_city, name: u.home_name, country: u.home_country, members: 0 };
     c.members++; counts.set(u.home_city, c);
-    if (holders && u.wallet && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
+    if (holders && u.wallet && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet, holderTeam)) holders.set(u.home_city, (holders.get(u.home_city) || 0) + 1);
   }
   // The 300 largest communities, then every smaller one with a holder (most holders first): the map paints those "active", and a town
   // with its first holder must show whatever its size.

@@ -18,6 +18,7 @@ import { averages, dayOf, latestBalances, samplesStale } from "./ledger.js";
 import { activeBan, amountsFor } from "./roles.js";
 import { sha256hex } from "./blobs.js";
 import { profilesOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { notifyMany } from "./notify.js";
 
 const M = POLICY.manager, F = POLICY.founder;
@@ -41,6 +42,8 @@ export async function candidates(env, cc, now) {
 
 /** The scheduled job's part: start and end terms, close and open elections. */
 export async function advanceElections(env, now = Date.now(), fetchImpl = fetch) {
+  // MAIN_TOKEN_V5 counting: the legacy elections are frozen with the legacy seats (src/seats.js legacySeatsFrozen); nothing is moved
+  if (mainTokenV5(env)) return { skipped: "legacy_seats_frozen" };
   const db = env.DB;
   const out = { opened: 0, decided: 0, started: 0, ended: 0 };
   // terms: start the upcoming ones, end the finished ones, end those whose founder lost the seat
