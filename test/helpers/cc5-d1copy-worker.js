@@ -15,11 +15,13 @@
 //                                               name) also that table's { count, sha256 } after the step
 //   prepare  { db }                             today's ensureSchema (src/store.js) only
 //   ensure   { db, ids, isolate, failOn, failTimes, failMessage }  ensure each id in turn with the runner of `isolate`: "default" (the
-//                                               module's own ensureCc5Group, the function a feature stage will call), a name (a runner
-//                                               of its own, kept across operations: one simulated isolate), or "fresh" (a new runner and
-//                                               a new database object: a new isolate). failOn (a regular expression source) makes the
-//                                               matching statements throw failMessage, failTimes times. Answers the result or the
-//                                               error of each id and every statement issued.
+//                                               module's runner with its own defaults: the runner ensureCc5Group runs behind its switch
+//                                               gate, which the copy's settings never open), a name (a runner of its own, kept across
+//                                               operations: one simulated isolate), or "fresh" (a new runner and a new database object: a
+//                                               new isolate). failOn (a regular expression source) makes the matching statements throw
+//                                               failMessage, failTimes times. Answers the result or the error of each id and every
+//                                               statement issued.
+//   gated    { db, ids, vars }                  ensureCc5Group itself (the Worker's entry, gate included) with env = vars + the database
 //   race     { db, ids }                        ensure every id at once, each from a new isolate
 import { CC5_GROUPS, cc5Runner, ensureCc5Group } from "../../src/cc5schema.js";
 import { ensureSchema } from "../../src/store.js";
@@ -35,7 +37,7 @@ const ident = (name) => `"${String(name).replace(/"/g, '""')}"`;
 function errorOf(e) {
   if (!e || typeof e !== "object") return { message: String(e) };
   const out = { name: e.name, message: String(e.message) };
-  for (const k of ["reason", "group", "failed", "step", "status", "code"]) if (e[k] !== undefined) out[k] = e[k];
+  for (const k of ["reason", "group", "failed", "inner", "step", "status", "code"]) if (e[k] !== undefined) out[k] = e[k];
   if (e.cause !== undefined) out.cause = String((e.cause && e.cause.message) || e.cause);
   return out;
 }
@@ -107,7 +109,7 @@ export function makeExecutor(env) {
   const isolate = (db, name) => {
     if (name === "fresh") return { runner: cc5Runner({ log: () => {} }), rec: recorder(binding(db)) };
     const key = `${db}|${name}`;
-    if (!isolates.has(key)) isolates.set(key, { runner: name === "default" ? ensureCc5Group : cc5Runner({ log: () => {} }), rec: recorder(binding(db)) });
+    if (!isolates.has(key)) isolates.set(key, { runner: cc5Runner({ log: () => {} }), rec: recorder(binding(db)) });
     return isolates.get(key);
   };
 
@@ -172,6 +174,15 @@ export function makeExecutor(env) {
           iso.rec.state.fail = null;
         }
         return { results, seen: iso.rec.state.seen };
+      }
+      case "gated": {
+        const rec = recorder(binding(op.db));
+        const results = [];
+        for (const id of op.ids) {
+          try { results.push({ id, ok: true, value: [...(await ensureCc5Group({ ...op.vars, DB: rec.db }, id))] }); }
+          catch (e) { results.push({ id, ok: false, error: errorOf(e) }); }
+        }
+        return { results, seen: rec.state.seen };
       }
       case "race": {
         const runs = op.ids.map((id) => {

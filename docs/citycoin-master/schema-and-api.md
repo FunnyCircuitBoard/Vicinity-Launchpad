@@ -43,9 +43,15 @@ is a new, owner-supplied mint read from the configuration key `MAIN_TOKEN_MINT` 
    statements (the shape `READY_MIGRATION.tables` already uses, src/coinart-store.js:22-75), recorded in `schema_migrations`.
 4. **One D1 batch per atomic step.** A D1 batch commits or fails as one transaction (the property the users-table rebuild relies
    on, src/store.js:846-857). Every state transition below that must be atomic is written as one batch of guarded statements
-   (`INSERT ... SELECT ... WHERE`, `UPDATE ... WHERE status = ?`), never as read-then-write.
+   (`INSERT ... SELECT ... WHERE`, `UPDATE ... WHERE status = ?`), never as read-then-write. On a table with kept rows (the
+   append-only tables of rule 6, a founded city, a launched city's active metadata, a country manager, a receipt, the launch record
+   and the hourly records; stage S08, schema-migrations.md sections 3 and 4) the idempotent write is the guarded
+   `INSERT ... SELECT ... WHERE NOT EXISTS (...)` (`keptInsert` in src/cc5schema.js): a repeat is a no-op. `INSERT OR IGNORE`,
+   `INSERT OR REPLACE`, `ON CONFLICT DO NOTHING` and `ON CONFLICT DO UPDATE` abort there with the table's name, and inside a batch
+   the abort rolls the whole batch back.
 5. **Uniqueness lives in the database** (and, for founders, launches, tickers and review locks, on chain), not only in route
-   code. (§18 "Enforce a database unique index"; §21 "Enforce uniqueness in database and chain state".)
+   code. (§18 "Enforce a database unique index"; §21 "Enforce uniqueness in database and chain state".) On a kept table a
+   colliding insert is refused by the table's overwrite guard (a trigger, named after the table) before the UNIQUE check runs.
 6. **Append-only where the master says permanent or append-only.** `founder_records`, `activity_events`,
    `manager_application_events`, `city_metadata_versions` and the request-event tables reject `UPDATE` and `DELETE` with
    triggers. Triggers must be confirmed on a D1 copy in the migration test (SQLite supports them; this design has not run them on
@@ -216,6 +222,11 @@ Conventions: `city_id` is TEXT, as today (`users.home_city`, src/store.js:60; `c
 on chain it is the u64 GeoNames id. Wallets are base58 text of 32 bytes, validated before any write. Statement lists below are
 abbreviated to the definitions; each group also records its migration id in `schema_migrations`.
 
+Stage S08 built sections 3.2 to 3.8 as statement lists (src/cc5schema.js, local branch `cc/s08`; nothing calls them yet) and
+amended them here, while nothing is recorded anywhere (schema-migrations.md section 6, reading R25): `NOT NULL` on the seven text
+primary keys, which SQLite otherwise lets be NULL; the unique index `hourly_actions_once` over the parts of the hourly action key;
+and the kept-table writer rule of rule 4. The triggers S08 adds beyond the ones written below are listed there (section 4).
+
 ### 3.1 Identity, registration and location (§16 Identity, §18, §19, §05)
 
 Today: `users.wallet` is `UNIQUE` (src/store.js:55) and becomes nullable-UNIQUE after the onboarding rebuild
@@ -327,7 +338,7 @@ Migration id `cc5-selection`, created when `SELECTION_V5` first leaves "off".
 
 ```sql
 CREATE TABLE IF NOT EXISTS selection_cities (
-  city_id       TEXT PRIMARY KEY,
+  city_id       TEXT NOT NULL PRIMARY KEY,
   country       TEXT NOT NULL,
   status        TEXT NOT NULL CHECK (status IN ('awaiting','processing','founded')),
   opened_at     TEXT NOT NULL,          -- first city_assignments row, or the moment SELECTION_V5 first left "off"
@@ -407,7 +418,7 @@ CREATE TABLE IF NOT EXISTS national_ranks (
 CREATE UNIQUE INDEX IF NOT EXISTS national_ranks_rank ON national_ranks (mode, cycle, country, rank);
 
 CREATE TABLE IF NOT EXISTS founder_records (
-  city_id        TEXT PRIMARY KEY,
+  city_id        TEXT NOT NULL PRIMARY KEY,
   country        TEXT NOT NULL,
   wallet         TEXT NOT NULL UNIQUE,  -- one account, one fixed city in this release (§19), so one founder seat per wallet
   user_id        INTEGER,
@@ -594,7 +605,8 @@ CREATE TABLE IF NOT EXISTS activity_totals (   -- derived cache, rebuilt at any 
 
 Rules:
 
-- One row per eligible source activity (the UNIQUE `dedup_key` makes concurrent crediting of one post produce one row, A13).
+- One row per eligible source activity (the UNIQUE `dedup_key` makes concurrent crediting of one post produce one row, A13;
+  written with the guarded insert of rule 4, so a repeat is a no-op and a conflict clause aborts with `activity_event_append_only`).
   Posts and replies are written only after the moderation hide window has passed with the post visible and not deleted, the
   duplicate check (normalized body hash against the author's recent posts) and the spam screen; evidence rows only after an
   owner or authorized moderator accepts them, and never by the submitter (§23).
@@ -640,7 +652,7 @@ CREATE TABLE IF NOT EXISTS city_metadata_versions (
 -- append-only triggers (no UPDATE, no DELETE)
 
 CREATE TABLE IF NOT EXISTS city_metadata_active (
-  city_id       TEXT PRIMARY KEY,
+  city_id       TEXT NOT NULL PRIMARY KEY,
   version_id    INTEGER NOT NULL,
   version       INTEGER NOT NULL,
   ticker        TEXT NOT NULL UNIQUE,         -- the global ticker lock before launch
@@ -703,7 +715,7 @@ CREATE TABLE IF NOT EXISTS city_metadata_request_events (
 -- append-only triggers
 
 CREATE TABLE IF NOT EXISTS city_review_locks (   -- mirror of the on-chain ReviewLock; the chain is authoritative
-  city_id       TEXT PRIMARY KEY,
+  city_id       TEXT NOT NULL PRIMARY KEY,
   request_id    INTEGER NOT NULL UNIQUE,
   proposal_hash TEXT NOT NULL,
   base_version  INTEGER NOT NULL,
@@ -763,7 +775,7 @@ CREATE TABLE IF NOT EXISTS city_launches (
 CREATE UNIQUE INDEX IF NOT EXISTS city_launches_city ON city_launches (city_id);
 
 CREATE TABLE IF NOT EXISTS launch_preparations (   -- only if the launch must be split into prepare and finalize (§26)
-  id              TEXT PRIMARY KEY,
+  id              TEXT NOT NULL PRIMARY KEY,
   city_id         TEXT NOT NULL,
   founder         TEXT NOT NULL,
   version_id      INTEGER NOT NULL,
@@ -778,7 +790,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS launch_preparations_open ON launch_preparation
 
 Rules: a city recorded in `lp_coins` or `city_launches` is launched; the route refuses a second launch and the program refuses it
 on chain (one launch per city across old and new programs, §24). A record is written only from a confirmed chain read
-(idempotent on `(cluster, program_id, city_id)`), and the same batch sets `city_metadata_active.launched_mint`, appends the
+(idempotent on `(cluster, program_id, city_id)` through the guarded insert of rule 4: a retried batch is a no-op, a conflict clause
+would abort it), and the same batch sets `city_metadata_active.launched_mint`, appends the
 `launch:<city>` activity event and the community launch event.
 
 ### 3.7 Hourly processing records (§16 Distribution, §30, §31, §32)
@@ -831,7 +844,7 @@ CREATE TABLE IF NOT EXISTS hourly_samples (
 );
 
 CREATE TABLE IF NOT EXISTS hourly_actions (
-  action_key    TEXT PRIMARY KEY,      -- 'cluster|program|coin|quote_mint|utc_hour|action|batch' (§30)
+  action_key    TEXT NOT NULL PRIMARY KEY, -- 'cluster|program|coin|quote_mint|utc_hour|action|batch' (§30)
   cluster       TEXT NOT NULL,
   program_id    TEXT NOT NULL,
   coin          TEXT NOT NULL,
@@ -852,6 +865,7 @@ CREATE TABLE IF NOT EXISTS hourly_actions (
   updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hourly_actions_work ON hourly_actions (status, next_attempt_at);
+CREATE UNIQUE INDEX IF NOT EXISTS hourly_actions_once ON hourly_actions (cluster, program_id, coin, quote_mint, utc_hour, action, batch);
 
 CREATE TABLE IF NOT EXISTS hourly_leaves (
   cluster     TEXT NOT NULL,
@@ -875,6 +889,10 @@ Rules:
 - One failed destination, quote or coin never blocks the others: each action has its own row, backoff (`next_attempt_at`) and
   alert (§30).
 - Leaves stay `owed` until paid or claimed; no expiry and no sweep (§31). Only dust and funds without recipient weight carry.
+  A leaf is kept (never deleted, replaced or redirected) once it is a confirmed funded allocation: paid or claimed, or its hour's
+  root is on chain (a confirmed `holder_root` action, or a live run in `root_published`, `paying` or `done`). Before that a run
+  that fails verification can still correct it. `hourly_leaves` and `hourly_actions` carry no `mode`: shadow runs never write them
+  (stage S08, schema-migrations.md reading R9 and open item O13).
 - The buyback action is scheduled at most once per 150 slots per coin and never bypasses the per-run cap of
   `min(floor(depth / 1000), buyback_pending)`; a missed hour never produces catch-up runs (§32).
 - **Scheduling gap (today).** A 10-minute cron leaves two of the four 15-minute segments with exactly one tick, so a sample there
@@ -890,7 +908,7 @@ Migration id `cc5-ops`, created with the first of `SELECTION_V5`, `CC_HOURLY` or
 
 ```sql
 CREATE TABLE IF NOT EXISTS job_leases (
-  name        TEXT PRIMARY KEY,         -- 'selection' | 'hourly' | 'keeper' | 'activity'
+  name        TEXT NOT NULL PRIMARY KEY, -- 'selection' | 'hourly' | 'keeper' | 'activity'
   holder      TEXT NOT NULL,            -- random id of the run
   fencing     INTEGER NOT NULL,         -- +1 on every acquisition
   acquired_at TEXT NOT NULL,
@@ -915,6 +933,8 @@ Acquisition copies today's pattern: `INSERT ... ON CONFLICT(name) DO UPDATE SET 
 job_leases.fencing + 1, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at WHERE job_leases.expires_at < ?`.
 Every write a lease holder makes is guarded by `AND (SELECT fencing FROM job_leases WHERE name = ?) = ?`, so a run that lost its
 lease (slow, crashed, or on the other host) cannot write. Per-item claims (`claimed_until`, `claim_token`) sit under the lease.
+Acquisition is only this upsert: a lease row is never deleted or replaced (`INSERT OR REPLACE` would reset `fencing`); stage S08's
+triggers refuse a DELETE and any update that lowers `fencing` or changes the holder without raising it.
 
 ### 3.9 Tables that become history (read-only)
 
@@ -1127,8 +1147,13 @@ Routes that return a one-time code (`/api/signup/handoff`) are not replayable an
 | Manager decision | `(application id, checks_hash)` plus status guard | the decision batch `WHERE status IN (...) AND checks_hash = ?` |
 | Metadata transition | `(request id, to_status, chain signature)` | request status guard and the on-chain lock |
 | Launch record | `(cluster, program_id, city_id)` | `city_launches` primary key and the on-chain city and ticker locks |
-| Hourly action | `cluster|program|coin|quote_mint|utc_hour|action|batch` (§30) | `hourly_actions` primary key, the on-chain paid bitmap and monotonic hour ids |
+| Hourly action | `cluster|program|coin|quote_mint|utc_hour|action|batch` (§30) | `hourly_actions` primary key and the unique index `hourly_actions_once` over the parts, the on-chain paid bitmap and monotonic hour ids |
 | Wallet challenge | `auth_challenges.id` single use | the consumption batch (section 3.1) |
+
+On the kept tables (FounderRecord, activity award, launch record, hourly action and the other kept rows of rule 4), "enforced by the
+primary key or UNIQUE" means: the idempotent write is the guarded `INSERT ... SELECT ... WHERE NOT EXISTS (...)` (`keptInsert` in
+src/cc5schema.js), which makes a repeat a no-op; a conflict clause (`INSERT OR IGNORE`, `INSERT OR REPLACE`, `ON CONFLICT ...`) aborts
+there with the table's name and rolls back its batch (rule 4). A job lease is acquired only by the upsert of section 3.8.
 
 ## 6. Existing endpoints: stay, change or retire
 

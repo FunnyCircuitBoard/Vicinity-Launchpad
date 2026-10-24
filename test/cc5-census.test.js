@@ -14,10 +14,10 @@ import os from "node:os";
 import path from "node:path";
 import { CC5_GROUPS, CC5_ORDER } from "../src/cc5schema.js";
 import {
-  CATEGORIES, CC5_TABLES, CENSUS_VERSION, COUNTS, HISTORY_TABLES, PRESERVED, assertSingleSelect, compareCensus, loadKey, main as censusMain,
-  runCensus, wranglerExecutor,
+  CATEGORIES, CC5_OBJECTS, CC5_TABLES, CENSUS_VERSION, CHURN_TABLES, COUNTS, HISTORY_TABLES, PRESERVED, SCHEMA_TYPES, assertSingleSelect, compareCensus, loadKey,
+  main as censusMain, runCensus, wranglerExecutor,
 } from "../scripts/citycoin/census.mjs";
-import { groupClosure, main as backupMain, parseBookmark, parseFlags, planBackup } from "../scripts/citycoin/backup.mjs";
+import { groupClosure, main as backupMain, parseBookmark, parseFlags, planBackup, rehearsalHeld, validateRestore } from "../scripts/citycoin/backup.mjs";
 import { REPO_ROOT, Refusal, outsideRepository, wranglerEnv } from "../scripts/citycoin/lib.mjs";
 import { tableHash } from "./helpers/cc5-d1copy-worker.js";
 import { buildCopy, miniflareEngine, nodeEngine, prodSchemaStatements, syntheticRows } from "./helpers/cc5-d1copy.js";
@@ -29,7 +29,7 @@ const TMP = mkdtempSync(path.join(os.tmpdir(), "cc5-census-test-"));
 after(() => rmSync(TMP, { recursive: true, force: true }));
 
 /** Node's SQLite engine with `names` databases, and a census executor over one of them that records every statement. */
-const node = nodeEngine(["MAIN", "MOVED", "MIGRATED", "PAGED"]);
+const node = nodeEngine(["MAIN", "MOVED", "MIGRATED", "PAGED", "SRC", "LOSSY", "CHURN"]);
 function direct(db, seen = []) {
   return async (statements) => {
     const out = [];
@@ -77,12 +77,20 @@ function assertNoSyntheticValue(text, where) {
   for (const marker of ["Synthetic Member", "example.invalid", "cc5-synthetic", "synthetic-"]) assert.ok(!text.includes(marker), `${where} printed "${marker}"`);
 }
 
-/** Every key and every string of a census output is a constant of the census, a table name, a digest or the run's own name and time. */
+/** The schema object names a census may print: those of the production schema read and of the cc5 groups. */
+const OBJECT_NAMES = (() => {
+  const db = d1();
+  for (const s of prodSchemaStatements()) db._raw.exec(s);
+  return new Set([...db._raw.prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all().map((r) => r.name), ...Object.values(CC5_OBJECTS).flat()]);
+})();
+
+/** Every key and every string of a census output is a constant of the census, a table or schema object name, a digest or the run's own name and time. */
 function assertOnlyCountsAndDigests(census) {
   const tables = new Set([...Object.keys(FIXTURE), ...ALL_CC5_TABLES, ...HISTORY_TABLES]);
   const keys = new Set([
     "census", "database", "target", "at", "digest", "algorithm", "key_fingerprint", "checks", "duplicate_wallets_zero", "counts", "absent", "tables",
     "tables_with_unprintable_names", "history_tables", "present", "cc5", "recorded", "absent_tables", "digests", "rows", "parts", "missing", "group",
+    "schema", "objects", "objects_with_unprintable_names", "unprintable_digest", ...SCHEMA_TYPES,
     ...COUNTS.flatMap((c) => [c.key, ...(c.fields || []), ...(c.labels || [])]), ...PRESERVED,
   ]);
   const missingNames = new Set(Object.values(CATEGORIES).flat().map((p) => p.table));
@@ -98,7 +106,7 @@ function assertOnlyCountsAndDigests(census) {
     }
     if (Array.isArray(v)) { v.forEach((x) => walk(x, key)); return; }
     for (const [k, x] of Object.entries(v)) {
-      assert.ok(keys.has(k) || tables.has(k), `the key ${JSON.stringify(k)} is not a census constant or a table name`);
+      assert.ok(keys.has(k) || tables.has(k) || (key === "objects" && OBJECT_NAMES.has(k)), `the key ${JSON.stringify(k)} is not a census constant, a table or a schema object name`);
       walk(x, k);
     }
   };
@@ -241,7 +249,7 @@ test("backup: groups and switch values name the groups with prerequisites in ord
     groups: ["cc5-ops", "cc5-selection"], yes: false });
   assert.deepEqual(steps.map((s) => s.id), ["bookmark", "census-source", "export", "restore-copy", "census-restored", "rehearse", "census-rehearsed"]);
   assert.deepEqual(steps[0].argv, ["d1", "time-travel", "info", "vicinity-claims", "--json"]);
-  assert.deepEqual(steps[2].argv, ["d1", "export", "vicinity-claims", "--remote", "--output", "/safe/b.sql"]);
+  assert.deepEqual(steps[2].argv, ["d1", "export", "vicinity-claims", "--remote", "--output", "/safe/b.sql", "--skip-confirmation"], "the confirmation is --yes on our side; wrangler's output is never shown");
   assert.deepEqual(steps[3].argv, ["d1", "execute", "cc5-restored-copy", "--local", "--config", "/safe/b.sql.restore/wrangler.json", "--file", "/safe/b.sql"], "the restore writes a NEW local database, never the source");
   for (const s of steps) if (s.argv && s.id !== "bookmark" && s.id !== "export") assert.ok(!s.argv.includes("--remote"), `${s.id} never touches the remote database`);
   assert.ok(steps[1].shell.includes("--key-file"));
@@ -327,6 +335,11 @@ test("census before and after every group on the copy (the migration check of se
   assert.deepEqual(cmp.tables.row_counts_changed, [{ table: "schema_migrations", before: 22, after: 29 }]);
   assert.deepEqual(cmp.cc5.recorded_added, BUILT);
   assert.deepEqual(afterC.cc5.recorded, BUILT);
+  // the schema: every existing object kept byte for byte, exactly the groups' objects added (SQLite's automatic indexes are not counted)
+  assert.deepEqual([cmp.schema.status, cmp.schema.removed, cmp.schema.changed, cmp.schema.unprintable_changed], ["added", [], [], false]);
+  assert.deepEqual([...cmp.schema.added].sort(), Object.values(CC5_OBJECTS).flat().sort());
+  assert.equal(Object.values(CC5_OBJECTS).flat().length, 106);
+  for (const [name, digest] of Object.entries(beforeC.schema.objects)) assert.equal(afterC.schema.objects[name], digest, name);
   assert.deepEqual(afterC.cc5.absent_tables, []);
   assert.equal(afterC.counts.schema_migrations.cc5, 7);
   for (const t of ALL_CC5_TABLES) {
@@ -391,7 +404,7 @@ test("census paging and missing tables: small pages give the same digests; an em
 test("census through wrangler (stand-in runner): only checked SELECTs in each --command, the arguments are read-only, and a failure never echoes what wrangler printed", async () => {
   const calls = [];
   const fake = (answer) => async (args) => { calls.push(args); return answer(args); };
-  const answerOf = (st) => (st.startsWith("SELECT name FROM sqlite_master") ? [{ name: "claims" }]
+  const answerOf = (st) => (st.startsWith("SELECT type, name, tbl_name, sql FROM sqlite_master") ? [{ type: "table", name: "claims", tbl_name: "claims", sql: "CREATE TABLE claims (city_id TEXT)" }]
     : st === "SELECT name FROM pragma_table_info('claims') ORDER BY cid" ? FIXTURE.claims.map((name) => ({ name }))
     : st.startsWith("SELECT name FROM pragma_table_info(") || st.startsWith("SELECT quote(") ? [] : [{ n: 0 }]);
   const rowsFor = (args) => JSON.stringify(args[6].split(";\n").map((st) => ({ results: answerOf(st), success: true, meta: {} })));
@@ -425,6 +438,8 @@ test("command lines refuse before running anything: --remote without a key, path
   for (const argv of [
     ["--remote"], ["--remote", "--local"], ["--out", path.join(REPO_ROOT, "census.json")], ["--key-file", path.join(REPO_ROOT, "k")], ["--database", "--x"],
     ["--compare", "a.json"], ["--bogus"], ["stray"],
+    // finding SEC-8: a config outside the repository needs a key or an explicit --unkeyed; --remote never takes --unkeyed
+    ["--local", "--config", CONFIG], ["--remote", "--unkeyed"], ["--unkeyed", "--key-file", key],
   ]) {
     let err = "";
     assert.equal(await censusMain(argv, { ...quiet, err: (s) => { err += s; } }), 2, argv.join(" "));
@@ -435,9 +450,146 @@ test("command lines refuse before running anything: --remote without a key, path
     ["--local", "--execute", "--export", existing], ["--local", "--groups", "cc5-identity", "--export", path.join(TMP, "refusals", "n.sql")],
     ["--local", "--groups", "users", "--export", path.join(TMP, "refusals", "n.sql")], ["--local", "--groups", "cc5-ops"], ["--flags", "SELECTION_V5"],
     ["--local", "--groups", "cc5-ops", "--flags", "SELECTION_V5=on"], ["--remote", "--execute", "--key-file", key, "--export", path.join(TMP, "nofolder", "b.sql")],
+    // finding SEC-1: a remote export needs --yes (wrangler's own prompt is never shown); finding SEC-8: keys
+    ["--remote", "--execute", "--key-file", key, "--export", path.join(TMP, "refusals", "r.sql")], ["--remote", "--execute", "--unkeyed"],
+    ["--local", "--execute", "--config", CONFIG], ["--local", "--execute", "--export", path.join(TMP, "refusals", "k.sql")],
   ]) assert.equal(await backupMain(argv, quiet), 2, argv.join(" "));
+  assert.ok(!existsSync(path.join(TMP, "refusals", "r.sql")) && !existsSync(path.join(TMP, "refusals", "k.sql")));
   assert.ok(!existsSync(key), "no key was created by a refused run");
   assert.ok(!existsSync(path.join(TMP, "refusals", "n.sql")));
+});
+
+test("schema in the census (findings F1, SEC-3): a restore that loses triggers and indexes is NOT a valid backup, a dropped guard shows in --compare, and the data digests alone would not have seen it", async () => {
+  for (const name of ["SRC", "LOSSY"]) {
+    await buildCopy(node, name);
+    const r = await node.call({ op: "ensure", db: name, ids: ["cc5-selection"], isolate: "fresh" });
+    assert.ok(r.results.every((x) => x.ok), JSON.stringify(r.results));
+  }
+  const source = await runCensus(direct(node.env.SRC), { database: "copy", target: "local" });
+  // the lossy restore of the finding: the same rows, every named index and every trigger gone
+  const raw = node.env.LOSSY._raw;
+  const lost = raw.prepare("SELECT type, name FROM sqlite_master WHERE type IN ('index', 'trigger') AND sql IS NOT NULL").all();
+  for (const o of lost) raw.exec(`DROP ${o.type.toUpperCase()} "${o.name}"`);
+  const lossy = await runCensus(direct(node.env.LOSSY), { database: "lossy", target: "local" });
+  assert.deepEqual(lossy.digests, source.digests, "every data digest is the same: the old validation passed this restore");
+  assert.deepEqual(lossy.tables, source.tables);
+  const v = validateRestore(source, lossy);
+  assert.equal(v.valid, false);
+  assert.equal(v.compare.ok, false);
+  assert.equal(v.compare.schema.status, "changed");
+  assert.deepEqual([...v.compare.schema.removed].sort(), lost.map((o) => o.name).sort());
+  assert.ok(v.compare.schema.removed.includes("founder_records_no_overwrite") && v.compare.schema.removed.includes("selection_cycles_one_winner"));
+  assert.ok(lossy.schema.counts.trigger === 0 && source.schema.counts.trigger > 0);
+  // the probe of SEC-3: two guards dropped by hand on a database that has its group recorded
+  const hand = await runCensus(direct(node.env.SRC), { database: "copy", target: "local" });
+  node.env.SRC._raw.exec("DROP TRIGGER founder_records_no_overwrite; DROP TRIGGER founder_records_no_update");
+  const after = await runCensus(direct(node.env.SRC), { database: "copy", target: "local" });
+  const cmp = compareCensus(hand, after);
+  assert.deepEqual([cmp.ok, cmp.schema.status, cmp.schema.removed.sort()], [false, "changed", ["founder_records_no_overwrite", "founder_records_no_update"]]);
+  assert.deepEqual(Object.values(cmp.categories), PRESERVED.map(() => "same"));
+  // a changed object (same name, other SQL) is a change too
+  node.env.SRC._raw.exec("CREATE TRIGGER founder_records_no_update BEFORE UPDATE ON founder_records WHEN 0 BEGIN SELECT 1; END");
+  const weaker = compareCensus(hand, await runCensus(direct(node.env.SRC), { database: "copy", target: "local" }));
+  assert.deepEqual([weaker.ok, weaker.schema.removed, weaker.schema.changed], [false, ["founder_records_no_overwrite"], ["founder_records_no_update"]]);
+  assertOnlyCountsAndDigests(lossy);
+});
+
+test("rehearsal check (finding F1): the objects added must be exactly the groups' objects; a missing trigger or an extra object does not hold", async () => {
+  await copy("MAIN");
+  const ids = ["cc5-ops", "cc5-selection"];
+  const before = await runCensus(direct(node.env.MAIN), { database: "copy", target: "local" });
+  const fake = (mutate) => {
+    const after = JSON.parse(JSON.stringify(before));
+    for (const o of ids.flatMap((id) => CC5_OBJECTS[id])) after.schema.objects[o] = "f".repeat(64);
+    for (const tb of ids.flatMap((id) => CC5_TABLES[id])) after.tables[tb] = 0;
+    after.tables.schema_migrations += 2;
+    after.cc5.recorded = [...ids];
+    after.schema.digest = "e".repeat(64);
+    mutate(after);
+    return after;
+  };
+  assert.equal(rehearsalHeld(before, fake(() => {}), ids, ids).held, true);
+  assert.equal(rehearsalHeld(before, fake((a) => { delete a.schema.objects.founder_records_no_overwrite; }), ids, ids).held, false, "a guard missing");
+  assert.equal(rehearsalHeld(before, fake((a) => { a.schema.objects.users_extra_index = "1".repeat(64); }), ids, ids).held, false, "an object outside the groups");
+  assert.equal(rehearsalHeld(before, fake((a) => { a.schema.objects.users = "2".repeat(64); }), ids, ids).held, false, "an existing object changed");
+  assert.equal(rehearsalHeld(before, fake((a) => { a.cc5.recorded = ["cc5-ops"]; }), ids, ids).held, false, "a record missing");
+  assert.equal(rehearsalHeld(before, fake((a) => { a.tables.posts += 1; }), ids, ids).held, false, "an existing row count moved");
+});
+
+test("backup validation allows only the live site's churn tables to move between the census and the export (finding SEC-6)", async () => {
+  await buildCopy(node, "CHURN");
+  const source = await runCensus(direct(node.env.CHURN), { database: "copy", target: "local" });
+  const raw = node.env.CHURN._raw;
+  raw.prepare("DELETE FROM sessions WHERE id = (SELECT MIN(id) FROM sessions)").run();
+  raw.prepare("DELETE FROM rate_events WHERE rowid = (SELECT MIN(rowid) FROM rate_events)").run();
+  const churned = validateRestore(source, await runCensus(direct(node.env.CHURN), { database: "copy", target: "local" }));
+  assert.equal(churned.valid, true);
+  assert.deepEqual(churned.churned.sort(), ["rate_events", "sessions"]);
+  for (const tb of churned.churned) assert.ok(CHURN_TABLES.includes(tb));
+  raw.prepare("DELETE FROM admin_audit WHERE rowid = (SELECT MIN(rowid) FROM admin_audit)").run();
+  const moved = validateRestore(source, await runCensus(direct(node.env.CHURN), { database: "copy", target: "local" }));
+  assert.deepEqual([moved.valid, moved.moved], [false, ["admin_audit"]]);
+  for (const c of Object.values(CATEGORIES).flat()) assert.ok(!CHURN_TABLES.includes(c.table), `${c.table}: preserved data is never churn`);
+});
+
+/** A wrangler stand-in for a REMOTE backup run, in-process: it answers like wrangler (a remote export prints its one-hour link) and records every call. */
+function remoteStandIn({ exportCode = 0, restoreCode = 0 } = {}) {
+  const calls = [];
+  const SIGNED = "https://example.invalid/d1-export/dump.sql?X-Signed=SyntheticBearerTokenThatMustNeverPrint";
+  const answer = (st) => (st.startsWith("SELECT type, name, tbl_name, sql FROM sqlite_master") ? [{ type: "table", name: "claims", tbl_name: "claims", sql: "CREATE TABLE claims (city_id TEXT)" }]
+    : st === "SELECT name FROM pragma_table_info('claims') ORDER BY cid" ? FIXTURE.claims.map((name) => ({ name }))
+      : st.startsWith("SELECT name FROM pragma_table_info(") || st.startsWith("SELECT quote(") ? [] : [{ n: 0 }]);
+  const run = async (args, opts) => {
+    calls.push({ args, opts });
+    if (args[1] === "time-travel") return { code: 0, stdout: '{"bookmark":"0000000a-00000001-00004e5f-0123abcd"}', stderr: "" };
+    if (args[1] === "export") {
+      writeFileSync(args[args.indexOf("--output") + 1], exportCode === 0 ? "CREATE TABLE claims (city_id TEXT);\n" : "CREATE TABLE cla");
+      return { code: exportCode, stdout: `Creating export\nYou can also download your export from the following URL manually. This link will be valid for one hour: ${SIGNED}\n`, stderr: `export noise ${SIGNED}` };
+    }
+    if (args.includes("--file")) return { code: restoreCode, stdout: `restored ${SIGNED}`, stderr: "" };
+    const i = args.indexOf("--command");
+    return { code: 0, stdout: JSON.stringify(args[i + 1].split(";\n").map((st) => ({ results: answer(st), success: true, meta: {} }))), stderr: "" };
+  };
+  return { run, calls, SIGNED };
+}
+
+test("backup --remote --execute (wrangler stand-in, nothing real runs; finding SEC-1): the export's output, which carries a one-hour bearer link to the dump, is captured and never printed", async () => {
+  const dir = mkdtempSync(path.join(TMP, "remote-"));
+  const exportFile = path.join(dir, "prod.sql");
+  const keyFile = path.join(dir, "k.key");
+  const w = remoteStandIn();
+  let out = "", err = "";
+  const code = await backupMain(["--remote", "--execute", "--yes", "--key-file", keyFile, "--export", exportFile], { out: (s) => { out += s; }, err: (s) => { err += s; }, run: w.run, rehearse: async () => { throw new Error("no rehearsal"); } });
+  assert.equal(code, 0, out + err);
+  assert.ok(!(out + err).includes(w.SIGNED) && !(out + err).includes("SyntheticBearerToken"), "the signed link never reaches the terminal");
+  assert.match(out, /backup VALIDATED/);
+  assert.match(out, /bookmark: 0000000a-00000001-00004e5f-0123abcd/);
+  const exp = w.calls.find((c) => c.args[1] === "export");
+  assert.deepEqual(exp.args, ["d1", "export", "vicinity-claims", "--remote", "--output", exportFile, "--skip-confirmation"]);
+  for (const c of w.calls) assert.ok(c.opts === undefined || !c.opts.inherit, `${c.args.slice(0, 3).join(" ")}: wrangler's output is never inherited`);
+  assert.equal(statSync(exportFile).mode & 0o777, 0o600);
+  const env = wranglerEnv({ WRANGLER_LOG: "debug", PATH: "/bin" });
+  assert.equal(env.WRANGLER_LOG, "log", "an operator's debug level would print API answers; it is forced back");
+});
+
+test("backup failures say where member data was left (finding SEC-5): a failed export is deleted; after a failed restore the export and the restore folder are named", async () => {
+  const dir = mkdtempSync(path.join(TMP, "fail-"));
+  const keyFile = path.join(dir, "k.key");
+  const exp1 = path.join(dir, "a.sql");
+  let err = "";
+  const a = remoteStandIn({ exportCode: 1 });
+  assert.equal(await backupMain(["--remote", "--execute", "--yes", "--key-file", keyFile, "--export", exp1], { out: () => {}, err: (s) => { err += s; }, run: a.run }), 1);
+  assert.match(err, /wrangler d1 export did not complete \(exit 1\)/);
+  assert.ok(err.includes(`the partial export ${exp1} was deleted`), err);
+  assert.ok(!existsSync(exp1));
+  assert.ok(!err.includes(a.SIGNED));
+  const exp2 = path.join(dir, "b.sql");
+  err = "";
+  const b = remoteStandIn({ restoreCode: 1 });
+  assert.equal(await backupMain(["--remote", "--execute", "--yes", "--key-file", keyFile, "--export", exp2], { out: () => {}, err: (s) => { err += s; }, run: b.run }), 1);
+  assert.ok(err.includes(`the export ${exp2} holds member data`), err);
+  assert.ok(err.includes(`${exp2}.restore holds a partly restored copy with member data`), err);
+  assert.ok(existsSync(exp2));
 });
 
 test("backup dry run (the default): prints the remote plan with its exact commands and the restore commands, and runs, reads and writes nothing", async () => {
@@ -459,7 +611,10 @@ test("backup dry run (the default): prints the remote plan with its exact comman
 
 
 test("census command line on Cloudflare's local D1 (wrangler d1 execute --local): the same counts and digests as on Node's SQLite, nothing printed but counts and digests, no wrangler log written, nothing changed", { skip: mfSkip }, async () => {
-  const r = await cli("census.mjs", ["--local", "--config", CONFIG]);
+  const refused = await cli("census.mjs", ["--local", "--config", CONFIG]);
+  assert.equal(refused.code, 2, "a config outside the repository needs --key-file or --unkeyed (finding SEC-8)");
+  assert.match(refused.stderr, /outside this repository/);
+  const r = await cli("census.mjs", ["--local", "--config", CONFIG, "--unkeyed"]);
   assert.equal(r.code, 0, r.stderr);
   const viaWrangler = JSON.parse(r.stdout);
   await copy("MAIN");
@@ -470,7 +625,7 @@ test("census command line on Cloudflare's local D1 (wrangler d1 execute --local)
   assertNoSyntheticValue(r.stdout + r.stderr, "the census command line");
   assert.deepEqual(logFiles(), [], "wrangler wrote no debug log (WRANGLER_WRITE_LOGS=false)");
   const out = path.join(TMP, "census-a.json");
-  const again = await cli("census.mjs", ["--local", "--config", CONFIG, "--out", out]);
+  const again = await cli("census.mjs", ["--local", "--config", CONFIG, "--unkeyed", "--out", out]);
   assert.equal(again.code, 0, again.stderr);
   const cmp = await cli("census.mjs", ["--compare", out, out]);
   assert.equal(cmp.code, 0);
@@ -489,11 +644,11 @@ test("census command line on Cloudflare's local D1 (wrangler d1 execute --local)
 test("backup command line, --local --execute: export outside the repository (0600), restored into a new local copy and validated by the census, groups rehearsed on that copy only, restore commands printed", { skip: mfSkip }, async () => {
   const dir = mkdtempSync(path.join(TMP, "backup-"));
   const exportFile = path.join(dir, "backup.sql");
-  const r = await cli("backup.mjs", ["--local", "--execute", "--config", CONFIG, "--export", exportFile, "--groups", "cc5-selection"]);
+  const r = await cli("backup.mjs", ["--local", "--execute", "--config", CONFIG, "--export", exportFile, "--groups", "cc5-selection", "--unkeyed"]);
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /Groups the switch change creates \(with prerequisites, in order\): cc5-ops, cc5-selection/);
-  assert.match(r.stdout, /backup VALIDATED: the restored copy has the same 55 tables and row counts, and the same digests for 8 categories/);
-  assert.match(r.stdout, /rehearsal HELD: cc5-ops, cc5-selection created on the restored copy \(8 tables added, records cc5-ops, cc5-selection\)/);
+  assert.match(r.stdout, /backup VALIDATED: the restored copy has the same 55 tables and row counts, the same schema \(88 objects\) and the same digests for 8 categories/);
+  assert.match(r.stdout, new RegExp(`rehearsal HELD: cc5-ops, cc5-selection created on the restored copy \\(8 tables and ${CC5_OBJECTS["cc5-ops"].length + CC5_OBJECTS["cc5-selection"].length} objects added, records cc5-ops, cc5-selection\\)`));
   assert.match(r.stdout, /into an empty local database \(move the config's \.wrangler\/state folder aside first\): wrangler d1 execute cc5-census-copy --local/);
   assert.match(r.stdout, /export: .*backup\.sql \(\d+ bytes, sha256 [0-9a-f]{64}, mode 0600\)/);
   assert.equal(statSync(exportFile).mode & 0o777, 0o600);
@@ -504,6 +659,7 @@ test("backup command line, --local --execute: export outside the repository (060
   assert.deepEqual([source.database, restored.database], [DB_NAME, "cc5-restored-copy"]);
   assert.deepEqual(restored.digests, source.digests);
   assert.deepEqual(restored.tables, source.tables);
+  assert.deepEqual(restored.schema, source.schema, "the restored copy has every object of the source, byte for byte (the export keeps the SQL text)");
   assert.deepEqual(Object.keys(rehearsed.cc5.tables).sort(), [...CC5_TABLES["cc5-ops"], ...CC5_TABLES["cc5-selection"]].sort());
   assert.deepEqual(rehearsed.digests, source.digests);
   assert.deepEqual(source.cc5.tables, {}, "the source got no group");
@@ -513,6 +669,6 @@ test("backup command line, --local --execute: export outside the repository (060
   const mf = await persisted();
   try { assert.deepEqual(await mf.call({ op: "snapshot", db: "COPY" }), seeded, "the source database is unchanged: the rehearsal ran on the restored copy"); }
   finally { await mf.dispose(); }
-  const second = await cli("backup.mjs", ["--local", "--execute", "--config", CONFIG, "--export", exportFile]);
+  const second = await cli("backup.mjs", ["--local", "--execute", "--config", CONFIG, "--export", exportFile, "--unkeyed"]);
   assert.equal(second.code, 2, "an existing export is never overwritten");
 });

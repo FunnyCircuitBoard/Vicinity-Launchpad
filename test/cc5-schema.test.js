@@ -8,7 +8,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { d1 } from "./helpers/d1.js";
 import { prodDb, seedProd } from "./helpers/prod-schema.js";
 import {
-  CC5_GROUPS, CC5_ORDER, CC5_RESERVED, Cc5SchemaError, cc5Runner, ensureCc5Group, groupsForFlags, registryProblems,
+  CC5_GROUPS, CC5_ORDER, CC5_RESERVED, Cc5SchemaError, cc5GateRefusal, cc5Runner, ensureCc5Group, groupsForFlags, keptInsert, registryProblems,
 } from "../src/cc5schema.js";
 import { FLAG_VALUES, MASTER_POLICY, validatePolicy, withDeployment } from "../src/masterpolicy.js";
 import { deploymentFromEnv } from "../src/v5policy.js";
@@ -45,8 +45,8 @@ function probe(db, { failOn = null, error = "simulated D1 failure" } = {}) {
     ...s,
     bind: (...p) => wrap(s.bind(...p)),
     run: async () => { seen.push(s.sql); if (state.failOn && state.failOn.test(s.sql)) throw new Error(error); return s.run(); },
-    first: async (c) => { seen.push(s.sql); return s.first(c); },
-    all: async () => { seen.push(s.sql); return s.all(); },
+    first: async (c) => { seen.push(s.sql); if (state.failOn && state.failOn.test(s.sql)) throw new Error(error); return s.first(c); },
+    all: async () => { seen.push(s.sql); if (state.failOn && state.failOn.test(s.sql)) throw new Error(error); return s.all(); },
   });
   return { prepare: (sql) => wrap(db.prepare(sql)), batch: (l) => db.batch(l), exec: (q) => db.exec(q), seen, state, inner: db };
 }
@@ -301,7 +301,7 @@ const ADDS = {
       idempotency_keys: ["scope", "key", "request_hash", "status", "response_status", "response_json", "created_at", "expires_at"],
     },
     indexes: ["idempotency_keys_expires"],
-    triggers: [],
+    triggers: ["job_leases_fencing_forward", "job_leases_no_delete"],
   },
   "cc5-selection": {
     tables: {
@@ -315,9 +315,9 @@ const ADDS = {
         "chain_pda", "chain_tx", "chain_slot", "source", "recorded_at"],
     },
     indexes: ["national_ranks_rank", "selection_cycles_due", "selection_cycles_one_winner"],
-    triggers: ["founder_records_no_delete", "founder_records_no_overwrite", "founder_records_no_update", "selection_cities_founded_no_delete", "selection_cities_founded_no_overwrite",
-      "selection_cities_founded_no_takeover", "selection_cities_founded_terminal", "selection_receipts_no_delete", "selection_receipts_no_overwrite", "selection_receipts_no_takeover",
-      "selection_receipts_no_update"],
+    triggers: ["founder_records_no_delete", "founder_records_no_overwrite", "founder_records_no_update", "founder_records_rowid_positive", "selection_cities_founded_no_delete",
+      "selection_cities_founded_no_overwrite", "selection_cities_founded_no_takeover", "selection_cities_founded_terminal", "selection_cities_rowid_positive",
+      "selection_receipts_cycle_required", "selection_receipts_no_delete", "selection_receipts_no_overwrite", "selection_receipts_no_takeover", "selection_receipts_no_update"],
   },
   "cc5-activity": {
     tables: {
@@ -328,7 +328,7 @@ const ADDS = {
       activity_totals: ["user_id", "total", "by_category", "computed_at", "policy_version"],
     },
     indexes: ["activity_events_user", "activity_evidence_body", "activity_evidence_queue"],
-    triggers: ["activity_events_no_delete", "activity_events_no_overwrite", "activity_events_no_update"],
+    triggers: ["activity_events_no_delete", "activity_events_no_overwrite", "activity_events_no_update", "activity_events_rowid_positive"],
   },
   "cc5-managers": {
     tables: {
@@ -338,8 +338,8 @@ const ADDS = {
       country_managers: ["id", "country", "user_id", "wallet", "application_id", "appointed_by", "appointed_at", "ended_at", "ended_by", "end_reason"],
     },
     indexes: ["country_managers_active", "manager_applications_open", "manager_applications_queue"],
-    triggers: ["country_managers_end_once", "country_managers_no_delete", "country_managers_no_overwrite", "manager_application_events_no_delete",
-      "manager_application_events_no_overwrite", "manager_application_events_no_update"],
+    triggers: ["country_managers_end_once", "country_managers_no_delete", "country_managers_no_overwrite", "country_managers_rowid_positive",
+      "manager_application_events_no_delete", "manager_application_events_no_overwrite", "manager_application_events_no_update", "manager_application_events_rowid_positive"],
   },
   "cc5-metadata": {
     tables: {
@@ -356,8 +356,9 @@ const ADDS = {
     },
     indexes: ["city_metadata_requests_open", "city_metadata_requests_queue"],
     triggers: ["city_metadata_active_frozen_after_launch", "city_metadata_active_launched_no_delete", "city_metadata_active_launched_no_overwrite",
-      "city_metadata_active_launched_no_takeover", "city_metadata_request_events_no_delete", "city_metadata_request_events_no_overwrite",
-      "city_metadata_request_events_no_update", "city_metadata_versions_no_delete", "city_metadata_versions_no_overwrite", "city_metadata_versions_no_update"],
+      "city_metadata_active_launched_no_takeover", "city_metadata_active_rowid_positive", "city_metadata_request_events_no_delete", "city_metadata_request_events_no_overwrite",
+      "city_metadata_request_events_no_update", "city_metadata_request_events_rowid_positive", "city_metadata_versions_no_delete", "city_metadata_versions_no_overwrite",
+      "city_metadata_versions_no_update", "city_metadata_versions_rowid_positive"],
   },
   "cc5-launch": {
     tables: {
@@ -366,7 +367,7 @@ const ADDS = {
       launch_preparations: ["id", "city_id", "founder", "version_id", "quote_config_id", "stage", "prepare_tx", "created_at", "expires_at"],
     },
     indexes: ["city_launches_city", "launch_preparations_open"],
-    triggers: ["city_launches_no_delete", "city_launches_no_overwrite", "city_launches_no_update"],
+    triggers: ["city_launches_no_delete", "city_launches_no_overwrite", "city_launches_no_update", "city_launches_rowid_positive"],
   },
   "cc5-hourly": {
     tables: {
@@ -377,10 +378,11 @@ const ADDS = {
         "next_attempt_at", "error", "claimed_until", "claim_token", "created_at", "updated_at"],
       hourly_leaves: ["cluster", "program_id", "coin", "quote_mint", "utc_hour", "leaf_index", "wallet", "amount_raw", "status", "paid_tx"],
     },
-    indexes: ["hourly_actions_work"],
-    triggers: ["hourly_actions_confirmed_final", "hourly_actions_keys_fixed", "hourly_actions_no_delete", "hourly_actions_no_overwrite", "hourly_leaves_keys_fixed",
-      "hourly_leaves_no_delete", "hourly_leaves_no_overwrite", "hourly_leaves_paid_final", "hourly_runs_keys_fixed", "hourly_runs_no_delete", "hourly_runs_no_overwrite",
-      "hourly_samples_keys_fixed", "hourly_samples_no_delete", "hourly_samples_no_overwrite"],
+    indexes: ["hourly_actions_once", "hourly_actions_work"],
+    triggers: ["hourly_actions_confirmed_final", "hourly_actions_keys_fixed", "hourly_actions_no_delete", "hourly_actions_no_overwrite", "hourly_actions_rowid_positive",
+      "hourly_leaves_kept_fixed", "hourly_leaves_kept_no_delete", "hourly_leaves_kept_no_overwrite", "hourly_leaves_kept_no_takeover", "hourly_leaves_paid_final",
+      "hourly_leaves_rowid_positive", "hourly_runs_keys_fixed", "hourly_runs_no_delete", "hourly_runs_no_overwrite", "hourly_runs_rowid_positive",
+      "hourly_samples_keys_fixed", "hourly_samples_no_delete", "hourly_samples_no_overwrite", "hourly_samples_rowid_positive"],
   },
 };
 
@@ -415,7 +417,7 @@ test("additive only: on the production shape with today's rows, every existing o
   const tables = before.filter((o) => o.type === "table").map((o) => o.name);
   const rows = {};
   for (const t of tables) rows[t] = await rowsOf(db, t);
-  for (const id of IDS) await ensureCc5Group(db, id);
+  for (const id of IDS) await runner()(db, id);
   const after = await objects(db);
   const beforeNames = new Set(before.map((o) => o.name));
   assert.deepEqual(after.filter((o) => beforeNames.has(o.name)), before, "every existing table, index and trigger is exactly as it was");
@@ -495,7 +497,7 @@ test("a failing prerequisite fails every group that needs it (prerequisite_faile
   for (const id of ["cc5-selection", "cc5-managers", "cc5-launch", "cc5-hourly"]) {
     const e = await run(db, id).catch((x) => x);
     assert.ok(e instanceof Cc5SchemaError, id);
-    assert.deepEqual([e.group, e.failed, e.reason, e.step, e.status, e.code], [id, "cc5-ops", "prerequisite_failed", 0, 503, "not_enabled"], id);
+    assert.deepEqual([e.group, e.failed, e.reason, e.inner, e.step, e.status, e.code], [id, "cc5-ops", "prerequisite_failed", "statement_failed", 0, 503, "not_enabled"], id);
   }
   await run(db, "cc5-activity");
   await run(db, "cc5-metadata");
@@ -516,9 +518,102 @@ test("unknown, reserved and database-less calls are refused with the named error
     assert.deepEqual([e.reason, e.status, e.code], [reason, 503, "not_enabled"], String(id));
   }
   assert.equal(lines.length, 7);
-  for (const l of lines) assert.match(l, /^cc5 schema unavailable \S+ \S+ (unknown_group|group_not_built|no_database) +$/);
+  for (const l of lines) assert.match(l, /^cc5 schema unavailable \S+ \S+ (unknown_group|group_not_built|no_database)$/);
+  // an id outside the registry is logged quoted, escaped and cut to 40 characters, never as given (finding SEC-10)
+  assert.ok(lines[0].startsWith('cc5 schema unavailable "cc5-nope" "cc5-nope" unknown_group'));
+  lines.length = 0;
+  const hostile = `cc5-x\ninjected line ${"y".repeat(80)}`;
+  const e = await run(d1(), hostile).catch((x) => x);
+  assert.equal(e.group, JSON.stringify(hostile.slice(0, 40)));
+  assert.equal(lines.length, 1);
+  assert.ok(!lines[0].includes("\n") && !lines[0].includes("y".repeat(40)), lines[0]);
   // the module's own runner refuses the same way
-  await assert.rejects(ensureCc5Group(d1(), "cc5-identity").catch((e) => { throw e; }), (e) => e.reason === "group_not_built");
+  await assert.rejects(ensureCc5Group(d1(), "cc5-identity").catch((x) => { throw x; }), (x) => x.reason === "group_not_built");
+});
+
+test("ensureCc5Group fails closed (finding SEC-2): it needs an env, and refuses every group unless that env's switches need it and the v5 configuration check accepts the deployment", async () => {
+  const wrangler = JSON.parse(read("wrangler.jsonc").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
+  // as committed: every group is refused before any statement
+  for (const id of IDS) {
+    const db = probe(d1());
+    const e = await ensureCc5Group({ ...wrangler.vars, DB: db }, id).catch((x) => x);
+    assert.ok(e instanceof Cc5SchemaError, id);
+    assert.deepEqual([e.reason, e.status, e.code], ["switch_at_default", 503, "not_enabled"], id);
+    assert.deepEqual(db.seen, [], `${id}: no statement`);
+    assert.equal(cc5GateRefusal(wrangler.vars, id), "switch_at_default");
+  }
+  // a bare database is refused: the gate reads the Worker's settings
+  const bare = probe(d1());
+  assert.equal((await ensureCc5Group(bare, "cc5-activity").catch((x) => x)).reason, "env_required");
+  assert.deepEqual(bare.seen, []);
+  // a switch set while the configuration check refuses the deployment (no archive providers, no main token): refused
+  const refused = { SELECTION_V5: "shadow", DEPLOYMENT_ENV: "test", LEGACY_SEATS: "frozen" };
+  assert.ok(groupsForFlags(deploymentFromEnv(refused).flags).includes("cc5-selection"));
+  for (const id of ["cc5-ops", "cc5-selection"]) assert.equal((await ensureCc5Group({ ...refused, DB: d1() }, id).catch((x) => x)).reason, "config_refused", id);
+  // an accepted deployment that needs the group: created; a group it does not need: refused
+  const accepted = { ACTIVITY_POINTS: "shadow", DEPLOYMENT_ENV: "test", LEGACY_SEATS: "frozen" };
+  const db = d1();
+  await ensureSchema(db);
+  assert.deepEqual([...await ensureCc5Group({ ...accepted, DB: db }, "cc5-activity")], ["cc5-activity"]);
+  assert.deepEqual(await recorded(db), ["cc5-activity"]);
+  for (const id of IDS.filter((x) => x !== "cc5-activity")) assert.equal((await ensureCc5Group({ ...accepted, DB: db }, id).catch((x) => x)).reason, "switch_at_default", id);
+  assert.deepEqual(await recorded(db), ["cc5-activity"]);
+  // anything odd refuses
+  assert.equal(cc5GateRefusal(null, "cc5-activity"), "switch_at_default");
+  assert.equal(cc5GateRefusal({ ...accepted, ACTIVITY_POINTS: "maybe" }, "cc5-activity"), "switch_at_default");
+});
+
+test("errors name where they failed (finding F3): a failing ensureSchema is prepare_failed, a failing record read is record_read_failed, and a prerequisite's own reason is carried as inner", async () => {
+  const lines = [];
+  const log = (...a) => lines.push(a.join(" "));
+  const prep = await runner({ log, prepareSchema: async () => { throw new Error("D1_ERROR: Network connection lost"); } })(d1(), "cc5-hourly").catch((x) => x);
+  assert.deepEqual([prep.reason, prep.failed, prep.step, prep.inner], ["prepare_failed", "cc5-hourly", null, null]);
+  assert.match(lines.pop(), /^cc5 schema unavailable cc5-hourly cc5-hourly prepare_failed D1_ERROR: Network connection lost$/);
+  const db = probe(d1(), { failOn: /^SELECT id FROM schema_migrations/ });
+  await ensureSchema(db.inner);
+  const read1 = await runner({ log, prepareSchema: migrationsTable })(db, "cc5-activity").catch((x) => x);
+  assert.deepEqual([read1.reason, read1.failed, read1.inner], ["record_read_failed", "cc5-activity", null]);
+  const pre = await runner({ log, prepareSchema: migrationsTable })(db, "cc5-hourly").catch((x) => x);
+  assert.deepEqual([pre.reason, pre.failed, pre.inner, pre.step], ["prerequisite_failed", "cc5-ops", "record_read_failed", null]);
+  assert.match(lines.pop(), /^cc5 schema unavailable cc5-hourly cc5-ops prerequisite_failed inner record_read_failed simulated D1 failure$/);
+  const db2 = probe(d1(), { failOn: /^INSERT OR IGNORE INTO schema_migrations/ });
+  await ensureSchema(db2.inner);
+  const rec = await runner({ log })(db2, "cc5-launch").catch((x) => x);
+  assert.deepEqual([rec.reason, rec.failed, rec.inner], ["prerequisite_failed", "cc5-ops", "record_failed"]);
+  assert.match(rec.message, /cc5 schema cc5-launch unavailable: prerequisite_failed \(cc5-ops: record_failed\)/);
+});
+
+test("a stalled D1 call fails closed with reason timeout (finding F2), is never cached, and does not hold back the next call or a group that needs the stalled one", async () => {
+  const db = d1();
+  await ensureSchema(db);
+  let stall = true;
+  const pending = [];
+  const stalling = {
+    prepare: (sql) => {
+      const s = db.prepare(sql);
+      const wrap = (x) => ({ ...x, bind: (...p) => wrap(x.bind(...p)), first: (c) => x.first(c), all: () => x.all(),
+        run: () => (stall && /^CREATE TABLE IF NOT EXISTS idempotency_keys/.test(sql) ? new Promise((resolve) => pending.push(resolve)) : x.run()) });
+      return wrap(s);
+    },
+    batch: (l) => db.batch(l),
+  };
+  const lines = [];
+  const run = runner({ timeoutMs: 60, log: (...a) => lines.push(a.join(" ")) });
+  const t0 = Date.now();
+  const first = await run(stalling, "cc5-hourly").catch((x) => x);
+  assert.ok(first instanceof Cc5SchemaError);
+  assert.deepEqual([first.reason, first.status, first.code], ["timeout", 503, "not_enabled"]);
+  assert.ok(Date.now() - t0 < 2000);
+  assert.match(lines[0], /^cc5 schema unavailable cc5-hourly cc5-hourly timeout$/);
+  // still stalled: the next call times out on its own (it does not wait on the first), and so does the group alone
+  assert.equal((await run(stalling, "cc5-ops").catch((x) => x)).reason, "timeout");
+  // D1 recovers: the same runner (the same isolate) completes both, even though the first calls never returned
+  stall = false;
+  assert.deepEqual([...await run(stalling, "cc5-hourly")], ["cc5-ops", "cc5-hourly"]);
+  assert.deepEqual(await recorded(db), ["cc5-hourly", "cc5-ops"]);
+  for (const resolve of pending) resolve({ success: true }); // the stalled calls finish late: harmless (IF NOT EXISTS, INSERT OR IGNORE)
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(await recorded(db), ["cc5-hourly", "cc5-ops"]);
 });
 
 test("a broken registry refuses every call (registry_invalid) before touching the database", async () => {
@@ -776,7 +871,11 @@ test("a country manager is never deleted or replaced; the one update ends the te
     { sql: "DELETE FROM country_managers" },
     { sql: "UPDATE country_managers SET wallet = ? WHERE id = 1", params: [W(5)] },
     { sql: "UPDATE country_managers SET ended_by = ? WHERE id = 1", params: [W(9)] }, // not an ending
-    { sql: "UPDATE country_managers SET ended_at = ?, country = 'CA' WHERE id = 1", params: [T] },
+    { sql: "UPDATE country_managers SET ended_at = ?, ended_by = ?, end_reason = 'revoked', country = 'CA' WHERE id = 1", params: [T, W(9)] },
+    // the ending sets all three at once (finding SEC-6/SF-6): an ending without who or why would freeze an incomplete row
+    { sql: "UPDATE country_managers SET ended_at = ? WHERE id = 1", params: [T] },
+    { sql: "UPDATE country_managers SET ended_at = ?, end_reason = 'revoked' WHERE id = 1", params: [T] },
+    { sql: "UPDATE country_managers SET ended_at = ?, ended_by = ? WHERE id = 1", params: [T, W(9)] },
     insertSql("INSERT OR REPLACE INTO", "country_managers", mgr(1, "CA", 12)),
     insertSql("INSERT OR REPLACE INTO", "country_managers", mgr(3, "CA", 10)),
     insertSql("INSERT OR REPLACE INTO", "country_managers", mgr(4, "US", 13)), // the partial index: would delete the active manager
@@ -789,22 +888,20 @@ test("a country manager is never deleted or replaced; the one update ends the te
   await assert.rejects(exec(db, { sql: "UPDATE country_managers SET ended_at = NULL WHERE id = 1" }), /country_manager_append_only/);
   await ins(db, "country_managers", mgr(2, "US", 11)); // the next manager
   await assert.rejects(ins(db, "country_managers", mgr(3, "US", 11, T)), /country_manager_append_only|UNIQUE/, "one appointment per application");
-  await assert.rejects(exec(db, { sql: "UPDATE country_managers SET end_reason = 'other', ended_at = ? WHERE id = 2", params: [T] }), /CHECK/);
+  await assert.rejects(exec(db, { sql: "UPDATE country_managers SET end_reason = 'other', ended_by = ?, ended_at = ? WHERE id = 2", params: [W(9), T] }), /CHECK/);
 });
 
-test("hourly records are kept and keyed: never deleted or replaced, keys never change; a confirmed action and a paid or claimed leaf are final; a leaf is never redirected", async () => {
+test("hourly runs, samples and actions are kept and keyed: never deleted or replaced, keys never change; a confirmed action is final; one action per tuple", async () => {
   const db = d1();
   await runner()(db, "cc5-hourly");
   const k = { cluster: "devnet", program_id: P, coin: "coin-1" };
   const run = { ...k, quote_mint: "q", utc_hour: 490000, mode: "shadow", status: "sampling", samples_ok: 0, policy_version: "citycoin-master-v5", created_at: T, updated_at: T };
   const sample = { ...k, utc_hour: 490000, segment: 0, slot: 1, taken_at: T, holders_hash: "h", holder_count: 3, blob_key: "b", status: "ok" };
-  const action = { action_key: "devnet|P|coin-1|q|490000|holder_batch|0", ...k, quote_mint: "q", utc_hour: 490000, action: "holder_batch", batch: 0, status: "planned", attempts: 0, created_at: T, updated_at: T };
-  const leaf = { ...k, quote_mint: "q", utc_hour: 490000, leaf_index: 0, wallet: W(1), amount_raw: "1000", status: "owed", paid_tx: null };
+  const action = { action_key: `devnet|${P}|coin-1|q|490000|holder_batch|0`, ...k, quote_mint: "q", utc_hour: 490000, action: "holder_batch", batch: 0, status: "planned", attempts: 0, created_at: T, updated_at: T };
   for (const [table, row, message, change] of [
     ["hourly_runs", run, "hourly_run_permanent", "UPDATE hourly_runs SET utc_hour = 490001"],
     ["hourly_samples", sample, "hourly_sample_permanent", "UPDATE hourly_samples SET segment = 1"],
     ["hourly_actions", action, "hourly_action_permanent", "UPDATE hourly_actions SET batch = 1"],
-    ["hourly_leaves", leaf, "hourly_leaf_permanent", "UPDATE hourly_leaves SET wallet = 'Wredirect'"],
   ]) {
     await ins(db, table, row);
     const kept = await rowsOf(db, table);
@@ -814,19 +911,229 @@ test("hourly records are kept and keyed: never deleted or replaced, keys never c
       assert.equal(await rowsOf(db, table), kept, `${table}: ${s.sql}`);
     }
   }
-  await assert.rejects(exec(db, { sql: "UPDATE hourly_leaves SET amount_raw = '1'" }), /hourly_leaf_permanent/);
   // the work moves on: status and progress fields change
   await exec(db, { sql: "UPDATE hourly_runs SET status = 'allocated', funded_raw = '10', allocated_raw = '9', dust_raw = '1'" });
   await exec(db, { sql: "UPDATE hourly_samples SET status = 'unreliable'" });
   await exec(db, { sql: "UPDATE hourly_actions SET status = 'sent', signature = 'sig', attempts = 1" });
   await exec(db, { sql: "UPDATE hourly_actions SET status = 'confirmed', slot = 5" });
   await assert.rejects(exec(db, { sql: "UPDATE hourly_actions SET status = 'planned'" }), /hourly_action_permanent/, "confirmed is final");
-  await exec(db, { sql: "UPDATE hourly_leaves SET status = 'paid', paid_tx = 'tx'" });
-  await assert.rejects(exec(db, { sql: "UPDATE hourly_leaves SET status = 'owed'" }), /hourly_leaf_permanent/, "paid is final");
-  await assert.rejects(exec(db, { sql: "UPDATE hourly_leaves SET paid_tx = 'other'" }), /hourly_leaf_permanent/);
-  await ins(db, "hourly_leaves", { ...leaf, leaf_index: 1, wallet: W(2) });
-  await exec(db, { sql: "UPDATE hourly_leaves SET status = 'claimed' WHERE leaf_index = 1" });
-  await assert.rejects(exec(db, { sql: "UPDATE hourly_leaves SET status = 'paid' WHERE leaf_index = 1" }), /hourly_leaf_permanent/, "claimed is final");
+  // the action key is tied to its parts (finding SF-8): a second spelling of the same tuple cannot be inserted, kept row or not
+  await assert.rejects(ins(db, "hourly_actions", { ...action, action_key: `devnet|${P}|coin-1|q|490000|holder_batch|00` }), /hourly_action_permanent|UNIQUE/);
+  const bare = d1();
+  await runner()(bare, "cc5-hourly");
+  await bare.prepare("DROP TRIGGER hourly_actions_no_overwrite").run();
+  await ins(bare, "hourly_actions", action);
+  await assert.rejects(ins(bare, "hourly_actions", { ...action, action_key: "another spelling" }), /UNIQUE constraint failed: hourly_actions\.cluster/, "the unique index alone refuses it");
+  await ins(bare, "hourly_actions", { ...action, action_key: `devnet|${P}|coin-1|q|490000|holder_batch|1`, batch: 1 });
+});
+
+test("hourly leaves (findings SF-1, SF-3): a leaf of no published root (a shadow run's, or a live run before its root is on chain) can be corrected or removed; once the root is on chain or the leaf is paid it is kept and never redirected", async () => {
+  const db = d1();
+  await runner()(db, "cc5-hourly");
+  const k = { cluster: "devnet", program_id: P, coin: "coin-1", quote_mint: "q", utc_hour: 100 };
+  const leaf = (i, over = {}) => ({ ...k, leaf_index: i, wallet: W(i + 1), amount_raw: "1000", status: "owed", paid_tx: null, ...over });
+  const runRow = (mode, status) => ({ ...k, mode, status, samples_ok: 4, policy_version: "citycoin-master-v5", created_at: T, updated_at: T });
+  const leafRows = async () => rowsOf(db, "hourly_leaves");
+
+  // the probe of the finding: a shadow run with a leaf, then the live run of the same hour; the live leaf is no longer blocked forever
+  await ins(db, "hourly_runs", runRow("shadow", "allocated"));
+  await ins(db, "hourly_leaves", leaf(0));
+  await ins(db, "hourly_runs", runRow("live", "allocated"));
+  await assert.rejects(ins(db, "hourly_leaves", leaf(0, { wallet: W(7) })), /UNIQUE/, "same key: a plain insert still collides");
+  await exec(db, { sql: "UPDATE hourly_leaves SET wallet = ?, amount_raw = '900' WHERE leaf_index = 0", params: [W(7)] }); // corrected before the root
+  await exec(db, { sql: "DELETE FROM hourly_leaves WHERE leaf_index = 0" });
+  await ins(db, "hourly_leaves", leaf(0));
+  await ins(db, "hourly_leaves", leaf(1, { wallet: W(8) }), "INSERT OR REPLACE INTO");
+  await ins(db, "hourly_leaves", leaf(2));
+  await exec(db, { sql: "UPDATE hourly_runs SET status = 'failed' WHERE mode = 'live'" }); // verification failed before the root: still correctable
+  await exec(db, { sql: "UPDATE hourly_leaves SET amount_raw = '999' WHERE leaf_index = 2" });
+  await exec(db, { sql: "UPDATE hourly_runs SET status = 'verified' WHERE mode = 'live'" });
+
+  // the root goes on chain: a confirmed holder_root action makes every leaf of the hour kept
+  const rootAction = { action_key: `devnet|${P}|coin-1|q|100|holder_root|0`, ...k, action: "holder_root", batch: 0, status: "sent", attempts: 1, created_at: T, updated_at: T };
+  await ins(db, "hourly_actions", rootAction);
+  await exec(db, { sql: "UPDATE hourly_leaves SET amount_raw = '998' WHERE leaf_index = 2" }); // sent is not confirmed
+  await exec(db, { sql: "UPDATE hourly_actions SET status = 'confirmed'" });
+  const kept = await leafRows();
+  for (const s of [
+    { sql: "DELETE FROM hourly_leaves WHERE leaf_index = 0" },
+    { sql: "UPDATE hourly_leaves SET wallet = 'Wredirect' WHERE leaf_index = 0" },
+    { sql: "UPDATE hourly_leaves SET amount_raw = '1' WHERE leaf_index = 1" },
+    { sql: "UPDATE hourly_leaves SET leaf_index = 9 WHERE leaf_index = 1" },
+    { sql: "UPDATE hourly_leaves SET rowid = 99 WHERE leaf_index = 1" },
+    insertSql("INSERT OR REPLACE INTO", "hourly_leaves", leaf(0, { wallet: W(9) })),
+    insertSql("INSERT OR IGNORE INTO", "hourly_leaves", leaf(0)),
+    insertSql("INSERT INTO", "hourly_leaves", leaf(0), " ON CONFLICT DO NOTHING"),
+  ]) {
+    await assert.rejects(exec(db, s), /hourly_leaf_permanent/, s.sql);
+    assert.equal(await leafRows(), kept, s.sql);
+  }
+  // a later run status cannot release them: the confirmed action is final and never deleted
+  await exec(db, { sql: "UPDATE hourly_runs SET status = 'failed' WHERE mode = 'live'" });
+  await assert.rejects(exec(db, { sql: "DELETE FROM hourly_leaves" }), /hourly_leaf_permanent/);
+  // an unpublished leaf of another hour moved onto a kept leaf's key is refused (no takeover)
+  await ins(db, "hourly_leaves", leaf(0, { utc_hour: 101 }));
+  await assert.rejects(exec(db, { sql: "UPDATE OR REPLACE hourly_leaves SET utc_hour = 100 WHERE utc_hour = 101" }), /hourly_leaf_permanent/);
+  // paying moves on: owed to paid or claimed, then final
+  await exec(db, { sql: "UPDATE hourly_leaves SET status = 'paid', paid_tx = 'tx' WHERE utc_hour = 100 AND leaf_index = 0" });
+  await exec(db, { sql: "UPDATE hourly_leaves SET status = 'claimed' WHERE utc_hour = 100 AND leaf_index = 1" });
+  for (const s of ["UPDATE hourly_leaves SET status = 'owed' WHERE leaf_index = 0 AND utc_hour = 100", "UPDATE hourly_leaves SET paid_tx = 'other' WHERE leaf_index = 0 AND utc_hour = 100",
+    "UPDATE hourly_leaves SET status = 'paid' WHERE leaf_index = 1 AND utc_hour = 100"]) await assert.rejects(exec(db, { sql: s }), /hourly_leaf_permanent/, s);
+
+  // a live run in root_published, paying or done keeps its hour's leaves too (no action row needed)
+  const h = { ...k, utc_hour: 200 };
+  await ins(db, "hourly_runs", { ...runRow("live", "verified"), utc_hour: 200 });
+  await ins(db, "hourly_leaves", { ...leaf(0), ...h });
+  await exec(db, { sql: "UPDATE hourly_leaves SET amount_raw = '5' WHERE utc_hour = 200" });
+  await exec(db, { sql: "UPDATE hourly_runs SET status = 'root_published' WHERE utc_hour = 200 AND mode = 'live'" });
+  await assert.rejects(exec(db, { sql: "UPDATE hourly_leaves SET amount_raw = '6' WHERE utc_hour = 200" }), /hourly_leaf_permanent/);
+  await assert.rejects(exec(db, { sql: "DELETE FROM hourly_leaves WHERE utc_hour = 200" }), /hourly_leaf_permanent/);
+  // ... but a shadow run's status never does
+  await ins(db, "hourly_runs", { ...runRow("shadow", "done"), utc_hour: 300 });
+  await ins(db, "hourly_leaves", { ...leaf(0), ...k, utc_hour: 300 });
+  await exec(db, { sql: "DELETE FROM hourly_leaves WHERE utc_hour = 300" });
+  // a paid leaf is kept whatever the run says
+  await ins(db, "hourly_leaves", { ...leaf(0), ...k, utc_hour: 400, status: "paid", paid_tx: "tx" });
+  await assert.rejects(exec(db, { sql: "DELETE FROM hourly_leaves WHERE utc_hour = 400" }), /hourly_leaf_permanent/);
+  await assert.rejects(ins(db, "hourly_leaves", { ...leaf(0), ...k, utc_hour: 400 }, "INSERT OR REPLACE INTO"), /hourly_leaf_permanent/);
+});
+
+test("no kept table holds a rowid below 1 (finding SF-4): an explicit 0 or negative id is refused, so a row with id -1 can never wedge the overwrite guard; automatic ids still work", async () => {
+  const db = d1();
+  for (const id of IDS) await runner()(db, id);
+  const ev = (id, key) => ({ ...(id === undefined ? {} : { id }), user_id: 1, wallet: W(1), city_id: "c-1", country: "US", event_type: "post", source_type: "post", source_id: key,
+    points: 2, activity_at: T, self_reply: 0, review_state: "auto", dedup_key: `post:${key}`, reverses_id: null, policy_version: "v", created_at: T });
+  // the finding's probe: an id -1 row, then an ordinary insert
+  await assert.rejects(ins(db, "activity_events", ev(-1, "a")), /activity_event_append_only/);
+  await assert.rejects(ins(db, "activity_events", ev(0, "b")), /activity_event_append_only/);
+  await ins(db, "activity_events", ev(undefined, "c"));
+  await ins(db, "activity_events", ev(undefined, "d"));
+  assert.deepEqual((await db.prepare("SELECT id FROM activity_events ORDER BY id").all()).results.map((r) => r.id), [1, 2]);
+  // a text-keyed table: an explicit rowid below 1 is refused, an automatic one is fine
+  const fr = (city, n) => ({ city_id: city, country: "US", wallet: W(n), user_id: n, cycle: 1, cutoff_slot: 1, snapshot_hash: "s", policy_version: "v", selected_at: T,
+    cluster: "devnet", program_id: P, chain_pda: `pda-${n}`, chain_tx: "tx", chain_slot: 1, source: "selection", recorded_at: T });
+  await assert.rejects(ins(db, "founder_records", { rowid: -1, ...fr("c-1", 1) }), /founder_record_immutable/);
+  await ins(db, "founder_records", fr("c-1", 1));
+  // a table whose rows are kept only in a state: a free row cannot move to a rowid below 1 either (SQLite gives an automatic rowid one above
+  // the largest, so a lone row at -1 would make the next automatic rowid 0), and every automatic rowid stays positive
+  const city = (id, status) => ({ city_id: id, country: "US", status, opened_at: T, first_cycle: 1, founded_cycle: null, updated_at: T });
+  await ins(db, "selection_cities", city("c-1", "awaiting"));
+  for (const s of ["UPDATE selection_cities SET rowid = -1 WHERE city_id = 'c-1'", "UPDATE selection_cities SET rowid = 0 WHERE city_id = 'c-1'"]) {
+    await assert.rejects(exec(db, { sql: s }), /city_already_founded/, s);
+  }
+  await assert.rejects(exec(db, { sql: "INSERT OR REPLACE INTO selection_cities (rowid, city_id, country, status, opened_at, first_cycle, updated_at) VALUES (-1, 'c-9', 'US', 'awaiting', ?, 1, ?)", params: [T, T] }), /city_already_founded/);
+  await exec(db, { sql: "UPDATE selection_cities SET status = 'founded' WHERE city_id = 'c-1'" });
+  await ins(db, "selection_cities", city("c-2", "awaiting"));
+  await ins(db, "selection_cities", city("c-3", "awaiting"));
+  assert.deepEqual((await db.prepare("SELECT rowid AS r FROM selection_cities ORDER BY rowid").all()).results.map((x) => x.r), [1, 2, 3]);
+  for (const [table, s] of [["selection_receipts", "UPDATE selection_receipts SET cycle_id = -4"], ["city_metadata_active", "UPDATE city_metadata_active SET rowid = -4"],
+    ["hourly_leaves", "UPDATE hourly_leaves SET rowid = -4"]]) {
+    const raw = { selection_receipts: { cycle_id: 9, digest: "d9", merkle_root: "r", receipt_json: "{}", public_json: "{}", created_at: T },
+      city_metadata_active: { city_id: "c-1", version_id: 1, version: 1, ticker: "ONE", activated_at: T },
+      hourly_leaves: { cluster: "d", program_id: P, coin: "c", quote_mint: "q", utc_hour: 1, leaf_index: 0, wallet: W(1), amount_raw: "1", status: "owed" } }[table];
+    await ins(db, table, raw);
+    await assert.rejects(exec(db, { sql: s }), /receipt_immutable|metadata_frozen_after_launch|hourly_leaf_permanent/, s);
+    assert.equal((await db.prepare(`SELECT MIN(rowid) AS r FROM ${table}`).first()).r >= 1, true, table);
+  }
+});
+
+test("primary keys are never NULL (finding SF-5): the seven text keys refuse NULL, and a receipt without its cycle id is refused instead of being given the next rowid", async () => {
+  const db = d1();
+  for (const id of IDS) await runner()(db, id);
+  const rows = {
+    selection_cities: { city_id: null, country: "US", status: "awaiting", opened_at: T, first_cycle: 1, updated_at: T },
+    founder_records: { city_id: null, country: "US", wallet: W(1), cycle: 1, cutoff_slot: 1, snapshot_hash: "s", policy_version: "v", selected_at: T, cluster: "devnet",
+      program_id: P, chain_pda: "pda", chain_tx: "tx", chain_slot: 1, source: "selection", recorded_at: T },
+    city_metadata_active: { city_id: null, version_id: 1, version: 1, ticker: "T", activated_at: T },
+    city_review_locks: { city_id: null, request_id: 1, proposal_hash: "h", base_version: 1, chain_pda: "p", opened_tx: "t", opened_slot: 1 },
+    launch_preparations: { id: null, city_id: "c-1", founder: W(1), version_id: 1, quote_config_id: 1, stage: "built", created_at: T, expires_at: T },
+    hourly_actions: { action_key: null, cluster: "d", program_id: P, coin: "c", quote_mint: "q", utc_hour: 1, action: "buyback", status: "planned", created_at: T, updated_at: T },
+    job_leases: { name: null, holder: "h", fencing: 1, acquired_at: T, expires_at: T },
+  };
+  for (const [table, row] of Object.entries(rows)) await assert.rejects(ins(db, table, row), /NOT NULL constraint failed/, table);
+  // the founder record's wallet stays free for its real mirror row
+  await ins(db, "founder_records", { ...rows.founder_records, city_id: "c-1" });
+  const receipt = { digest: "d1", merkle_root: "r", receipt_json: "{}", public_json: "{}", created_at: T };
+  await assert.rejects(ins(db, "selection_receipts", { cycle_id: null, ...receipt }), /receipt_cycle_required/);
+  await assert.rejects(ins(db, "selection_receipts", receipt), /receipt_cycle_required/, "no cycle id at all");
+  await assert.rejects(ins(db, "selection_receipts", { cycle_id: 0, ...receipt }), /receipt_cycle_required/);
+  await ins(db, "selection_receipts", { cycle_id: 5, ...receipt });
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM selection_receipts").first()).n, 1);
+});
+
+test("job leases never lose their fencing (finding SF-9): no DELETE, fencing never goes back, a new holder comes with a higher fencing; the doc's acquisition upsert and a renewal still work", async () => {
+  const db = d1();
+  await runner()(db, "cc5-ops");
+  const acquire = (holder, now) => exec(db, { sql: "INSERT INTO job_leases (name, holder, fencing, acquired_at, expires_at) VALUES ('selection', ?, 1, ?, ?) ON CONFLICT(name) DO UPDATE SET holder = excluded.holder, fencing = job_leases.fencing + 1, acquired_at = excluded.acquired_at, expires_at = excluded.expires_at WHERE job_leases.expires_at < ?", params: [holder, now, `${now}+8m`, now] });
+  await acquire("h1", "2026-10-24T12:00");
+  for (let i = 2; i <= 5; i++) await acquire(`h${i}`, `2026-10-24T13:0${i}`);
+  assert.deepEqual(await db.prepare("SELECT holder, fencing FROM job_leases").first(), { holder: "h5", fencing: 5 });
+  await exec(db, { sql: "UPDATE job_leases SET expires_at = 'later' WHERE name = 'selection' AND holder = 'h5' AND fencing = 5" }); // a renewal by the holder
+  const before = await rowsOf(db, "job_leases");
+  for (const s of [
+    "DELETE FROM job_leases",
+    "UPDATE job_leases SET fencing = 1",
+    "UPDATE job_leases SET holder = 'h6'",
+    "UPDATE job_leases SET holder = 'h6', fencing = 5",
+    "UPDATE job_leases SET name = 'hourly'",
+    "UPDATE job_leases SET rowid = 7",
+  ]) {
+    await assert.rejects(exec(db, { sql: s }), /job_lease_fenced/, s);
+    assert.equal(await rowsOf(db, "job_leases"), before, s);
+  }
+  // the probe of the finding: DELETE plus re-insert can no longer reset fencing to 1. INSERT OR REPLACE cannot be refused without refusing the
+  // doc's upsert as well (both are inserts to a BEFORE INSERT trigger), so writers never use it (schema-migrations.md reading R23, open item O7)
+});
+
+test("keptInsert (finding SF-2): the guarded insert is a quiet no-op on a repeat for every kept table, a retried launch batch succeeds, and a real conflict on another key still aborts", async () => {
+  const db = d1();
+  for (const id of IDS) await runner()(db, id);
+  const cases = [
+    ["founder_records", APPEND_ONLY[0][3], ["city_id"]],
+    ["manager_application_events", { ...APPEND_ONLY[1][3], id: 1 }, ["id"]],
+    ["activity_events", { ...APPEND_ONLY[2][3], id: undefined }, ["dedup_key"]],
+    ["city_metadata_versions", { ...APPEND_ONLY[3][3], id: undefined }, ["city_id", "version"]],
+    ["city_metadata_request_events", { ...APPEND_ONLY[4][3], id: 1 }, ["id"]],
+    ["city_launches", APPEND_ONLY[5][3], ["cluster", "program_id", "city_id"]],
+    ["selection_receipts", { cycle_id: 3, digest: "d3", merkle_root: "r", receipt_json: "{}", public_json: "{}", verifier_digest: "d3", created_at: T }, ["cycle_id"]],
+    ["selection_cities", { city_id: "c-7", country: "US", status: "founded", opened_at: T, first_cycle: 1, founded_cycle: 2, updated_at: T }, ["city_id"]],
+    ["city_metadata_active", { city_id: "c-7", version_id: 1, version: 1, ticker: "SEVEN", activated_at: T, publish_tx: "tx", publish_slot: 1, launched_mint: "mint-7" }, ["city_id"]],
+    ["country_managers", { id: 1, country: "US", user_id: 1, wallet: W(1), application_id: 1, appointed_by: W(9), appointed_at: T, ended_at: null, ended_by: null, end_reason: null }, ["application_id"]],
+    ["hourly_actions", { action_key: `devnet|${P}|c|q|1|buyback|0`, cluster: "devnet", program_id: P, coin: "c", quote_mint: "q", utc_hour: 1, action: "buyback", batch: 0, status: "confirmed", attempts: 1, created_at: T, updated_at: T }, ["action_key"]],
+    ["hourly_runs", { cluster: "devnet", program_id: P, coin: "c", quote_mint: "q", utc_hour: 1, mode: "live", status: "done", samples_ok: 4, policy_version: "v", created_at: T, updated_at: T }, ["cluster", "program_id", "coin", "quote_mint", "utc_hour", "mode"]],
+    ["hourly_samples", { cluster: "devnet", program_id: P, coin: "c", utc_hour: 1, segment: 0, slot: 1, taken_at: T, holders_hash: "h", holder_count: 1, blob_key: "b", status: "ok" }, ["cluster", "program_id", "coin", "utc_hour", "segment"]],
+    ["hourly_leaves", { cluster: "devnet", program_id: P, coin: "c", quote_mint: "q", utc_hour: 1, leaf_index: 0, wallet: W(1), amount_raw: "5", status: "paid", paid_tx: "tx" }, ["cluster", "program_id", "coin", "quote_mint", "utc_hour", "leaf_index"]],
+  ];
+  for (const [table, raw, key] of cases) {
+    const row = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
+    const q = keptInsert(table, row, key);
+    assert.equal((await db.prepare(q.sql).bind(...q.params).run()).meta.changes, 1, `${table}: first insert`);
+    const kept = await rowsOf(db, table);
+    assert.equal((await db.prepare(q.sql).bind(...q.params).run()).meta.changes, 0, `${table}: the repeat is a no-op`);
+    assert.equal(await rowsOf(db, table), kept, table);
+    await assert.rejects(db.prepare(insertSql("INSERT OR IGNORE INTO", table, row).sql).bind(...Object.values(row)).run(), /SQLITE_CONSTRAINT|_permanent|_immutable|_append_only|already_founded|frozen_after_launch/, `${table}: a conflict clause aborts`);
+  }
+  // the launch batch of section 3.6, retried: record, launched mint, activity event (all guarded), twice
+  const launch = { ...APPEND_ONLY[5][3], city_id: "c-8", mint: "mint-8", ticker: "EIGHT" };
+  const event = { ...APPEND_ONLY[2][3], city_id: "c-8", event_type: "launch", source_type: "chain_launch", source_id: "c-8", dedup_key: "launch:c-8", reverses_id: null, points: 40 };
+  delete event.id;
+  await ins(db, "city_metadata_active", { city_id: "c-8", version_id: 1, version: 1, ticker: "EIGHT", activated_at: T, publish_tx: "tx", publish_slot: 1, launched_mint: null });
+  const batch = () => {
+    const a = keptInsert("city_launches", launch, ["cluster", "program_id", "city_id"]);
+    const b = keptInsert("activity_events", event, ["dedup_key"]);
+    return db.batch([db.prepare(a.sql).bind(...a.params), db.prepare("UPDATE city_metadata_active SET launched_mint = ? WHERE city_id = 'c-8' AND launched_mint IS NULL").bind("mint-8"),
+      db.prepare(b.sql).bind(...b.params)]);
+  };
+  await batch();
+  await batch();
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM city_launches WHERE city_id = 'c-8'").first()).n, 1);
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM activity_events WHERE dedup_key = 'launch:c-8'").first()).n, 1);
+  // a real conflict on another unique key (the same mint for another city) still aborts the whole batch
+  const clash = keptInsert("city_launches", { ...launch, city_id: "c-9", ticker: "NINE" }, ["cluster", "program_id", "city_id"]);
+  await assert.rejects(db.batch([db.prepare(clash.sql).bind(...clash.params)]), /launch_record_immutable/);
+  for (const bad of [["x y", { a: 1 }, ["a"]], ["t", {}, ["a"]], ["t", { a: 1 }, []], ["t", { a: 1 }, ["b"]], ["t", { a: undefined }, ["a"]], ["t", { "a;": 1 }, ["a;"]]]) {
+    assert.throws(() => keptInsert(...bad), TypeError, JSON.stringify(bad));
+  }
 });
 
 test("the doc's CHECK constraints and unique and partial indexes hold (a sample of each kind)", async () => {

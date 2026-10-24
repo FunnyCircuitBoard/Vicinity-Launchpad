@@ -25,18 +25,25 @@
  * test/helpers/cc5-d1copy-worker.js `tableHash`); a category's digest covers its parts' names, row counts and digests. Every cc5 table
  * present (src/cc5schema.js) gets a count and a digest of all its columns. With --key-file every digest is an HMAC-SHA256 under a 32-byte key
  * kept outside the repository (created on first use, mode 0600); the output carries only the key's fingerprint, so a published census
- * cannot be used to test guesses about members' rows, and two censuses compare only when their fingerprints match.
+ * cannot be used to test guesses about members' rows, and two censuses compare only when their fingerprints match. Unkeyed digests need
+ * --unkeyed unless the database is the repository's own local one (a config outside the repository may hold a copy of production data).
+ *
+ * SCHEMA. The integrity rules of v5 live in schema objects (the append-only triggers, the unique indexes), so the census also digests the
+ * schema: per type counts, one digest over every object's (type, name, table, SQL) sorted, and one digest per object by name (SQLite's own
+ * sqlite_* objects and D1's _cf_* objects left out). Schema text is not member data; still only names and digests are printed. --compare
+ * fails when an object disappeared or changed (a migration may only add), and the backup step (backup.mjs) requires the restored copy's
+ * schema to be the source's exactly.
  *
  * EXIT: 0 done; 2 refused (nothing was read); 3 the duplicate-wallet check failed (the census is still printed); 4 --compare found a
- * difference in preserved data; 1 any other failure.
+ * difference in preserved data or schema; 1 any other failure.
  */
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { closeSync, constants as fsConstants, lstatSync, openSync, readFileSync, writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { CC5_GROUPS, CC5_ORDER } from "../../src/cc5schema.js";
-import { DEFAULT_CONFIG, Refusal, databaseNameFromConfig, checkDatabaseName, outsideRepository, parseArgs, runWrangler, targetOf } from "./lib.mjs";
+import { DEFAULT_CONFIG, Refusal, databaseNameFromConfig, checkDatabaseName, digestKeyRule, outsideRepository, parseArgs, runWrangler, targetOf } from "./lib.mjs";
 
-export const CENSUS_VERSION = "cc5-census/1";
+export const CENSUS_VERSION = "cc5-census/2";
 export const PAGE_ROWS = 5000;
 const MAX_CALL_STATEMENTS = 100;
 const MAX_CALL_CHARS = 60_000;
@@ -94,6 +101,18 @@ export const HISTORY_TABLES = Object.freeze([
 export const CC5_TABLES = Object.freeze(Object.fromEntries(CC5_ORDER.filter((id) => CC5_GROUPS[id]).map((id) => [id, Object.freeze(
   CC5_GROUPS[id].statements.map((s) => (typeof s === "string" ? (/^CREATE TABLE IF NOT EXISTS (\w+)/.exec(s) || [])[1] : null)).filter(Boolean),
 )])));
+/** id -> every object its statements create (tables, named indexes, triggers), for the rehearsal's exact check. */
+export const CC5_OBJECTS = Object.freeze(Object.fromEntries(CC5_ORDER.filter((id) => CC5_GROUPS[id]).map((id) => [id, Object.freeze(
+  CC5_GROUPS[id].statements.map((s) => (typeof s === "string" ? (/^CREATE (?:TABLE|INDEX|UNIQUE INDEX|TRIGGER) IF NOT EXISTS (\w+)/.exec(s) || [])[1] : null)).filter(Boolean),
+)])));
+/**
+ * Tables a live site writes on its own, outside the preserved data: the cron (job lease in settings, balance samples, streaks, snapshots,
+ * coin stats, price history), sign-in and rate limits, and in-flight sign-up states. Between the source census and the export their row
+ * counts may move; the backup validation allows only these to differ (finding SEC-6). The preserved categories never include them.
+ */
+export const CHURN_TABLES = Object.freeze(["sessions", "settings", "rate_events", "auth_limits", "used_nonces", "email_codes", "handoffs", "pairs", "signups",
+  "balance_samples", "streaks", "snapshots", "coin_stats", "price_samples", "price_candles", "market_meta", "notices", "feedback"]);
+export const SCHEMA_TYPES = Object.freeze(["table", "index", "trigger", "view"]);
 
 const part = (table, columns, where = null) => Object.freeze({ table, columns: Object.freeze(columns), where });
 /**
@@ -236,13 +255,16 @@ export async function runCensus(exec, { database, target = "local", key = null, 
     return out;
   };
 
-  // 1. the tables, and the columns of every table this census reads (pragma_table_info answers no row for a missing table)
+  // 1. the schema (every object: the tables among them), and the columns of every table this census reads (pragma_table_info answers no
+  //    row for a missing table)
   const wanted = [...new Set([
     ...Object.values(CATEGORIES).flat().map((p) => p.table), ...COUNTS.flatMap((c) => Object.keys(c.needs)), ...Object.values(CC5_TABLES).flat(), "user_logins",
   ])];
-  const [tableRows, ...columnRows] = await run(["SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+  const [schemaRows, ...columnRows] = await run(["SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name",
     ...wanted.map((t) => `SELECT name FROM pragma_table_info('${t}') ORDER BY cid`)]);
-  const names = tableRows.map((r) => r.name).filter((n) => typeof n === "string" && !/^sqlite_/.test(n) && !/^_cf_/.test(n));
+  const own = (n) => typeof n === "string" && (/^sqlite_/.test(n) || /^_cf_/.test(n));
+  const objectsRead = schemaRows.filter((r) => typeof r.name === "string" && !own(r.name) && !own(r.tbl_name));
+  const names = objectsRead.filter((r) => r.type === "table").map((r) => r.name);
   const tables = names.filter((n) => IDENT.test(n));
   const unprintable = names.length - tables.length;
   const present = new Set(tables);
@@ -311,6 +333,19 @@ export async function runCensus(exec, { database, target = "local", key = null, 
   const cc5Tables = Object.fromEntries(cc5Present.map((p) => [p.table, { group: p.group, rows: digested.get(p).rows, digest: digested.get(p).digest }]));
   const recorded = out.cc5_records ? CC5_IDS.filter((id) => out.cc5_records[id] > 0) : [];
 
+  // 5. the schema: counts per type, a digest over every object, a digest per object by name (names that are not plain identifiers are
+  //    digested apart and only counted)
+  const lineOf = (o) => JSON.stringify([String(o.type), String(o.name), String(o.tbl_name ?? ""), o.sql === null || o.sql === undefined ? null : String(o.sql)]);
+  const printable = objectsRead.filter((o) => IDENT.test(o.name));
+  const unprintableLines = objectsRead.filter((o) => !IDENT.test(o.name)).map(lineOf).sort();
+  const schema = {
+    counts: Object.fromEntries(SCHEMA_TYPES.map((ty) => [ty, objectsRead.filter((o) => o.type === ty).length])),
+    digest: H(`${CENSUS_VERSION}\tschema\n${objectsRead.map(lineOf).sort().join("\n")}`),
+    objects: Object.fromEntries([...printable].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((o) => [o.name, H(lineOf(o))])),
+    objects_with_unprintable_names: unprintableLines.length,
+    unprintable_digest: H(`${CENSUS_VERSION}\tunprintable\n${unprintableLines.join("\n")}`),
+  };
+
   const census = {
     census: CENSUS_VERSION,
     database: database ?? null,
@@ -328,6 +363,7 @@ export async function runCensus(exec, { database, target = "local", key = null, 
       tables: cc5Tables,
       absent_tables: Object.values(CC5_TABLES).flat().filter((t) => !cc5Tables[t]),
     },
+    schema,
     digests,
   };
   return census;
@@ -345,12 +381,13 @@ function leaves(obj, prefix = "", into = {}) {
 const sameList = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
- * Compare two census outputs: `ok` is true when every preserved category (CATEGORIES) has the same digest, row count and missing parts and
- * no table disappeared. Changed counts and row counts are listed (sessions and rate limits move on a live site) but do not fail it.
- * Refuses outputs of another version, or made with different digest keys.
+ * Compare two census outputs: `ok` is true when every preserved category (CATEGORIES) has the same digest, row count and missing parts, no
+ * table disappeared, and no schema object disappeared or changed (`schema.status` "same", or "added" when objects were only added, as a
+ * migration does; "changed" fails it). Changed counts and row counts are listed (sessions and rate limits move on a live site) but do not
+ * fail it. Refuses outputs of another version, or made with different digest keys.
  */
 export function compareCensus(before, after) {
-  for (const c of [before, after]) if (!c || c.census !== CENSUS_VERSION || !c.digests || !c.tables) throw new Refusal(`compare: not a ${CENSUS_VERSION} census output`);
+  for (const c of [before, after]) if (!c || c.census !== CENSUS_VERSION || !c.digests || !c.tables || !c.schema || !c.schema.objects) throw new Refusal(`compare: not a ${CENSUS_VERSION} census output`);
   if (before.digest.algorithm !== after.digest.algorithm || before.digest.key_fingerprint !== after.digest.key_fingerprint) {
     throw new Refusal("compare: the two censuses were made with different digest keys; run both with the same --key-file");
   }
@@ -375,9 +412,14 @@ export function compareCensus(before, after) {
   };
   const la = leaves(before.counts), lb = leaves(after.counts);
   const counts = [...new Set([...Object.keys(la), ...Object.keys(lb)])].filter((k) => la[k] !== lb[k]).map((k) => ({ count: k, before: la[k] ?? null, after: lb[k] ?? null }));
+  const sa = before.schema, sb = after.schema;
+  const schema = { status: "same", added: Object.keys(sb.objects).filter((n) => !(n in sa.objects)), removed: Object.keys(sa.objects).filter((n) => !(n in sb.objects)),
+    changed: Object.keys(sa.objects).filter((n) => n in sb.objects && sa.objects[n] !== sb.objects[n]), unprintable_changed: sa.unprintable_digest !== sb.unprintable_digest };
+  if (sa.digest !== sb.digest) schema.status = schema.removed.length || schema.changed.length || schema.unprintable_changed || !schema.added.length ? "changed" : "added";
   return {
-    ok: Object.values(categories).every((v) => v === "same") && tables.removed.length === 0,
+    ok: Object.values(categories).every((v) => v === "same") && tables.removed.length === 0 && schema.status !== "changed",
     categories,
+    schema,
     parts_changed: partsChanged,
     tables,
     counts_changed: counts,
@@ -472,10 +514,11 @@ export function writeNewFile(file, text, mode = 0o600) {
 /* ------------------------------------------------------------------ the command line */
 
 const USAGE = `usage:
-  node scripts/citycoin/census.mjs [--local | --remote] [--database <name>] [--config <wrangler config>] [--key-file <path>] [--out <path>]
+  node scripts/citycoin/census.mjs [--local | --remote] [--database <name>] [--config <wrangler config>] [--key-file <path> | --unkeyed] [--out <path>]
   node scripts/citycoin/census.mjs --compare <before.json> <after.json>
 --local (default) reads the local database of the wrangler config; --remote reads the production database (owner or credential holder
-only, and only with --key-file <path outside the repository>). Prints counts and digests only.
+only, and only with --key-file <path outside the repository>). A config outside this repository needs --key-file, or --unkeyed for a
+development database. Prints counts and digests only.
 `;
 
 /** The CLI. `io` replaces process I/O and the wrangler runner in tests. Answers the exit code. */
@@ -484,7 +527,7 @@ export async function main(argv, io = {}) {
   const err = io.err || ((s) => process.stderr.write(s));
   const run = io.run || runWrangler;
   try {
-    const { opts, positionals } = parseArgs(argv, { flags: ["local", "remote", "compare", "help"], values: ["database", "config", "key-file", "out"] });
+    const { opts, positionals } = parseArgs(argv, { flags: ["local", "remote", "compare", "unkeyed", "help"], values: ["database", "config", "key-file", "out"] });
     if (opts.help) { out(USAGE); return 0; }
     if (opts.compare) {
       if (positionals.length !== 2 || Object.keys(opts).length !== 1) throw new Refusal(`--compare takes two census files and nothing else\n${USAGE}`);
@@ -497,7 +540,7 @@ export async function main(argv, io = {}) {
     const target = targetOf(opts, "local");
     const config = opts.config || null;
     const database = opts.database ? checkDatabaseName(opts.database) : databaseNameFromConfig(config || DEFAULT_CONFIG);
-    if (target === "remote" && !opts["key-file"]) throw new Refusal("--remote needs --key-file <path outside the repository>: digests of production data are always keyed");
+    digestKeyRule({ target, config, keyFile: opts["key-file"], unkeyed: Boolean(opts.unkeyed) });
     const outFile = opts.out ? outsideRepository(opts.out, "the census output file") : null;
     const key = opts["key-file"] ? loadKey(opts["key-file"], { onCreate: (f) => err(`census: created a new digest key at ${f} (keep it for the after-run; never commit or share it)\n`) }) : null;
     if (target === "remote") err(`census: read-only SELECTs against the REMOTE database ${database} (owner or credential holder step, E9)\n`);

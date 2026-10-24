@@ -242,17 +242,32 @@ export function compatibilityDate() {
  * (test/cc5-census.test.js) pass `persistDir` (a `<dir>/.wrangler/state/v3` outside the repository) and `databaseIds` (name -> the
  * database_id of their own wrangler config), so that `wrangler d1 execute --local --config <dir>/wrangler.json` reads the same database.
  */
+/** `entry` and every module it imports with a relative static or dynamic import, repository-relative, the entry first. */
+export function moduleClosure(entry) {
+  const seen = [];
+  const visit = (rel) => {
+    if (seen.includes(rel)) return;
+    seen.push(rel);
+    const text = read(rel);
+    const dir = rel.split("/").slice(0, -1);
+    for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)["'](\.{1,2}\/[^"']+)["']/gm)) {
+      const parts = [...dir];
+      for (const seg of m[1].split("/")) { if (seg === "..") parts.pop(); else if (seg !== ".") parts.push(seg); }
+      visit(parts.join("/"));
+    }
+  };
+  visit(entry);
+  return seen;
+}
+
 export async function miniflareEngine(names, { timeoutMs = 30_000, persistDir = null, databaseIds = {} } = {}) {
   let mod;
   try { mod = await import("miniflare"); }
   catch (e) { throw new Error(`miniflare is not installed (${short(e)})`); }
   const { Miniflare, convertV4MiniflareOptions } = mod;
   const options = {
-    modules: [
-      { type: "ESModule", path: rootPath("test/helpers/cc5-d1copy-worker.js") },
-      { type: "ESModule", path: rootPath("src/cc5schema.js") },
-      { type: "ESModule", path: rootPath("src/store.js") },
-    ],
+    // the executor and every module it imports, statically (src/cc5schema.js, src/store.js, and src/v5policy.js with what that reads)
+    modules: moduleClosure("test/helpers/cc5-d1copy-worker.js").map((f) => ({ type: "ESModule", path: rootPath(f) })),
     modulesRoot: rootPath(),
     compatibilityDate: compatibilityDate(),
     d1Databases: Object.fromEntries(names.map((n) => [n, databaseIds[n] || `cc5-d1copy-${n.toLowerCase()}`])),

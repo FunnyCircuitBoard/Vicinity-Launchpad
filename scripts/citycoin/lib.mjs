@@ -9,15 +9,20 @@
  *                            "false"; a census reads rows into memory to hash them, so without this they would land on disk. Also no
  *                            metrics, no error reports, no banner (the banner is what runs wrangler's npm update check) and no fetch of
  *                            workers.cloudflare.com/cf.json by the local Miniflare that `--local` commands start (CLOUDFLARE_CF_FETCH_ENABLED).
- *   runWrangler(args, opts)  run `node <WRANGLER_JS> ...args` from REPO_ROOT with that environment; `capture` (default) answers
- *                            { code, stdout, stderr } in memory and never writes them anywhere; `inherit: true` lets the operator see
- *                            wrangler's own prompts (a remote export asks before it starts)
+ *                            WRANGLER_LOG is forced to "log": an operator's debug level would print API responses (a remote export's
+ *                            answer carries a download link to the whole dump), and a lower level would hide the --json results.
+ *   runWrangler(args, opts)  run `node <WRANGLER_JS> ...args` from REPO_ROOT with that environment, its output captured: answers { code,
+ *                            stdout, stderr } in memory and never writes them anywhere. Nothing wrangler prints reaches the terminal (a
+ *                            remote export prints a one-hour bearer link to the dump of every member row, finding SEC-1).
  *   outsideRepository(p, what)  the real path of `p` when it is outside this repository and outside every git work tree; refuses `..`
  *                            segments (a symlink before them would make the kernel's path differ from the written one)
+ *   insideRepository(p)      whether the real path of `p` is inside this repository
+ *   digestKeyRule(o)         the digest key rule of both tools: --remote needs --key-file (never --unkeyed); a local database whose wrangler
+ *                            config is outside this repository (a restored copy may hold production data) needs --key-file or --unkeyed
  *   databaseNameFromConfig(config)  the first d1_databases database_name of a wrangler config (wrangler.jsonc by default)
  *   parseArgs(argv, spec)    a small strict parser: --name value, --name=value, flags; an unknown option is a Refusal
  */
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,21 +47,14 @@ export function wranglerEnv(base = process.env) {
     WRANGLER_HIDE_BANNER: "true",
     WRANGLER_NO_SKILLS_UPDATE_PROMPTS: "true",
     CLOUDFLARE_CF_FETCH_ENABLED: "false",
+    WRANGLER_LOG: "log",
   };
 }
 
 const MAX_BUFFER = 512 * 1024 * 1024;
 
-export function runWrangler(args, { inherit = false, timeoutMs = 15 * 60_000 } = {}) {
+export function runWrangler(args, { timeoutMs = 15 * 60_000 } = {}) {
   if (!existsSync(WRANGLER_JS)) return Promise.reject(new Refusal(`wrangler is not installed in this checkout (${WRANGLER_JS}); run npm ci first`));
-  if (inherit) {
-    return new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [WRANGLER_JS, ...args], { cwd: REPO_ROOT, env: wranglerEnv(), stdio: "inherit" });
-      const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
-      child.on("error", (e) => { clearTimeout(timer); reject(e); });
-      child.on("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout: "", stderr: "" }); });
-    });
-  }
   return new Promise((resolve) => {
     execFile(process.execPath, [WRANGLER_JS, ...args], { cwd: REPO_ROOT, env: wranglerEnv(), maxBuffer: MAX_BUFFER, timeout: timeoutMs, windowsHide: true },
       (err, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) }));
@@ -85,6 +83,32 @@ export function outsideRepository(target, what, root = REPO_ROOT) {
     if (path.dirname(dir) === dir) break;
   }
   return real;
+}
+
+export function insideRepository(target, root = REPO_ROOT) {
+  const abs = path.resolve(String(target));
+  let probe = abs;
+  const rest = [];
+  while (!existsSync(probe)) {
+    const up = path.dirname(probe);
+    if (up === probe) break;
+    rest.unshift(path.basename(probe));
+    probe = up;
+  }
+  const real = path.join(realpathSync(probe), ...rest);
+  const realRoot = realpathSync(root);
+  return real === realRoot || real.startsWith(realRoot + path.sep);
+}
+
+export function digestKeyRule({ target, config = null, keyFile = null, unkeyed = false }) {
+  if (unkeyed && keyFile) throw new Refusal("use --key-file or --unkeyed, not both");
+  if (target === "remote") {
+    if (unkeyed) throw new Refusal("--unkeyed is refused with --remote: digests of production data are always keyed");
+    if (!keyFile) throw new Refusal("--remote needs --key-file <path outside the repository>: digests of production data are always keyed");
+    return;
+  }
+  if (keyFile || unkeyed || insideRepository(config || DEFAULT_CONFIG)) return;
+  throw new Refusal("the wrangler config is outside this repository, so its local database may be a copy of production data: pass --key-file <path outside the repository>, or --unkeyed for a development database");
 }
 
 export function databaseNameFromConfig(config = DEFAULT_CONFIG) {

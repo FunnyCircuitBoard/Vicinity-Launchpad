@@ -7,13 +7,14 @@
 // Nothing here reaches a remote resource: Miniflare runs a temporary local database and never fetches anything (cf: false).
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { CC5_GROUPS, CC5_ORDER, CC5_RESERVED, cc5Runner } from "../src/cc5schema.js";
+import { CC5_GROUPS, CC5_ORDER, CC5_RESERVED, cc5Runner, keptInsert } from "../src/cc5schema.js";
+import { readFileSync } from "node:fs";
 import {
-  buildCopy, docModel, docReference, docRow, insertStep, makeExecutorForReference, miniflareEngine, nodeEngine, normSql, recordedErrorNames,
+  buildCopy, docModel, docReference, docRow, insertStep, makeExecutorForReference, miniflareEngine, nodeEngine, normSql, recordedErrorNames, rootPath,
   sharedValues,
 } from "./helpers/cc5-d1copy.js";
 
-const DBS = ["MAIN", "PREP", "KEPT", "CONS", "RACE", "FAIL", "REAL", "HOLE"];
+const DBS = ["MAIN", "PREP", "KEPT", "CONS", "RACE", "FAIL", "REAL", "HOLE", "GATE"];
 const IDS = CC5_ORDER.filter((id) => CC5_GROUPS[id]); // section 3.10 step 2, cc5-identity (stage S09) reserved
 const objectName = (s) => (/^CREATE (?:TABLE|INDEX|UNIQUE INDEX|TRIGGER) IF NOT EXISTS (\w+)/.exec(s) || [])[1];
 const CC5_NAMES = new Set(IDS.flatMap((id) => CC5_GROUPS[id].statements).map(objectName));
@@ -132,7 +133,8 @@ for (const e of engines) {
     const added = snap.objects.filter((o) => !old.has(o.name));
     const unexplained = added.filter((o) => !CC5_NAMES.has(o.name) && !(o.type === "index" && o.sql === null && CC5_NAMES.has(o.tbl_name)));
     assert.deepEqual(unexplained, []);
-    assert.equal(added.filter((o) => CC5_NAMES.has(o.name)).length, CC5_NAMES.size, "all 88 group objects");
+    assert.equal(added.filter((o) => CC5_NAMES.has(o.name)).length, CC5_NAMES.size, "all 106 group objects");
+    assert.equal(CC5_NAMES.size, 106);
   });
 
   t("the schema after all groups matches the doc: parsed from sqlite_master and the PRAGMAs, every table, column, CHECK, key and index is section 3's, the doc's own triggers are word for word, and every other trigger only refuses", async () => {
@@ -156,17 +158,19 @@ for (const e of engines) {
     assert.deepEqual(myStructure, refStructure);
     // every index the copy has on a doc table is one the doc defines (named, or SQLite's automatic one for a key)
     for (const o of mine.filter((x) => x.type === "index")) assert.ok(refByName.has(o.name), `index ${o.name} comes from the doc`);
-    // the triggers beyond the doc's: BEFORE triggers on a doc table that only RAISE(ABORT) with a name the stage record lists
+    // the triggers beyond the doc's: BEFORE triggers (and the AFTER INSERT rowid checks) on a doc table that only RAISE(ABORT) with a name the
+    // stage record lists
     const names = new Set(recordedErrorNames());
     const extra = mine.filter((o) => o.type === "trigger" && !refByName.has(o.name));
-    assert.equal(extra.length + refSnap.objects.filter((o) => o.type === "trigger").length, 47);
+    assert.equal(extra.length + refSnap.objects.filter((o) => o.type === "trigger").length, 64);
     for (const o of extra) {
-      const m = /^CREATE TRIGGER (\w+) BEFORE (INSERT|UPDATE|DELETE) ON (\w+) (?:WHEN [\s\S]+ )?BEGIN SELECT RAISE\(ABORT, '([a-z_]+)'\); END$/.exec(o.sql);
+      const m = /^CREATE TRIGGER (\w+) (BEFORE (?:INSERT|UPDATE|DELETE)|AFTER INSERT) ON (\w+) (?:WHEN [\s\S]+ )?BEGIN SELECT RAISE\(ABORT, '([a-z_]+)'\); END$/.exec(o.sql);
       assert.ok(m, `${o.name} only refuses: ${o.sql.slice(0, 80)}`);
       assert.ok(docTables.includes(m[3]) && m[1].startsWith(`${m[3]}_`), `${o.name} is on its own table`);
       assert.ok(names.has(m[4]), `${o.name} raises ${m[4]}, a name schema-migrations.md lists`);
+      if (m[2] === "AFTER INSERT") assert.match(o.sql, new RegExp(`^CREATE TRIGGER ${m[3]}_rowid_positive AFTER INSERT ON ${m[3]} WHEN NEW\\.rowid < 1 BEGIN`), `${o.name}: the only AFTER trigger is the rowid check`);
     }
-    assert.equal(mine.filter((o) => o.type === "index" && o.sql).length, 15);
+    assert.equal(mine.filter((o) => o.type === "index" && o.sql).length, 16);
   });
 
   t("every append-only and kept table refuses UPDATE, DELETE, INSERT OR REPLACE, REPLACE and upsert rewrites (and INSERT OR IGNORE, UPDATE OR REPLACE) with its named error, and its rows stay byte-identical", async () => {
@@ -287,23 +291,63 @@ for (const e of engines) {
         else { assert.equal(r.ok, false, `${t0}: ${w0.what} is refused`); assert.match(r.error, w0.re, `${t0}: ${w0.what}`); }
       });
     }
-    // the walk is not vacuous: 26 CHECK lists (107 allowed values accepted), 4 ranges (each end refused one past it), 211 NOT NULL columns,
-    // 45 keys and non-partial unique indexes, the 5 partial unique indexes
-    assert.deepEqual(counts, { check: 26, range: 8, notNull: 211, key: 45, partial: 5, accepted: 107 });
+    // the walk is not vacuous: 26 CHECK lists (107 allowed values accepted), 4 ranges (each end refused one past it), 218 NOT NULL columns,
+    // 46 keys and non-partial unique indexes, the 5 partial unique indexes
+    assert.deepEqual(counts, { check: 26, range: 8, notNull: 218, key: 46, partial: 5, accepted: 107 });
   });
 
-  t("open item O9, pinned: a single-column PRIMARY KEY without NOT NULL accepts NULL (SQLite's legacy rule, on D1 too), so writers always bind the key", async () => {
+  t("primary keys and NULL (finding SF-5; open item O9): the seven text keys refuse NULL; of the two INTEGER PRIMARY KEYs (the rowid, where NOT NULL has no effect), a receipt refuses a missing cycle id and the activity cache gives it the next rowid", async () => {
     await migratedCopy(e, "CONS");
     const model = docModel();
-    const loose = Object.values(model).flatMap((m) => m.columns.filter((c) => c.pk && !c.notNull && !c.autoinc).map((c) => [m, c]));
-    assert.deepEqual(loose.map(([m, c]) => `${m.name}.${c.name} ${c.type}`).sort(), [
-      "activity_totals.user_id INTEGER", "city_metadata_active.city_id TEXT", "city_review_locks.city_id TEXT", "founder_records.city_id TEXT",
-      "hourly_actions.action_key TEXT", "job_leases.name TEXT", "launch_preparations.id TEXT", "selection_cities.city_id TEXT", "selection_receipts.cycle_id INTEGER",
+    const textKeys = Object.values(model).flatMap((m) => m.columns.filter((c) => c.pk && c.type === "TEXT").map((c) => [m, c]));
+    assert.deepEqual(textKeys.map(([m, c]) => `${m.name}.${c.name} ${c.notNull ? "NOT NULL" : "nullable"}`).sort(), [
+      "city_metadata_active.city_id NOT NULL", "city_review_locks.city_id NOT NULL", "founder_records.city_id NOT NULL", "hourly_actions.action_key NOT NULL",
+      "job_leases.name NOT NULL", "launch_preparations.id NOT NULL", "selection_cities.city_id NOT NULL",
     ]);
-    const steps = loose.map(([m, c]) => insertStep("INSERT INTO", m.name, docRow(m, 5000, { [c.name]: null })));
-    const res = await e.engine.call({ op: "exec", db: "CONS", steps });
-    // TEXT keys take NULL; an INTEGER PRIMARY KEY (the rowid) is given the next number instead: either way the row is not refused
-    assert.deepEqual(res.map((r) => r.ok), loose.map(() => true), JSON.stringify(res));
+    const loose = Object.values(model).flatMap((m) => m.columns.filter((c) => c.pk && !c.notNull && !c.autoinc).map((c) => [m, c]));
+    assert.deepEqual(loose.map(([m, c]) => `${m.name}.${c.name} ${c.type}`).sort(), ["activity_totals.user_id INTEGER", "selection_receipts.cycle_id INTEGER"]);
+    const res = await e.engine.call({ op: "exec", db: "CONS", steps: [
+      ...textKeys.map(([m, c]) => insertStep("INSERT INTO", m.name, docRow(m, 5000, { [c.name]: null }))),
+      insertStep("INSERT INTO", "selection_receipts", docRow(model.selection_receipts, 5001, { cycle_id: null })),
+      insertStep("INSERT INTO", "activity_totals", docRow(model.activity_totals, 5002, { user_id: null })),
+    ] });
+    textKeys.forEach(([m], i) => { assert.equal(res[i].ok, false, m.name); assert.match(res[i].error, /NOT NULL constraint failed/, m.name); });
+    assert.equal(res[textKeys.length].ok, false);
+    assert.match(res[textKeys.length].error, /receipt_cycle_required/, "on this engine NEW.cycle_id of a NULL key reads below 1 in a BEFORE INSERT trigger");
+    assert.equal(res[textKeys.length + 1].ok, true, "the derived cache takes it (writers always bind the user id: open item O9)");
+  });
+
+  t("the writer rule on this engine (finding SF-2): the guarded insert (keptInsert) is a no-op on a repeat in a batch, a conflict clause aborts it, and an id of -1 is refused (finding SF-4)", async () => {
+    await migratedCopy(e, "CONS");
+    const model = docModel();
+    const row = docRow(model.city_launches, 7000);
+    const q = keptInsert("city_launches", row, ["cluster", "program_id", "city_id"]);
+    const res = await e.engine.call({ op: "exec", db: "CONS", steps: [
+      { sql: q.sql, params: q.params, check: "city_launches" },
+      { sql: q.sql, params: q.params, check: "city_launches" },
+      insertStep("INSERT OR IGNORE INTO", "city_launches", row),
+      insertStep("INSERT INTO", "activity_events", docRow(model.activity_events, 7001, { id: -1 })),
+      insertStep("INSERT INTO", "activity_events", docRow(model.activity_events, 7002, { id: 0 })),
+    ] });
+    assert.deepEqual(res.map((r) => r.ok), [true, true, false, false, false], JSON.stringify(res));
+    assert.deepEqual(res[1].check, res[0].check, "the repeat changed nothing");
+    assert.match(res[2].error, /launch_record_immutable/);
+    assert.match(res[3].error, /activity_event_append_only/);
+    assert.match(res[4].error, /activity_event_append_only/);
+  });
+
+  t("the Worker's entry fails closed on this engine (finding SEC-2): with the committed settings every group is refused before any statement; an accepted deployment that needs a group creates it and nothing else", async () => {
+    await buildCopy(e.engine, "GATE");
+    const before = await e.engine.call({ op: "snapshot", db: "GATE" });
+    const wrangler = JSON.parse(readFileSync(rootPath("wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
+    const committed = await e.engine.call({ op: "gated", db: "GATE", ids: IDS, vars: wrangler.vars });
+    assert.deepEqual(committed.results.map((r) => [r.id, r.ok, r.error && r.error.reason, r.error && r.error.status]), IDS.map((id) => [id, false, "switch_at_default", 503]));
+    assert.deepEqual(committed.seen, [], "no statement at all");
+    assert.deepEqual(await e.engine.call({ op: "snapshot", db: "GATE" }), before);
+    const accepted = await e.engine.call({ op: "gated", db: "GATE", ids: ["cc5-activity", "cc5-ops"], vars: { ...wrangler.vars, ACTIVITY_POINTS: "shadow", DEPLOYMENT_ENV: "test", LEGACY_SEATS: "frozen" } });
+    assert.deepEqual(accepted.results.map((r) => [r.id, r.ok, r.ok ? r.value : r.error.reason]), [["cc5-activity", true, ["cc5-activity"]], ["cc5-ops", false, "switch_at_default"]]);
+    const after = await e.engine.call({ op: "objects", db: "GATE" });
+    assert.deepEqual(after.records.filter((id) => /^cc5-/.test(id)), ["cc5-activity"]);
   });
 
   t("two runners at once (two requests, each racing every group from new isolates, plus a second runtime on the same D1) all succeed and record each group once", async () => {
@@ -332,9 +376,10 @@ for (const e of engines) {
     const tables = async () => new Set((await e.engine.call({ op: "objects", db: "FAIL" })).names);
     const stepOf = (id, re) => CC5_GROUPS[id].statements.findIndex((s) => re.test(s));
 
-    // 1. a prerequisite fails (cc5-ops, at its second statement): neither group is recorded
+    // 1. a prerequisite fails (cc5-ops, at its idempotency_keys table, after the lease table and its triggers): neither group is recorded
     let r = await call({ ids: ["cc5-hourly"], failOn: "^CREATE TABLE IF NOT EXISTS idempotency_keys\\b", failTimes: 1 });
-    assert.deepEqual(pick(r.results[0].error), { reason: "prerequisite_failed", group: "cc5-hourly", failed: "cc5-ops", step: 1, status: 503, code: "not_enabled" });
+    assert.deepEqual(pick(r.results[0].error), { reason: "prerequisite_failed", group: "cc5-hourly", failed: "cc5-ops", step: stepOf("cc5-ops", /^CREATE TABLE IF NOT EXISTS idempotency_keys\b/), status: 503, code: "not_enabled" });
+    assert.equal(r.results[0].error.inner, "statement_failed");
     assert.match(r.results[0].error.cause, /Network connection lost/);
     assert.deepEqual(await recorded(), []);
     assert.ok((await tables()).has("job_leases") && !(await tables()).has("idempotency_keys"), "the statement before the failure ran (each is safe to run again)");
