@@ -237,10 +237,12 @@ export function compatibilityDate() {
 
 /**
  * Cloudflare's local D1 inside workerd: one Miniflare instance whose Worker is the executor module, one local database per name (no
- * persistence: a temporary database that ends with dispose). Rejects with the reason when Miniflare is missing or workerd cannot start.
- * `proxy(name)` is the same database seen from Node (a second runtime on the same D1, for the race test).
+ * persistence by default: a temporary database that ends with dispose). Rejects with the reason when Miniflare is missing or workerd cannot start.
+ * `proxy(name)` is the same database seen from Node (a second runtime on the same D1, for the race test). The census tests
+ * (test/cc5-census.test.js) pass `persistDir` (a `<dir>/.wrangler/state/v3` outside the repository) and `databaseIds` (name -> the
+ * database_id of their own wrangler config), so that `wrangler d1 execute --local --config <dir>/wrangler.json` reads the same database.
  */
-export async function miniflareEngine(names, { timeoutMs = 30_000 } = {}) {
+export async function miniflareEngine(names, { timeoutMs = 30_000, persistDir = null, databaseIds = {} } = {}) {
   let mod;
   try { mod = await import("miniflare"); }
   catch (e) { throw new Error(`miniflare is not installed (${short(e)})`); }
@@ -253,7 +255,8 @@ export async function miniflareEngine(names, { timeoutMs = 30_000 } = {}) {
     ],
     modulesRoot: rootPath(),
     compatibilityDate: compatibilityDate(),
-    d1Databases: Object.fromEntries(names.map((n) => [n, `cc5-d1copy-${n.toLowerCase()}`])),
+    d1Databases: Object.fromEntries(names.map((n) => [n, databaseIds[n] || `cc5-d1copy-${n.toLowerCase()}`])),
+    ...(persistDir ? { resourcePersistencePath: persistDir } : {}),
     host: "127.0.0.1",
     port: 0,
     cf: false, // placeholder request.cf: Miniflare otherwise fetches workers.cloudflare.com/cf.json and caches it in the working directory

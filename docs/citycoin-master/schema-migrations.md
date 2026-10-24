@@ -7,9 +7,11 @@ report is updated by the release step.
 **Status on 24 October 2026: nothing here is applied or called.** Local branch `cc/s08` only (not pushed, not merged, not deployed). No
 route, job or `src/index.js` path imports the new module, so the Worker issues exactly the D1 statements it issues today, whatever the
 switches say (shown statement by statement in section 5), and the built `public/` does not change. No production or remote database was
-read or written for this work. Live facts at the time: 5 members, 0 seats, 0 open windows, no city coin listed.
+read or written for this work: the census and the backup tools (section 8) ran only against Cloudflare's local D1 with synthetic rows,
+and every `--remote` case of their tests runs in-process with a wrangler stand-in that fails the test if it is called. Live facts at the
+time: 5 members, 0 seats, 0 open windows, no city coin listed.
 
-## 1. What this part of S08 built
+## 1. What S08 built
 
 | File | What it is |
 |---|---|
@@ -17,11 +19,15 @@ read or written for this work. Live facts at the time: 5 members, 0 seats, 0 ope
 | `test/cc5-schema.test.js` | 27 tests on Node's SQLite (the engine D1 runs): the doc parity, the switch mapping, the runner, every append-only and conditional trigger, the CHECK constraints and partial indexes, and the guard that nothing in the Worker or the pages calls the runner yet |
 | `test/cc5-d1copy.test.js` | 12 tests, each run twice: on Cloudflare's local D1 inside workerd (Miniflare) and on Node's SQLite, against a copy of the production database's shape with synthetic rows (section 5) |
 | `test/cc5-parity.test.js` | 3 tests: the switches-off parity claim, by running the Worker's real request and job entry points against a fake D1 that records every statement (section 5) |
-| `test/helpers/cc5-d1copy.js` | The copy: the schema read, synthetic rows in every one of its 55 tables, the two engines, and a reader of section 3 as data (tables, columns, CHECKs, keys, indexes) |
+| `test/helpers/cc5-d1copy.js` | The copy: the schema read, synthetic rows in every one of its 55 tables, the two engines (the Miniflare one can persist to a `<dir>/.wrangler/state/v3` outside the repository, so `wrangler d1 execute --local --config <dir>/wrangler.json` reads the same database), and a reader of section 3 as data (tables, columns, CHECKs, keys, indexes) |
 | `test/helpers/cc5-d1copy-worker.js` | The executor the D1-copy tests drive: inside workerd it is the Worker (so `src/cc5schema.js` runs in the Workers runtime against local D1); in Node it runs in-process |
 | `test/fixtures/prod-schema-2026-10-24.sql` | The production D1 schema as read on 24 October 2026: `sqlite_master` text of 88 objects, **schema only, no rows** |
+| `scripts/citycoin/census.mjs` | The count-only census (section 3.10 steps 1 and 3, R1 section 9, §07 acceptance): counts, table names and sha256 (or keyed HMAC-SHA256) digests, never a row value; every statement checked to be one SELECT; read through `wrangler d1 execute --json`, local by default; `--compare` for before and after (section 8) |
+| `scripts/citycoin/backup.mjs` | The backup step before each migration: Time Travel bookmark, optional export outside the repository, restore into a new local copy validated by the census, rehearsal of the groups on that copy, restore commands; dry run by default (section 8) |
+| `scripts/citycoin/lib.mjs` | What the two share: the wrangler environment (no debug log, no metrics), the outside-the-repository path rule, the argument parser |
+| `test/cc5-census.test.js` | 15 tests: the one-SELECT rule, the column lists against the schema read, the path rule, the census on Node's SQLite and through `wrangler d1 execute --local` on Cloudflare's local D1, privacy scans, a migration's before and after, keyed digests, refusals, and the backup step end to end on a local copy (section 8.4) |
 
-The census script and the backup step are the rest of S08 (section 8).
+Nothing in `src/`, `public/` or the page build imports `scripts/citycoin/`; the Worker and the built pages are unchanged by it.
 
 ## 2. The groups
 
@@ -183,7 +189,8 @@ production had already recorded on 27 September, so production never ran it; a r
 copy reproduces it: today's `ensureSchema` adds nothing to it, and no group adds the index. Open item O10.
 
 This is a copy of the production **schema** with synthetic rows; the dry run on a copy of the production **data** (a validated backup,
-restored locally) belongs to the backup step (section 8).
+restored locally) is the backup step of section 8, which the owner runs (E9). The census and the backup step were exercised on this copy
+(section 8.4).
 
 ## 6. Readings of the design (where it is abbreviated or ambiguous)
 
@@ -206,6 +213,13 @@ section) or `master-v5.txt`.
 | R12 | `cc5-ops` "created with the first of SELECTION_V5, CC_HOURLY or LAUNCH_V5" (line 889) against the lease name `'activity'` (line 893) | The creation sentence is followed: `ACTIVITY_POINTS` does not create `cc5-ops`. Open item O2. |
 | R13 | derived and mutable tables: `activity_totals` "derived cache, rebuilt at any time" (line 586), `city_review_locks` (line 705; the approval batch deletes its row, line 726), `selection_cycles`, `selection_snapshots`, `national_ranks` (30-day retention, line 463), `manager_applications`, `activity_evidence`, `city_metadata_uploads`, `city_metadata_requests`, `launch_preparations`, `job_leases`, `idempotency_keys` (24-hour expiry) | No trigger: the doc marks none of them, and their rules need updates or deletes. |
 | R14 | prerequisites | A prerequisite is listed only where the configuration check already requires the prerequisite's switch (section 2), so "created only when its switch first leaves its default" holds for every group. Reads of another group's tables whose switch is not guaranteed on are open items O3 to O6, not prerequisites. |
+| R15 | "users by migration case" (3.10 step 3, line 935); R1 section 9 (`R1-identity.md` 173-182) | Both readings are counted, `testlab` accounts excluded as R1's table says: R1's buckets with R1's first query verbatim (M1 wallet and city, M2 wallet without a city, M3 Google or e-mail without a wallet, other), and the sign-in a member has today (a wallet plus a Google or e-mail sign-in, including an added Google sign-in in `user_logins`; a wallet only; Google only; e-mail only; other). R1's duplicate-wallet and live-session queries are used verbatim. |
+| R16 | `SELECT status, COUNT(*) FROM seats GROUP BY status` (3.10 step 3, line 936) | A status is a row value, so the label is a constant: a `CASE` maps the six statuses the code writes (`provisional`, `active`, `grace`, `steward`, `released`, `revoked`; src/seats.js, src/admin.js) to themselves and anything else to `other`. The same rule for clusters (`mainnet`, `devnet`, `other`) and the `cc5-` record ids. A label outside a count's list stops the census instead of being printed. |
+| R17 | "Compare before/after counts and hashes for wallets, profiles, posts, canonical locations, FounderRecords, city coins and monetary liabilities" (§07, `master-v5.txt` 482); 3.10 step 1 (line 931) | Eight digest categories over fixed columns of the production schema read: `wallets`, `profiles` and `locations` split `users` so that each of its columns is in exactly one; `posts` (with `votes`); `community` (`follows`, `blocks`, `mutes`: §07 "community history", line 468); `founders` (`seats`, `claims`, `manager_terms`: today's founder and manager roles; the v5 `founder_records` mirror is digested on its own under `cc5` once it exists, so creating it does not change the category); `coins` (`city_coins`, `lp_coins`, `admin_tokens`); `onchain` (`lp_approvals_log`, `lp_setup`). The database holds no balance or payout today, so "monetary liabilities" is read as these on-chain records; the hourly leaves (amounts owed) are digested under `cc5` when `cc5-hourly` exists. Fixed columns mean a migration that adds a column or a table leaves every category digest unchanged. |
+| R18 | "hashes" (3.10 step 1); "returning no member data" (line 935) | sha256 over sorted rows, computed in the census process. A digest of a few low-entropy rows (a wallet whose `wallet_at` is NULL, ids 1 to 5) could be confirmed by guessing against public holder lists, so a census of the production database is always keyed: HMAC-SHA256 under a 32-byte key kept outside the repository, the output carrying only the key's fingerprint. Local censuses may be unkeyed. |
+| R19 | "Validate a backup" (3.10 step 1; §07 "Take/validate backups", `master-v5.txt` 477; §37 step 1, 2091) | A Time Travel bookmark cannot be validated without restoring production to it, so validation uses the export: it is restored into a new local database and the census of that copy must equal the source's on every category digest and every table's row count. Without `--export` the step records the bookmark only. |
+| R20 | "dry-run every migration on a copy" (line 931) | The groups the switch change creates (`groupsForFlags`, prerequisites included) are created on the validated local copy by the real runner (`ensureCc5Group` through Miniflare's local D1), and the census before and after must show every preserved category and existing row count unchanged, only those groups' tables added and their records present. |
+| R21 | "run by someone with production D1 access" (line 935); E9 | Both tools default to the local database; `--remote` is an explicit operator choice and is never run by this stage. The census holds rows only in memory and runs wrangler with `WRANGLER_WRITE_LOGS=false` (section 8.1). |
 
 ## 7. Open items for later stages
 
@@ -221,18 +235,119 @@ section) or `master-v5.txt`.
 | O8 | every later change | A recorded group never runs again. A change to a group's statements ships under a new id (the pattern of `APPROVED_MIGRATION` in `src/coinart-store.js`), never by editing a recorded list. |
 | O9 | every writer; a later doc revision | Nine single-column primary keys in section 3 have no NOT NULL: `selection_cities.city_id`, `founder_records.city_id`, `city_metadata_active.city_id`, `city_review_locks.city_id`, `launch_preparations.id`, `hourly_actions.action_key`, `job_leases.name` (TEXT: SQLite's legacy rule, on D1 too, accepts NULL, and NULLs never collide) and `selection_receipts.cycle_id`, `activity_totals.user_id` (INTEGER PRIMARY KEY: NULL is given the next rowid). The text is kept word for word (R1), so writers always bind the key; on an append-only table a NULL-key row could never be removed. Adding NOT NULL means a new table definition under a new id (O8). Pinned by `test/cc5-d1copy.test.js`. |
 | O10 | S16, census | `streaks_active` is missing in production (section 5): `src/store.js` declares it inside the already-recorded `2026-09-27-fair-launch` migration. The streak update runs without it until a later change ships the index under a new migration id, or until `LEGACY_SEATS=frozen` stops streak updates (3.9). Not an S08 change. |
+| O11 | the owner's first census (E9) | The census and the backup step have run only against Cloudflare's local D1. Their statements (SELECTs over `sqlite_master`, `pragma_table_info('<table>')`, `quote()`) and `wrangler d1 time-travel info` and `d1 export --remote` have not run against the remote database. If remote D1 refuses a statement, the census stops with D1's message and prints nothing else; the first remote run is the check. Miniflare's local export leaves out `_cf_` and `sqlite_` tables; that the remote export does the same is not verified here (a restore that fails stops the step as "NOT validated"). |
+| O12 | every census | A census is two or three wrangler calls (tables and columns; then counts and digests, split when over 100 statements; more when one part exceeds 5,000 rows). Writes between calls on a live site can make a before and after differ in churning counts (sessions, rate limits); preserved categories should not move during a migration window, and a difference there means stop and investigate. |
 
-## 8. Still to do in S08
+## 8. The census and the backup step (owner or operator steps, external E9)
 
-- **Census** (3.10 step 3, §07 acceptance, D08): a script that records counts and hashes only, never member data: duplicate wallets
-  (must be 0), users by migration case, non-wallet sessions, seats by status, which history tables exist, and before and after counts and
-  digests of wallets, profiles, posts, locations, founder records, coins and monetary rows. Production access is external E9.
-- **Backup step before each migration** (3.10 step 1, §07 "Take/validate backups before migration; dry-run on a copy", `master-v5.txt`
-  477): before a switch change that `groupsForFlags` says creates a group, a validated backup and a dry run of that group on a restored
-  copy, compared by the census. Run by the credential holder (E9); nothing in this repository runs against production.
-- ~~A committed, repeatable D1-copy harness for the checks of section 5~~: done (`test/cc5-d1copy.test.js`, `test/cc5-parity.test.js`,
-  section 5). The census can reuse its row hash (`tableHash` in `test/helpers/cc5-d1copy-worker.js`: count and sha256 per table, never a
-  row).
+Both tools are operator tools in `scripts/citycoin/`; nothing in the Worker imports them. They default to the local database of a wrangler
+config. Reading or exporting the **production** database (`--remote`) needs production D1 access (implementation-report E9: "Production
+D1 read and export access ... Credential holder") and is run by the owner or the credential holder, never by the stage that built them.
+Run them from a checkout of this repository after `npm ci` (they use the wrangler it pins, 4.137.0).
+
+### 8.1 The census (`scripts/citycoin/census.mjs`)
+
+```
+node scripts/citycoin/census.mjs --remote --key-file ~/citycoin-ops/census.key > ~/citycoin-ops/census-before.json
+node scripts/citycoin/census.mjs --compare ~/citycoin-ops/census-before.json ~/citycoin-ops/census-after.json
+```
+
+- **What it prints:** the database name, `local` or `remote`, the time, every table's name and row count, the counts below, a digest per
+  category and per part, and the duplicate-wallet check. Never a row value, wallet, e-mail address, name or id: count labels are
+  constants (R16), every number is checked to be a count, a table name that is not a plain identifier is counted but not printed, and rows
+  read for a digest exist only in the process's memory. Exit 3 when duplicate wallets exist (the output is still printed).
+- **Counts:** users (total, testlab, with a wallet, with a city), users by R1 case and by sign-in (R15), duplicate wallets (must be 0),
+  cities with members, live sessions with and without a wallet proof, sessions (total, expired, without a user, without a wallet), seats
+  by status and live seats, open windows, open elections, live manager terms, claims, posts (total, replies, hidden, deleted), city coins
+  (total, with a mint, launched), `lp_coins`, `lp_approvals_log` and `lp_setup` by cluster, admin tokens, `schema_migrations` (total,
+  `cc5-` records), which history tables exist (3.9 and 3.10 step 3), and, when present, every cc5 table's rows and digest.
+- **Digests (R17, R18):** each part is sha256 of `<columns joined by ",">\n<sorted rows>`, a row being SQLite's `quote()` of each column
+  joined by "," (the same row hash as `tableHash` in `test/helpers/cc5-d1copy-worker.js`; a test shows they are equal); a category's
+  digest covers its parts' names, row counts and digests. `--key-file <path>` makes every digest an HMAC-SHA256: the key (32 random bytes,
+  hex) is created on first use with mode 0600, must be outside the repository and every git work tree, is refused when others can read
+  it, and only its fingerprint is printed. **`--remote` requires `--key-file`.** Keep the key for the after-run: two censuses compare only
+  when their fingerprints match.
+- **How it reads:** only `wrangler d1 execute <database> --json --command "<SELECT>;\n<SELECT>..."`, `--local` by default. Each statement
+  is checked to be exactly one SELECT (no second statement, no comment, no write, `PRAGMA`, `ATTACH`, transaction or `RETURNING` keyword,
+  no unterminated quote) before it is joined and again before each call; a refused statement stops the census. On a wrangler failure it
+  reports D1's error text about the SQL, never wrangler's output.
+- **Wrangler's debug log.** Wrangler 4.137.0 appends every line it prints, `--json` query results included, to a log file under
+  `~/.config/.wrangler/logs` (or `WRANGLER_LOG_PATH`) unless `WRANGLER_WRITE_LOGS=false` (`node_modules/wrangler/wrangler-dist/cli.js`,
+  `appendToDebugLogFile`; confirmed here on a local copy: the rows of a query appeared in the log). Both tools run wrangler with
+  `WRANGLER_WRITE_LOGS=false`, `WRANGLER_SEND_METRICS=false`, the banner off (no npm update check) and `CLOUDFLARE_CF_FETCH_ENABLED=false`
+  (otherwise the local Miniflare behind every `--local` command fetches `https://workers.cloudflare.com/cf.json` into
+  `node_modules/.mf/`; seen here once before the switch was added) (`scripts/citycoin/lib.mjs`; a test asserts no log file is written).
+  **An operator who runs `wrangler d1 execute --remote` by hand should set `WRANGLER_WRITE_LOGS=false` too**, or the rows land on disk.
+- **`--compare a.json b.json`:** `ok` (exit 0) when every preserved category has the same digest, row count and missing parts and no table
+  disappeared; otherwise exit 4 with the categories and parts that changed. Changed counts, row counts, added tables and new `cc5-`
+  records are listed without failing it (a live site's sessions move; a migration adds tables).
+
+### 8.2 The backup step before each migration (`scripts/citycoin/backup.mjs`)
+
+Before the configuration change that moves a switch away from its default (and so lets a feature stage create a group), the operator runs:
+
+```
+node scripts/citycoin/backup.mjs --flags SELECTION_V5=shadow --export ~/citycoin-ops/2026-11-01.sql --key-file ~/citycoin-ops/census.key   # dry run: prints the plan
+node scripts/citycoin/backup.mjs --remote --execute --flags SELECTION_V5=shadow --export ~/citycoin-ops/2026-11-01.sql --key-file ~/citycoin-ops/census.key
+```
+
+Without `--execute` it prints the steps and the exact commands and runs, reads and writes nothing (the default plan is the remote one).
+`--execute` needs `--remote` or `--local`. `--groups cc5-ops,cc5-selection` names groups directly; `--flags` maps switch values through
+`groupsForFlags` (prerequisites included, in the order of section 3.10 step 2); `cc5-identity` is refused (stage S09). The steps:
+
+| Step | What runs | Notes |
+|---|---|---|
+| 1. Bookmark (remote only) | `wrangler d1 time-travel info <db> --json` | The D1 Time Travel bookmark of this moment, printed with its restore command; the answer is read only in a bookmark's shape. A local database has no Time Travel. |
+| 2. Census of the source | the census above (keyed for `--remote`) | Saved as `<export>.census-source.json`. A failed duplicate-wallet check is printed: stop before any migration. |
+| 3. Export (with `--export`) | `wrangler d1 export <db> --<target> --output <file>` | The file holds member data: it must be outside this repository and every git work tree (resolved through symlinks, no `..`), must not exist (never overwritten), and is created with mode 0600 before wrangler writes it. Its size and sha256 are printed. **D1 does not serve queries while a remote export runs** (wrangler's own warning; seconds for this database): run it at a quiet time. Wrangler asks before a remote export unless `--yes`. |
+| 4. Validate | `wrangler d1 execute cc5-restored-copy --local --config <export>.restore/wrangler.json --file <export>`, then the census of that copy | A **new** local database in `<export>.restore/` (its own config; never the source). Valid only when every category digest and every table's row count equal step 2's (R19). Otherwise "NOT validated", exit 5, no rehearsal. |
+| 5. Rehearse (with `--groups` or `--flags`) | the runner (`src/cc5schema.js`) on the restored copy through Miniflare's local D1, then the census | Holds only when the preserved categories and every existing row count are unchanged, exactly the groups' tables were added and their records are present (R20). Otherwise exit 5. |
+| Restore commands (printed, never run) | `wrangler d1 time-travel restore <db> --bookmark=<bookmark>`; or `wrangler d1 create <db>-restored-<date>` then `wrangler d1 execute <db>-restored-<date> --remote --file=<export>` | Time Travel undoes every write after the bookmark, site-wide. The second leaves production as it is. |
+
+The export and `<export>.restore/` hold member data: keep them on the operator's own encrypted disk, never in a repository, an issue, a
+chat or a pull request, and delete them when the release no longer needs them. The census files beside them hold counts and digests only.
+
+### 8.3 When to run what
+
+- **Before every switch change that `groupsForFlags` says creates a group** (the first `SELECTION_V5`, `ACTIVITY_POINTS`, `MANAGER_APPS`,
+  `METADATA_V5`, `LAUNCH_V5` or `CC_HOURLY` value other than its default): the backup step with `--export` and `--flags` (bookmark, census,
+  export, validation, rehearsal). The groups are additive (no `ALTER`, no write to an existing table), so the bookmark and the validated
+  export are the rollback; the rehearsal is the dry run of 3.10 step 1.
+- **After the deployment and the first request that creates the group:** the census again with the same key, then `--compare` with step
+  2's file: every preserved category must be `same`, and the new `cc5-` records and tables appear.
+- **Before and after `cc5-identity` (stage S09), stage S16's seat freeze and the cutover (S55):** the same pair. S09's backfill (section 9)
+  writes only the new `users` columns, which no category covers, so every category must stay `same`; its dry run on the restored copy is
+  where the count checks of section 9 run.
+- The first remote run of each tool is itself the check of open item O11.
+
+### 8.4 Evidence (24 October 2026, local only)
+
+`test/cc5-census.test.js`, 15 tests, all passing here (about 28 seconds; the two command-line tests need workerd and are skipped with the
+reason when it cannot start):
+
+| Check | Result |
+|---|---|
+| One SELECT per statement | 7 accepted forms (string literals holding `;`, `--` and `/*`, quoted identifiers, `pragma_table_info`); 25 refused forms (writes, second statements, comments, `WITH`, `PRAGMA`, `ATTACH`, `EXPLAIN`, `RETURNING`, `load_extension`, unterminated quotes, brackets, backticks, control characters, over-long), each with its reason and without echoing a literal |
+| Column lists | every category column exists in the schema read; each `users` column is in exactly one of wallets, profiles and locations; every other part is its whole table in order; every count's columns exist; 26 cc5 tables, none in production |
+| Census on the copy (Node's SQLite) | every count equals the synthetic rows' (computed in JavaScript); all 55 tables counted; `coin_requests`, `coin_screenings`, `coin_ready`, `coin_legacy_designs`, `coin_versions` absent (the COIN_V2 tables never ran in production); every one of the 100+ statements is one SELECT; the copy byte-identical afterwards; each full-table part's digest equals `tableHash` |
+| Privacy | the census output contains none of the copy's 268 member-like synthetic values (wallets, addresses, e-mails, names, handles, tokens, bodies, hashes, blobs) and no "Synthetic Member", "example.invalid" or "synthetic-"; every key and string of the output is a census constant, a table name, a digest, the database name or the time |
+| Sensitivity and compare | an identical copy compares `ok`; an expired session changes counts but stays `ok`; one changed wallet changes exactly `wallets` (part `wallets.users`); a changed post and a deleted `lp_setup` row add `posts` and `onchain` and that row count; a dropped table is reported removed |
+| Before and after every group (3.10 step 1) | all eight categories `same`; exactly the 26 cc5 tables added; the only row count changed is `schema_migrations` 22 to 29; the seven records listed; each new table 0 rows with the empty-table hash |
+| Keyed digests | the key file is created 0600 outside the repository and re-read; HMAC digests differ from plain ones, are stable under the same key, and a plain and a keyed census refuse to compare; a group-readable or malformed key and a key inside the repository are refused |
+| Paging and missing data | pages of 2 rows give the same digests; an empty database reports every count absent and every part missing; duplicate wallets fail the check; a table name that is not an identifier is counted, not printed |
+| Wrangler stand-in | two calls, each `d1 execute <db> --local --json --command ... --config ...` holding only checked SELECTs; a failure or an unreadable answer never echoes what wrangler printed (a planted row value never appears) |
+| Refusals before anything runs | census: `--remote` without a key, both targets, `--out` or `--key-file` inside the repository, a database name like an option, bad `--compare`, unknown options; backup: `--execute` without a target, `--remote --execute` without a key, an export inside the repository, an existing export, a missing folder, `cc5-identity`, an unknown group, groups without an export, malformed `--flags`, `--groups` with `--flags`; no key or file is created |
+| Backup dry run | the remote plan with its exact commands (bookmark, census, export, restore into `cc5-restored-copy`, census) and the restore commands; nothing written |
+| Census command line on Cloudflare's local D1 | `node scripts/citycoin/census.mjs --local --config <copy>/wrangler.json` (real `wrangler d1 execute --local` on a Miniflare-seeded copy): exit 0, **the same counts, tables and digests as on Node's SQLite**, no synthetic value in stdout or stderr, **no wrangler log file written**, `--compare` exit 0 on equal files and 4 with `posts` changed, the local database unchanged afterwards |
+| Backup command line, `--local --execute` | `--groups cc5-selection` gives `cc5-ops, cc5-selection`; the export is written 0600 outside the repository; the restored copy's census equals the source's on all 55 tables and 8 categories ("backup VALIDATED"); the rehearsal adds exactly the 8 tables of the two groups with their records and leaves every category unchanged ("rehearsal HELD"); the source database is unchanged; no synthetic value printed, no wrangler log written; a second run on the same export is refused |
+
+Mutation checks run by hand on 24 October (not committed): removing `WRANGLER_WRITE_LOGS=false` made the command-line census test fail on
+the log file; letting the seat count print the raw status made the census stop ("a label outside its list") and the census tests fail.
+
+**The whole website test command** (`node scripts/copy-assets.mjs && node scripts/pages/build.mjs && npm test`, 24 October, on this branch
+with every S08 file): 2,387 tests, 2,386 passed, 0 failed, 1 skipped (the opt-in live read `SQUADS_LIVE=1`, skipped before S08 too); the
+rebuilt `public/` is byte-identical to the committed one (`git status` shows no change under `public/`). Before S08's part C the same
+command ran 2,372 tests with the same skip.
 
 ## 9. Rule for stage S09 (`cc5-identity`): the `signup_completed_at` backfill
 
