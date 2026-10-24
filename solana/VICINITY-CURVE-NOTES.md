@@ -7,8 +7,8 @@ review round 3, 57 to 66 review round 4, 67 to 74 review round 5; entry 75 recor
 specification of the owner's batch launch approval, entry 76 its build and entry 77 the mutation
 tests of its rules; entries 78 to 82 answer review round 6, of the batch launch approval,
 entries 83 to 90 review round 7, entries 91 to 96 review round 8, entries 97 and 98 the
-verification of round 8, entries 99 to 102 review round 9, entry 103 its verification and entries 104 and 105
-review round 10). The
+verification of round 8, entries 99 to 102 review round 9, entry 103 its verification, entries 104 and 105
+review round 10 and entry 106 the review of the audit pack). The
 specification is authoritative. Each entry below records one place where the build had to clarify the
 specification, or deviates from it, with the section, the issue and the choice taken. Where
 the specification was ambiguous, the safer reading was built. Nothing here changes an
@@ -2341,8 +2341,10 @@ C01, C02 and H02.
   changes and the unsigned `publish_launch_batch`) and `check` (the monitor's comparison of the stored record with
   the list) are built, and the deploy checklist takes `--proposed-launch-approver` (the key against every founder,
   which the program cannot see when the key is set, and every seat; a proposed guardian or payout key that is the
-  approver; an approver holding a founder seat). Not built: the monitor process (paging, the site's database), the
-  website's batch page and D01's batch rehearsal on devnet.
+  approver; an approver holding a founder seat). Not built: the monitor process (paging, the site's database) and the
+  website's batch page. (Updated after the review of the audit pack: D01's batch rehearsal ran on 23 October 2026 on a
+  local validator that copied devnet's programs and accounts, not on devnet itself, and without the site's list or the
+  monitor process; `VICINITY-CURVE-DEVNET.md`, record in `rehearsals/vicinity-curve-d01/`.)
 
 Tests. Program: U13 (the worked example, the fixture, every field changed, leaf and node preimages, proofs cut,
 padded, of a neighbour), P12 (random batches, the in-force rule against a direct model), the offsets of
@@ -2766,7 +2768,12 @@ discriminators against `sha256("global:<name>")`. One stop costs about 90,000 co
 What a member key still allows: the thief can take the multisig's next transaction index just before a member's
 stop lands (a vault transaction is created at `transaction_index + 1`), making it fail. The tool sends its stop for
 the next few indices at once (`--variants`, default 4) and repeats (`--rounds`); a variant beyond the index the stop
-lands at executes a second, harmless clear. Each index the thief takes costs him the rent of a vault transaction he
+lands at executes a further, harmless clear. (Corrected after rehearsal D01 and the review of the audit pack: not only a
+second one. Each variant executes when the one before has just moved the index to it, so up to `--variants` per RPC
+view, and up to twice that when the two RPCs show different indices (`nextIndices` takes up to `--variants` indices per
+RPC); D01 saw four in one slot. Each costs the member the rent of a vault transaction and a proposal it cannot close,
+about 0.0041 SOL for a clear at mainnet's 5,080 lamports per byte, about 0.016 SOL for four, so a member key should hold
+that much; `VICINITY-CURVE-DEVNET.md` section 8 item 5.) Each index the thief takes costs him the rent of a vault transaction he
 cannot close (about 0.002 SOL; the multisig's stale index moves only with a config change, which only the vault can
 make), and he must win every slot of the window (a race the stop now enters with a compute-unit price, entry 95). The owner's clear with his restored approver key and the admin's
 remain; O34's clear-only keys would leave nothing to race and stay the owner's decision. The CLI signs with a member
@@ -3435,3 +3442,42 @@ RPC's word" with the warning; the liar with an honest RPC `RPC_DISAGREE`. `--one
 the residual the option accepts, knowingly. `parseArgs`: `--one-rpc-ok` with two RPCs, or for `check` or `verify`, is a
 usage error (`confirm` with two RPCs and the option exits 2 through the CLI). The existing tests that confirm through one RPC (rounds 6 to 8) pass
 `--one-rpc-ok`; their subjects are unchanged.
+
+### 106. `FEE_RECIPIENT` is no member of the vault's, the guardian's or an approver multisig; the vault's multisig is read before the `Launchpad` exists; the batch mutants run again (8.1, 8.4, 12; the review of the audit pack, 23 October 2026)
+
+**Spec.** 8.1: `FEE_RECIPIENT` "hold any seat in the program: it refuses `FEE_RECIPIENT` as admin, proposed admin,
+guardian, payout key or payout wallet ..."; review HR-3 was rejected because a stolen `FEE_RECIPIENT` key reaches no
+third party's money. 8.4: the deploy checklist reads every precondition it can.
+
+**Issue.** The review of the audit pack read the vault's Squads multisig on mainnet (`6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV`,
+vault 0 `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X`): autonomous, 2 of 3, time lock 0, members `13qRam...`
+(`FEE_RECIPIENT`, the owner's hot wallet), `3W8yhnhbU12jQTVZEmJFuoLPBqGU5vJEpmVUWLeeUz2U` and
+`9CRkALHoEvjAjyXg3P1VCaXMpNTpTsdvDJGR8WzNNH9K`, each with every permission (confirmed with `getAccountInfo` at slot
+460,627,954). So the key that "holds no seat" is one of the two signatures that make up the admin and the upgrade
+authority of all three programs, and HR-3's reasoning left that out. `preflight.mjs --vault-multisig 6v8hwKYS...` against
+mainnet printed nothing about it: the multisig checks ran only once a `Launchpad` existed, and no check compared the
+members with `FEE_RECIPIENT`.
+
+**Choice.** Not a program change (the program cannot see a Squads membership): an operating rule of 8.4 and the
+checklist. `checkSquadsRoles` reports `FEE_RECIPIENT_IS_VAULT_MEMBER`, `FEE_RECIPIENT_IS_GUARDIAN_MEMBER` and
+`FEE_RECIPIENT_IS_APPROVER_MEMBER` when `FEE_RECIPIENT` is a member key of the multisig named by `--vault-multisig`, of
+the guardian's (once the guardian is set or proposed) or of an approver multisig, each a problem whose message names the
+threshold and the power it would give a thief. `checkDeployPreconditions` now runs the multisig checks also before the
+`Launchpad` exists, with the proposed keys only (no guardian or approver is set then), so the vault's multisig, its time
+lock warning (`VAULT_TIME_LOCK_UNSET`) and its members are read on mainnet today; a guardian multisig named while no
+guardian is set or proposed is still not read, so the read-only devnet run of D01 (`VICINITY-CURVE-DEVNET.md` 7.4) gives
+the same ten problems. Against mainnet on 23 October 2026 (23:34 UTC) the checklist now reports eight problems
+(`CURVE_LAUNCHPAD`, `CURVE_UPGRADE_AUTHORITY`, `CONFIG0`, `REWARDS_REGISTRY_ADMIN`, `LEGACY_ADMIN`, `LEGACY_LAUNCHES_OPEN`,
+`LEGACY_CONFIG_ENABLED` for `6voKQ4uGtc5YShMJ1a3Xf9ahb1MRf5VTWqKfdidAiY75`, `FEE_RECIPIENT_IS_VAULT_MEMBER`) and the
+warning `VAULT_TIME_LOCK_UNSET`. The owner replaces the member by a config transaction of the multisig (two members
+sign) before the deploy. No fee value or fee-share rule changed; the program binary did not change.
+
+The batch mutants (entries 77 and 82) were run again on the program of the commit in scope (`git archive 0ed0ef8`;
+`scripts/vcurve/batch-mutants.py`), because 43 of them were last run at `fd516a6`, before round 6's `ae8e071` changed
+`publish_launch_batch`, `clear_launch_batch` and `set_launch_approver`: every patch still applied, and all 46 were killed with the checker (23 October 2026, 23:26 to 23:42 UTC) and all 46 without it (`MUTANT_CHECKS_OFF=1`, 23:42 to 23:54), each by a failing test of `30-batch` (45 mutants) or `11-halts` H02 (the halt-all mutant). The review of the pack had reported the same result from its own run.
+
+Tests. `32-batch-checklist` (the review of the audit pack): the mainnet state of that day (an autonomous 2-of-3 vault
+multisig with `FEE_RECIPIENT` among its members and no time lock, no `Launchpad`) is not ready with
+`FEE_RECIPIENT_IS_VAULT_MEMBER` and the time-lock warning; the same with the `Launchpad`; a multisig without
+`FEE_RECIPIENT` passes; `FEE_RECIPIENT` in the guardian's multisig (set, or proposed before the `Launchpad` exists) and in
+an approver multisig is refused; a guardian multisig named while no guardian is set or proposed is not read.

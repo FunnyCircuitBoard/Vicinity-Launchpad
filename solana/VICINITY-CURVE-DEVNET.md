@@ -5,7 +5,16 @@ deployed at its throwaway program id and taken through its whole life with throw
 owner's tools run against it, and every measured figure compared with the specification.
 Nothing here is mainnet: no mainnet key, RPC or account was used. No fee value or fee-share
 rule changed and the program binary did not change (the production build is still sha256
-`0a5beef2...`, as since review round 6). Run on 23 October 2026, from 09:20 to 21:45 UTC.
+`0a5beef2...`, as since review round 6). Run on 23 October 2026, from 09:20 to 21:45 UTC; corrected
+on 24 October 2026 after a review of this record and of the audit pack (`VICINITY-CURVE-AUDIT.md`
+section 8 lists its items).
+
+**What this record is.** Every signature, slot and account below belongs to a local validator, not
+to devnet: none can be looked up on any public cluster, and that validator's ledger, pruned during
+the run, was not kept. What is kept is in `rehearsals/vicinity-curve-d01/` (section 12): the
+driver as run, every transaction's record as read soon after it landed and every output of the
+owner's tools. Read the figures as a record of what the run measured, not as evidence a third
+party can check on a chain; section 10 says what running D01 on devnet itself needs.
 
 ## In one minute (for the owner)
 
@@ -23,24 +32,27 @@ rule changed and the program binary did not change (the production build is stil
   copied from devnet, at the start of the run, devnet's feature set and every program and account
   the `devnet` build reads: the old `vicinity_launchpad` with its `Launchpad` and both its configs,
   `vicinity_rewards` with its registry, Metaplex, and Squads v4 with its program config. The binary
-  is the `devnet` build of this commit (sha256 `d052b8fc...`, read back from the chain byte for
-  byte) at the throwaway id `nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk`. Every step went through
+  is the `devnet` build of this commit (sha256 `d052b8fc...`, read back from that validator byte
+  for byte) at the throwaway id `nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk`. Every step went through
   the real programs with real signatures, fees and compute meters, and the 12-hour review window
   was waited out in real time. The deploy checklist and the batch monitor's check were also run,
   read-only, against devnet itself through two providers (section 7.4).
 * **Rehearsed, all with the throwaway keys of `solana-keys/devnet-d01/`:** every item of 12.5's
-  D01 (the table below): the per-city and the batch paths, a graduation, buybacks on the curve and
+  D01 on a local copy of devnet (the table below), except devnet itself, the site's list and the
+  monitor process: the per-city and the batch paths, a graduation, buybacks on the curve and
   in the pool, every outflow, a guardian stop and a guardian clear through a real Squads v4 vault
   by `guardian-stop.mjs`, the admin's recovery and rotation of the launch approver, two launches
   from a published batch after the real 12-hour window, and the owner's tools (`preflight.mjs`,
   `batch.mjs verify`, `confirm` and `check`) on two RPC addresses.
 * **No program defect and no tool defect was found**, so nothing needed a fix. One documentation point:
-  a guardian stop can execute up to four times on a quiet chain, not twice as NOTES 87 says, at about
-  0.0056 SOL of Squads rent for each extra execution (section 8, item 5). Every measured
+  a guardian stop can execute more than once on a quiet chain (four times here, not twice as NOTES
+  87 said; up to `--variants` per RPC view), at about 0.0041 SOL of Squads rent for each extra
+  execution at mainnet's and devnet's 5,080 lamports per byte (0.0056 SOL at this validator's 6,960;
+  section 8, item 5). Every measured
   compute figure is inside its 11.1 budget and within a few hundred units of the litesvm
   measurement of the same gate run wherever the inputs are the same; the differences have known
   causes (section 8): devnet's Metaplex is another binary than mainnet's (its metadata account is
-  607 bytes, not 679), the `devnet` build derives other addresses (other bump searches), and this
+  607 bytes, not 679), and so is devnet's Squads v4 (section 1), the `devnet` build derives other addresses (other bump searches), and this
   validator charges litesvm's 6,960 lamports of rent per byte, not devnet's 5,080.
 * **Not reached** (section 9): devnet itself; the website's batch page and the monitor process
   (both not built yet, 14.1), hence neither "the site's list" itself nor `verify --tx`; two RPCs
@@ -85,9 +97,10 @@ from devnet and these copies, taken from devnet at 09:25 UTC on 23 October:
 | `vicinity_rewards` (program and ProgramData; upgrade authority `9SzJe6zm...`) | `Hm14pFPABUUGVxX7HZhTBoFV3aCkKXmDY54WnGAjJrYi` |
 | its `Registry` (admin `9pYCvdmi...`) | `2rKKwGGcJEDRJBhdHRPtHQpoxPmq9wPWWj3uMrcRaRg3` |
 | Metaplex Token Metadata (devnet's binary: sha256 `bb0842f6...`, 1,295,344 bytes; mainnet's pinned dump is `31f0a627...`, 793,991 bytes) | `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s` |
-| Squads v4 (devnet's binary) and its program config (multisig creation fee 0) | `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, `BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr` |
+| Squads v4 (devnet's binary: sha256 `97fb2a5c08e5df5e862d8354ac5b97d3587117f98c4457754ca12e30bef0664d`, 1,774,800 bytes, dumped from devnet on 23 October 2026 after the run; mainnet's pinned dump, which the litesvm suites and the fixes of reviews R7-1, R8 and R9 were tested against, is `dec8d3e0...`, 1,470,416 bytes) and its program config (multisig creation fee 0) | `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, `BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr` |
 
-How it differs from devnet: rent is 6,960 lamports per byte (the validator's default and
+How it differs from devnet: the guardian stops ran against devnet's Squads v4 binary, which
+differs from the mainnet binary the suites pin (above); rent is 6,960 lamports per byte (the validator's default and
 litesvm's), so every rent below compares with the 6,960 column of 3.3, not devnet's 5,080; the
 old devnet deployer's key signed the hand-over on this copy only; the owner's tools were given
 two addresses of the same validator (`127.0.0.1` and `127.0.0.2`), which their two-provider rule
@@ -125,8 +138,8 @@ scratchpad (`solana-keys/devnet-d01/`); none is printed here or committed.
 | production build | 738,064 bytes, sha256 `0a5beef231cfcc1327d9e497bb631f7c8edc99468338daed932ddce90bba3b5b` (unchanged since review round 6) |
 | `devnet` build (deployed) | 738,064 bytes, sha256 `d052b8fccf5ed0fc9bbb0ee56e4a77ae5a3ec99c6fa6c906119f51db71c18fa3` |
 | `halt-all` build | 736,840 bytes, sha256 `4d631647c38230690ad57a28e49d021e0ad956a7edbc454dc107558849a0d868` |
-| deploy | `solana program deploy` with the program keypair, upgrade authority the admin: signature `416huoDtv3KedS7dqnppKAZ3cpDQN9VCUchqAdRFAB85sPYKzLZXbZFgjba9dWGFQFZSwJgEm3sQwepoQsuu61oF`, slot 713, 5 seconds on the local validator |
-| read back | `solana program dump` of `nhgCm...`: the first 738,064 bytes equal the `devnet` build (sha256 `d052b8fc...`), the rest zero; ProgramData `FtcYmShKCGsKWHqXuWtBkCtn1b23BSTavCYunsm2w6we`, 738,109 bytes, 5,138,129,520 lamports (3.750 SOL on devnet's rate) |
+| deploy | `solana program deploy` with the program keypair, upgrade authority the admin: signature `416huoDtv3KedS7dqnppKAZ3cpDQN9VCUchqAdRFAB85sPYKzLZXbZFgjba9dWGFQFZSwJgEm3sQwepoQsuu61oF`, slot 713, 5 seconds on the local validator (the signature exists only there, as every signature of this file) |
+| read back | `solana program dump` of `nhgCm...` from the local validator (not devnet, where `nhgCm...` does not exist): the first 738,064 bytes equal the `devnet` build (sha256 `d052b8fc...`), the rest zero; ProgramData `FtcYmShKCGsKWHqXuWtBkCtn1b23BSTavCYunsm2w6we`, 738,109 bytes, 5,138,129,520 lamports (3.750 SOL on devnet's rate) |
 | compiled ids of the `devnet` build | the old program `Fncx4qBh...`, its `Launchpad` `ppX3a7oU...`, `vicinity_rewards` `Hm14pFPA...`, its registry `2rKKwGGc...` (3.2); every approval, launch and forward below read these accounts |
 
 ## 4. Accounts
@@ -280,8 +293,9 @@ the buyback halt was refused (`BuybacksHalted`).
 
 ### 6.6 Graduation, the pool and the drip
 
-Trader 2 offered 2,000,000,002 lamports; the SDK's `buyLeg` capped `sol_in` at the curve's
-`max_quote_in`, 731,837,307 lamports, and the buy completed the curve (events `Trade`,
+Trader 2 asked the SDK's `buyLeg` for a buy of 2,000,000,002 lamports (twice the graduation
+amount); `buyLeg` capped `sol_in` at the curve's `max_quote_in`, 731,837,307 lamports, so the
+transaction offered 731,837,307 (section 11, row 36), and the buy completed the curve (events `Trade`,
 `Graduated`): `tokens_sold` = `S` = 793,099,990,000,000, `curve_sol` = `R` = 1,000,000,001, the
 pool opened at `pool_sol` 1,000,000,001 and `pool_tokens` 206,900,000,900,000, with 6,673,501
 lamports in `liquidity_pending` (the 0.5% bucket of the curve phase, O2). Pool trades (a buy of
@@ -297,8 +311,9 @@ fell to 2,928,058 by the end of section 6.8. The same account list served the cu
   `Cw9bHEguXkhooBiCggZBFVc98jwUcHLhwMV9gfbXmace`. Then `forward_holders_fees` with the top-level
   `SyncNative` twice (the SDK's `forwardHoldersFeesWithSync`): 10,308,388 lamports forwarded, and
   the vault's token amount is exactly that (its lamports less its rent of 2,039,280).
-* `opt_in_payout` (founder A, the payout wallet), then the payout wallet funded with 0.001 SOL (a
-  0-lamport destination must receive at least the rent-exempt minimum, 14.3), then
+* `opt_in_payout` (founder A, the payout wallet), then the payout wallet funded with 0.001 SOL
+  (1,000,000 lamports, above its rent-exempt minimum of 890,880 on this validator: a 0-lamport
+  destination must receive at least the rent-exempt minimum, 14.3; section 11, row 29), then
   `payout_founder_fees` twice while `founder_pending` was 0 (the claim just before had taken it):
   both no-ops, as 4.20 says (no event, no sequence number, no cooldown started). After a trade,
   `payout_founder_fees` paid 250,000 lamports (`FounderPaidOut`, `payout_seq` 1), and the next one,
@@ -387,7 +402,7 @@ two differ only by the cluster ids, the program binaries around them and the inp
 | `launch` | 118,369 | 118,646 (city 800); 110,382 to 152,266 over 600 cities | 125,000 to 190,000; 230,000 | devnet's Metaplex binary; inside the measured range |
 | `launch` + token account + first buy, one transaction | 159,298 (launch 118,369, create 14,914, buy 25,865) | about 165,000 to 171,000 | asserted by C01; client 400,000 | the create matches `13,430 + 1,500 k` with one extra bump (14,914) |
 | `buy` on the curve | 25,865 | 26,138 | 31,000 to 42,000; 48,000 | |
-| `buy` on the curve creating the buyer's token account in the same transaction | 26,095 (transaction 42,662) | 26,095 (transaction 42,669) | as `buy`; 48,000 | identical |
+| `buy` on the curve creating the buyer's token account in the same transaction | 26,095 (transaction 42,662) | 26,095 (transaction 42,669 in that run; the token-account create's share varies with the random keys' bump searches, 44,169 in another run of `12-compute`) | as `buy`; 48,000 | the program's part identical |
 | `sell` on the curve | 23,572 | 23,622 | 28,000 to 39,000; 48,000 | |
 | `buy` that graduates (partial fill) | 29,434 | 29,622 | plus 3,000 to 6,000; 55,000 | |
 | `buy` in the pool | 25,292 | 25,523 | as `buy`; 48,000 | |
@@ -475,10 +490,14 @@ No program defect and no tool defect was found. What differed, and why:
    finding the index the one before had just moved to. Every extra execution is harmless to the
    program (the same flags set again, cleared records cleared again) but costs the member the rent
    of one more vault transaction and proposal: 5,157,360 lamports with the pause (223 + 262 bytes),
-   5,588,880 with the clear (285 + 262 bytes), so a stop of four variants can cost the member about
-   0.0224 SOL with the fees, and the monitor sees up to four `LaunchBatchCleared` events. A member key
-   should hold at least that much; NOTES 87 and the owner's guide could say so. Not changed here
-   (documentation only; the tool behaves as designed).
+   5,588,880 with the clear (285 + 262 bytes) at this validator's 6,960 lamports per byte. At
+   mainnet's and devnet's 5,080 (`getMinimumBalanceForRentExemption(738109)` = 3,750,243,960 on both,
+   read on 23 October 2026) that is 3,764,280 and 4,079,240 lamports: about 0.0041 SOL for each extra
+   clear, about 0.016 SOL for four. "Four" is this run's default `--variants 4` with both RPC
+   addresses showing the same index: `nextIndices` takes up to `--variants` indices (at most 16) per
+   RPC view, so two RPCs that show different indices give up to 8 executions in one round with the
+   default. The monitor sees as many `LaunchBatchCleared` events. A member key should hold enough for
+   that; NOTES 87 now says so. The tool behaves as designed; not changed.
 6. **`payout_founder_fees` with nothing pending is a quiet success**: no event, no sequence
    number, no cooldown (4.20). A payout hook that reads only the transaction's success would
    record a payout that did not happen; it must read the `FounderPaidOut` event (the SDK's
@@ -528,13 +547,38 @@ No program defect and no tool defect was found. What differed, and why:
    their launches); it can be handed back the same way afterwards.
 3. Run the same sequence with the RPCs `https://api.devnet.solana.com` and
    `https://solana-devnet.gateway.tatum.io` (both serve devnet and pass the tools' provider rule).
-   The rehearsal driver used here (`d01.mjs`, `D01_TARGET=devnet`; kept in the session's scratchpad,
-   not in the repository) checks the devnet genesis hash before every send. The batch launch then
-   needs the same 12 hours and 10 minutes.
+   The rehearsal driver used here (`rehearsals/vicinity-curve-d01/driver/d01.mjs`, `D01_TARGET=devnet`;
+   its paths point at the session's scratchpad and must be set first) checks the devnet genesis hash
+   before every send. The batch launch then needs the same 12 hours and 10 minutes. Signatures on
+   devnet itself are what would let anyone check this record's figures.
+
+## 12. The record kept in the repository
+
+`rehearsals/vicinity-curve-d01/`, committed on 24 October 2026 (after a review found that nothing
+of the run was in the repository). Public data only: no key (the keys stay in the scratchpad's
+`solana-keys/devnet-d01/`), no buffer seed, no archive MAC key, no `.so` file, no ledger.
+
+| path | what it is |
+|---|---|
+| `driver/d01.mjs`, `driver/lib.mjs` | the rehearsal driver as run (phase by phase; `D01_TARGET=local` here) and its helpers (connections checked by genesis hash, sending, the record) |
+| `driver/collect.mjs`, `driver/accounts.mjs` | what built section 11's table and section 4's account table from the chain |
+| `driver/babysit.sh` | the watchdog that restarted the validator on the same ledger to bound its disk use (`record/babysit.log.txt`: its 28 restarts and the manual one before the batch steps; with two earlier ones by hand, the 31 of section 1) |
+| `record/d01-log-local.jsonl` | every transaction as recorded right after it landed: time, phase, label, signature, slot, compute in total and per program, fee, size, events, result |
+| `record/table-local.json` | section 11's rows, with the figures cached before old slots were pruned |
+| `record/d01-state-local.json`, `record/show-local-*.json`, `record/accounts-local.md` | the state the driver kept (deploy, read-back hash, batch records) and the accounts it read |
+| `record/lists/batch-1.json`, `batch-2-dry.json`, `batch-2.json` | the canonical batch list files (3.12) given to `batch.mjs verify` |
+| `record/tool-local-*.txt`, `record/tool-devnet-*.txt` | every run of the owner's tools (section 5) and the two read-only runs against devnet (7.4), each with its command line (keypair paths replaced) and exit code |
+| `record/airdrop.log.txt` | the devnet faucet's answers (section 1) |
+
+Kept in the scratchpad only, and not committed: the keys, the deploy's output (it prints the
+recovery seed of an intermediate buffer), the verifier's archive and its MAC key, the program
+dumps (`.so`) and the validator's logs (about 30 MB).
 
 ## 11. Every transaction
 
-In slot order, 81 transactions. "CU (total)" is the transaction's, compute-budget instructions
+In slot order, 81 transactions, all on the local validator: none of these signatures exists on
+devnet or any other public cluster, and the validator's ledger was not kept (the rows are as the
+driver recorded them, `rehearsals/vicinity-curve-d01/record/`). "CU (total)" is the transaction's, compute-budget instructions
 included; the per-program figures are each top-level instruction's own, read from its log (a
 compute-budget instruction logs none). Fees in lamports. Bytes is the serialized transaction (blank
 where a tool sent it and the slot was pruned before its size was read: the deploy, whose 740 buffer
@@ -571,14 +615,14 @@ owner's tools' output is in the scratchpad (`d01-tools/tool-*.txt`).
 | 26 | rewards | vicinity_rewards init_city (Holders, 0, WSOL) for D01A | `3b6sbehnPbTPJ7Ufixpws3SCQ5aqLJ4uNsnoLzRGpETmKGXLtaLXQFpDkv4wVeLKPoxAUUw9EdEoXBKo7vV8oMJ3` | 1144 | 21,255 | vicinity_rewards 21255 | 5,000 | 481 |  | ok |
 | 27 | rewards | forward_holders_fees 990000001 + SyncNative | `oKdLnCDApv3kdd1U4zirMg8TUyQBVcnVH3FPE435srzZynA5K2KL9S2cbAZGvT5VuaYp6vMRUAAcrp6VyE7fNxg` | 1147 | 21,435 | vicinity_curve 21084, Token 201 | 5,000 | 422 | HoldersFeesForwarded | ok |
 | 28 | payout | opt_in_payout (founder A, the payout wallet) | `4UBvEMycgKY5VHbqPEqbJzbdHd8UMdXHdSCZNGpaUwcbcSEEba82jh97NBLqcsLKSvqcRwghtZFjkdFJDZyiFEGM` | 1151 | 15,212 | vicinity_curve 15212 | 5,000 | 376 | PayoutOptedIn | ok |
-| 29 | payout | fund the payout wallet with its rent-exempt minimum (14.3) | `4R8iVp4qkmzhHDQHjp37m6wCh1uj5UHxwiRkUVSYJd2YSM9PSRna5U5MrHN4mtez1SPMv8NgYC5fms9USwkvouBH` | 1154 | 150 |  | 5,000 | 217 |  | ok |
+| 29 | payout | fund the payout wallet with 0.001 SOL, above its rent-exempt minimum of 890,880 lamports (14.3) | `4R8iVp4qkmzhHDQHjp37m6wCh1uj5UHxwiRkUVSYJd2YSM9PSRna5U5MrHN4mtez1SPMv8NgYC5fms9USwkvouBH` | 1154 | 150 |  | 5,000 | 217 |  | ok |
 | 30 | payout | payout_founder_fees with founder_pending 0 (the claim just before took it): a no-op, no event, no cooldown started | `4wDWYDrh6CH8Ze9RejbCkXCuygRsEB2hRY8AsRX59ieo33M5KP512HE1S2g8qPTHeUhbiJmWC9kLQFRKkETfdDs2` | 1157 | 13,412 | vicinity_curve 13262 | 5,000 | 386 |  | ok |
 | 31 | payout | payout_founder_fees again, founder_pending still 0: a no-op again (the cooldown starts only with a payment) | `4znYQ1tjQ6G4DBDVZHqziYi3qCCQW6uFK53aLAyBdgsUY9J1BLboDYKLxJ8dVCmajVGj2MWEnrMqj7ZV9WnD3WoU` | 1160 | 13,412 | vicinity_curve 13262 | 5,000 | 386 |  | ok |
 | 32 | trade | buy trader-2 0.05 SOL (curve) | `3PXw2LeMgUeYoBAbSM5XJmjZ2GqSa6G1dyCtadQJWeuL9Ung2cBCLwfEHVw4jWGeXnPMRdU6JSF8gpiHLji8BA63` | 1202 | 31,853 | ATA 5838, vicinity_curve 25865 | 5,000 | 543 | Trade | ok |
 | 33 | payout | payout_founder_fees (payout key -> payout wallet) | `3rdiM28E3SVfzh42CxwTSfj4UUrJoCjck6bBXnG4CbDy3sy5XCyfVkyKjWHTbesWt4cXpA1UZjaNb2gnCdr3S2Mn` | 1206 | 18,890 | vicinity_curve 18740 | 5,000 | 386 | FounderPaidOut | ok |
 | 34 | trade | buy trader-1 0.02 SOL (curve) | `5g2cY3xjhJBfbYSJfEk2214k3DR9nCZpTggyu6pijVZTyenLqokma1K4sZCRQUrF6Yqsgu2m8jais48pJHbG2sUG` | 1210 | 30,353 | ATA 4338, vicinity_curve 25865 | 5,000 | 543 | Trade | ok |
 | 35 | payout | payout_founder_fees again inside the 24 h cooldown (refused) | `5tRutE5HDk9idurK6Mo5VzfEvdc8urusnk1foJDXvdFe3wqpuPWyPRBVqvXLgPrJLds6FGVLfBPWUN858mmtVxyJ` | 1214 | 12,585 | vicinity_curve 12435 | 5,000 | 386 |  | refused: PayoutTooSoon |
-| 36 | graduate | buy that graduates (trader-2 offers 0.731837307 SOL) | `66Kz3KVPsfKR6VrM5x9qYNjyjqKwjaBq8MUe3YTUBX8sPys3DqmcsUzE1PG3VN6c8rLPoA1XYNnzmHL2UZSsXW15` | 1237 | 35,422 | ATA 5838, vicinity_curve 29434 | 5,000 | 543 | Trade Graduated | ok |
+| 36 | graduate | buy that graduates (trader-2 asked the SDK for 2.000000002 SOL; it capped the offer at 0.731837307 SOL) | `66Kz3KVPsfKR6VrM5x9qYNjyjqKwjaBq8MUe3YTUBX8sPys3DqmcsUzE1PG3VN6c8rLPoA1XYNnzmHL2UZSsXW15` | 1237 | 35,422 | ATA 5838, vicinity_curve 29434 | 5,000 | 543 | Trade Graduated | ok |
 | 37 | trade | buy trader-1 0.1 SOL (pool) | `4z21fRS6TJwSMPxyDj1nyPU7w52TVjrSfQMmzC7JAziS2tfEs3csEfyE4NUM3i1wtvUbbw1gEkMYxQJHT9eWrhkN` | 1240 | 29,780 | ATA 4338, vicinity_curve 25292 | 5,000 | 543 | Trade | ok |
 | 38 | trade | sell trader-2 136100247352425 raw (pool) | `3MhFtZW7s78YUctmnsPUjG65UvGWnVBrqC1CGj65HEXumTAY1xzLAhR7AgVyTWR3kJeBX4b8DTYt44gPHygR1p3W` | 1244 | 23,658 | vicinity_curve 23508 | 5,000 | 501 | Trade | ok |
 | 39 | trade | sell trader-1 113464448595468 raw (pool) | `4JSE9ec73Va3yEaEdoLF7vPumCAts8czkRNiu5RQvadWezvu6y1pBxL1PF7nHHCrSzsY9XgfmfkVGQFb2WNiMSby` | 1247 | 23,658 | vicinity_curve 23508 | 5,000 | 501 | Trade | ok |

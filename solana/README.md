@@ -230,6 +230,8 @@ solana/
   scripts/vcurve/                  its builds (sbf-builds.sh, idl.sh) and the owner's tools: batch.mjs (batch
                                    verifier, confirm, monitor check), guardian-stop.mjs, preflight.mjs (deploy checklist)
   tests-curve/, tests-vcurve/      its in-process suites (litesvm) and the per-transaction invariant checker
+  rehearsals/vicinity-curve-d01/   the record of rehearsal D01 on a local copy of devnet: the driver as run, every
+                                   transaction record and tool output it kept (VICINITY-CURVE-DEVNET.md section 12)
 ```
 
 ## Build, test, demo

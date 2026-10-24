@@ -2,9 +2,10 @@
 
 For the outside auditor of the Solana program `vicinity_curve`, the custom Vicinity launchpad
 (draft PR #83 of `FunnyCircuitBoard/Vicinity-Launchpad`, branch `feat/vicinity-curve`, not
-merged). Prepared on 23 October 2026. Every figure below is taken from the repository or from a
-command run for this file on that day; each names its source. Section numbers without a file name
-("3.2", "8.4", "Appendix C") are sections of `VICINITY-CURVE-DESIGN.md` (the specification);
+merged). Prepared on 23 October 2026 and revised on 24 October 2026 after a review of the pack
+itself (the end of section 8 lists its items and where each is answered). Every figure below is
+taken from the repository or from a command run for this file on those days; each names its
+source. Section numbers without a file name ("3.2", "8.4", "Appendix C") are sections of `VICINITY-CURVE-DESIGN.md` (the specification);
 "NOTES n" is entry n of `VICINITY-CURVE-NOTES.md` (the implementation notes);
 `VICINITY-CURVE-DEVNET.md` is the record of rehearsal D01.
 
@@ -12,7 +13,10 @@ Status: nothing of this program has been deployed to mainnet or signed for it, a
 holds no mainnet program id for it (3.1: the owner generates that key on his own machine). The
 mainnet deployment waits for this audit (1.3). The
 two programs already on mainnet, `vicinity_rewards` and the old `vicinity_launchpad`, are not
-changed by this work.
+changed by this work. As of this pack's date the mainnet preconditions of 8.4 and 8.5 are not
+met: the rewards registry's and the old program's admin are still the owner's hot wallet, the old
+program's launches are open, the vault's multisig has no time lock and has that hot wallet among
+its members, and no guardian multisig exists (section 5).
 
 Contents: 1 Scope. 2 Building and the expected hashes. 3 Running the tests. 4 Purpose and money
 flows. 5 Roles and keys. 6 Threat model. 7 Invariants and where they are checked. 8 Review
@@ -29,13 +33,15 @@ Questions for the auditor. Appendix: the gate run for this file.
 |---|---|
 | repository | `https://github.com/FunnyCircuitBoard/Vicinity-Launchpad` |
 | branch | `feat/vicinity-curve` (draft PR #83) |
-| commit of the code in scope | `cd56508fc3274a84960b04c06b4f4f8f2282e656` |
+| commit of the code in scope | `bf17550612b6b6ec56fec6bb8beb964d69bfefaf` (this revision); the first revision of the pack (`0ed0ef8`) named `cd56508fc3274a84960b04c06b4f4f8f2282e656` |
+| what changed in scope since `cd56508` | only `scripts/vcurve/preflight.mjs` (1.3): the checklist refuses `FEE_RECIPIENT` as a member key of the vault's, the guardian's or the approver's multisig, and reads the vault's multisig before the `Launchpad` exists (section 5; NOTES 106). `git diff --stat cd56508 bf17550 -- solana/programs/vicinity-curve solana/crates solana/Cargo.toml solana/Cargo.lock solana/sdk` is empty |
 | last change to the program or crate source | `f76c646` (review round 7: a doc comment in `state.rs`, which changed the IDL and not the binary) |
 | last change to the program binary | `ae8e071` (review round 6); the production build has been sha256 `0a5beef2...` since (Appendix C, rounds 7 to 10; re-built for this file, 2.3) |
+| CI (`.github/workflows/solana.yml`, "Solana program") | `bf17550`: run 40042968961, green (both jobs; `test:curve` 204 passed, `test:launchpad` 155, `sdk-test:curve` 52, finished 24 October 00:18 UTC; the repository's "CI" run 40042968868 green too); earlier: `cd56508` run 40030886477 and `0ed0ef8` run 40034706784, both green. CI builds the three binaries but compares no hash with an expected value, and its toolchain gives other hashes (2.3) |
+| `main` | the branch is 11 commits behind `main` (at `0ed0ef8`); the merge base is `d89e26f`. Under `solana/` those commits change only `sdk/launchpad/metadata.mts`, `sdk/launchpad/metadata.test.mts` and `tests-launchpad/22-batch-approvals.test.mjs` (the rest is the website at the repository root), none of them in scope: merging `main` moves the commit but changes no in-scope file |
 
-The commit that adds this file changes documentation only (this file, the header of
-`VICINITY-CURVE-DESIGN.md` and `solana/README.md`): `git diff --stat cd56508 <that commit>` lists
-those three files and nothing else, so every in-scope file below is byte-identical at both commits.
+The commit that adds this revision of the pack (on top of `bf17550`) changes documentation
+only: `git diff --stat bf17550 <that commit>` lists `.md` files and nothing else.
 
 ### 1.2 In scope: the on-chain code
 
@@ -96,7 +102,7 @@ protection relies on the SDK (T78 to T80). We ask the auditor to include them.
 |---|---|---|
 | `scripts/vcurve/batch.mjs` | 1,117 | the owner's batch verifier (`verify`, `--tx`, `--correct`), `confirm` and the monitor's `check` (8.4 steps 2, 3 and 5) |
 | `scripts/vcurve/guardian-stop.mjs` | 501 | a guardian member's one-transaction stop through Squads v4 (8.4 step 5, review R7-1) |
-| `scripts/vcurve/preflight.mjs` | 562 | the deploy checklist and its proposed-key checks (8.4 preconditions and operating rules) |
+| `scripts/vcurve/preflight.mjs` | 580 | the deploy checklist and its proposed-key checks (8.4 preconditions and operating rules, the multisigs behind the admin, the guardian and the approver) |
 | `sdk/curve/batch.mjs` | 448 | the launch leaf, tree and proof builder and the in-force function (3.12, 8.6) |
 | `sdk/curve/math.mjs` | 689 | the JavaScript port of the math crate (the checker and every client quote use it) |
 | `sdk/curve/prechecks.mjs`, `compose.mjs` | 130, 352 | the size-dependent slippage policy and the composed buy (5.15, 14.1, T78 to T80) |
@@ -108,9 +114,12 @@ protection relies on the SDK (T78 to T80). We ask the auditor to include them.
 * The test suites of section 3 and their harness: the per-transaction checker
   `tests-curve/invariants.mjs` (1,474 lines), the world `tests-curve/helpers.mjs` (852), the fuzz
   model `tests-curve/fuzz.mjs` (1,160), the test-only router `tests-curve/router/`, the 46 mutant
-  builds of `scripts/vcurve/batch-mutants.py` (43 in NOTES 77, three more in NOTES 82). The
-  checker is the test oracle for section 9; whether it checks what section 9 says is question 12
-  of section 12.
+  builds of `scripts/vcurve/batch-mutants.py` (43 in NOTES 77, three more in NOTES 82; all 46 run
+  again for this revision, section 3). The checker is the test oracle for section 9; whether it
+  checks what section 9 says is question 12 of section 12.
+* The record of rehearsal D01, `rehearsals/vicinity-curve-d01/` (its driver as run and every
+  transaction record and tool output it kept; `VICINITY-CURVE-DEVNET.md` section 12). It is a
+  record of a run on a local validator, not evidence anyone can look up on a cluster (section 11).
 * The reference model and checks of Appendix A (`crates/vicinity-curve-math/reference/`:
   `model.py`, `checks.py`, `derive.py`, `generate_vectors.py`, and the golden vectors
   `vectors.json` and `g01-vectors.json`).
@@ -128,7 +137,9 @@ protection relies on the SDK (T78 to T80). We ask the auditor to include them.
   them is in scope).
 * The website at the repository root, its batch page, the batch monitor process and the keeper:
   the batch page and the monitor are not built (14.1), nor is the keeper (review R5-CONS-6).
-* Key generation, deployment and the Squads configuration on mainnet (operating steps of 8.4).
+* Key generation, deployment and the Squads configuration on mainnet (operating steps of 8.4). As
+  of this pack's date those steps have not been taken and the preconditions they must meet are
+  not met; section 5 lists the mainnet state read on 23 October 2026.
 * Everything else under `solana/` (`programs/vicinity-rewards`, `programs/vicinity-launchpad`,
   `sdk/launchpad`, `tests`, `tests-launchpad`, the Meteora interfaces in `idls/`).
 
@@ -168,7 +179,7 @@ prints each binary's size and SHA-256 (C03). The only warning cargo-build-sbf pr
 crate types (`cdylib` and `lib`) preclude link-time optimisation, so `lto = "fat"` has no effect
 (NOTES 19).
 
-### 2.3 Expected hashes at `cd56508`
+### 2.3 Expected hashes at `bf17550` (the same as at `cd56508`)
 
 | build | features | bytes | SHA-256 |
 |---|---|---|---|
@@ -181,9 +192,30 @@ All three binaries carry the program id `nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSY
 `declare_id!` (`lib.rs` line 56), a throwaway localnet and devnet key kept outside the repository
 (3.1). The production and `halt-all` builds compile the mainnet ids of `vicinity_rewards` and the
 old `vicinity_launchpad` (3.2); the devnet build compiles their devnet ids. The mainnet binary will
-be this source with the owner's program id in `declare_id!` and `Anchor.toml`, so its hash will
-differ from the table; 8.4 and C03 require that binary's hash to be published with a verified
-build before it is deployed, and 11.1 says the compute figures are measured again with that id.
+be this source with the owner's program id, so its hash will differ from the table; 8.4 and C03
+require that binary's hash to be published with a verified build before it is deployed, and 11.1
+says the compute figures are measured again with that id. Every place the throwaway id appears
+(`git grep nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk`), and what the mainnet id changes there:
+
+| file (under `solana/`) | what it is | changes |
+|---|---|---|
+| `programs/vicinity-curve/src/lib.rs` line 56, `declare_id!` | the program's own id | **the binary** (the only place compiled into it) |
+| `Anchor.toml`, `[programs.localnet]` and `[programs.devnet]` | which keypair `anchor build` and `anchor deploy` expect | the build configuration, not the bytes |
+| `crates/vicinity-curve-math/src/constants.rs`, `PROGRAM_ID` (in scope) | the owner `decode_coin` requires, for off-chain readers | not the binary: `decode_coin` is not linked into the program (a clean build with `PROGRAM_ID` replaced by other bytes gave the same `0a5beef2...`, checked for this revision); the crate's tests (`tests/unit.rs` line 1209) |
+| `sdk/idl/vicinity_curve.json`, `address` | the client IDL | regenerated by `npm run vcurve:idl` |
+| `sdk/curve/constants.mjs`, `CURVE_PROGRAM_ID` | the SDK's id: every client, the owner's tools, the checker | the SDK and the tools |
+| `sdk/fixtures/launch-batch.json`; `sdk/curve/batch.test.mjs`; `programs/vicinity-curve/src/batch.rs` line 285 (a unit test); `tests-curve/27-checker-gaps.test.mjs` (a message pattern) | the shared leaf fixture (every leaf contains the program id, so its leaves and root change) and tests | the fixtures and tests |
+| the `.md` files | text | nothing |
+
+**CI builds other binaries.** CI installs Agave 4.3.0 from `release.anza.xyz`, whose
+cargo-build-sbf is 4.3.0 (platform-tools v1.57, rustc 1.95.0); the hashes above come from
+cargo-build-sbf 4.4.0 of the release at `stable-44b42d45` (2.1), whose `solana` reports 4.3.0. For
+the same source CI printed production 768,080 bytes `9f4bf9ff6aaf2013aa65c8c52b657dc5d124144fb545bf60d01dede9f4a614dd`,
+devnet 768,080 `5ff03bc2a3f3d73b89583017e0290900d9b1180dd785cbf7a7ac8cde5cfbd17e` and halt-all
+766,864 `86b27af9cb70b268a19b1ad2fbb61ebec0eb9a67a83efbd9a401f3bfd14094b9` (runs 40030886477 for
+`cd56508` and 40034706784 for `0ed0ef8`; and the same three for `bf17550`, run 40042968961). CI compares no hash with an expected
+value, so the hashes of this table were checked on one machine only (2.4) and nothing a third party
+runs pins them; the verified build of 8.4 decides the mainnet binary's hash.
 
 ### 2.4 How the hashes were checked for this file
 
@@ -192,12 +224,17 @@ build before it is deployed, and 11.1 says the compute figures are measured agai
 2. A clean copy: `git archive cd56508 solana | tar -x` into a new directory with no `target/`,
    then `bash scripts/vcurve/sbf-builds.sh` there: the same three hashes (2 min 35 s, dependencies
    compiled afresh from the warm cargo registry cache of the same machine). The source paths
-   embedded in the binary are relative (`strings` shows `programs/vicinity-curve/src/...` and
-   `src/...` only), so the build directory does not enter it.
+   embedded in the binary are relative only (`strings` shows `programs/vicinity-curve/src/...`,
+   `src/...` and Rust's `library/...`; no `/root`, `/home`, `/tmp` or cargo registry path), so the
+   build directory does not enter it. For this revision, again from `git archive 0ed0ef8` with the
+   math crate's `PROGRAM_ID` replaced by other bytes: the production hash `0a5beef2...` (2 min 32 s;
+   the table of 2.3).
 3. `anchor build`: `target/deploy/vicinity_curve.so` has the production hash `0a5beef2...`.
-4. D01: the devnet build was deployed and read back from the chain byte for byte
-   (`VICINITY-CURVE-DEVNET.md` section 3).
+4. D01: the devnet build was deployed to D01's local validator and read back from it byte for byte
+   (`VICINITY-CURVE-DEVNET.md` section 3); not on devnet, and that validator's ledger was not kept
+   (section 11).
 5. The full gate of the Appendix ran `npm run vcurve:sbf` again and found the three hashes.
+6. CI's builds of the same source differ (2.3): its toolchain is cargo-build-sbf 4.3.0.
 
 Not done: a Docker-based verifiable build (`solana-verify build` or `anchor build
 --verifiable`), whose image brings its own toolchain and so gives other hashes. The release of
@@ -220,12 +257,12 @@ hashes.
 | format and lints | `cargo fmt --all -- --check`; `cargo clippy --all-targets -- -D warnings`, again with `--features short-windows`, and `cargo clippy -p vicinity-curve --all-targets --features devnet` and `--features halt-all`, each with `-D warnings` | the workspace | clean |
 | program unit tests | `cargo test` (also `-p vicinity-curve --features devnet` and `--features halt-all`) | the `#[cfg(test)]` modules (among them U10 to U13 and the `pay_out` tests) and `checklist.rs` (source rules and the instruction contract against the IDL) | 77 passed in each of the three builds |
 | math crate | `cargo test` | `tests/unit.rs` 17 (the U tests of 12.1), `config_rules.rs` 14 (V01 to V11), `props.rs` 12 (P01 to P10, P06b, P09b), `no_free_value.rs` 3 (P11a, P11b, and a check that I18's old spot-value clause is false, NOTES 35), `differential.rs` 7 (the vectors of Appendix A's model), `g01_vectors.rs` 1 (G01) | 54 passed |
-| property tests at 10^6 cases | `PROPTEST_CASES=1000000 cargo test --release -p vicinity-curve-math --test props` and `--test no_free_value` | 12.2's "at least 10^6 cases each" (CI runs 1,024 to 4,096 cases, NOTES 1, 35) | run for this file, release build: 12 passed (85.6 s) and 3 passed (32.1 s) |
+| property tests at 10^6 cases | `PROPTEST_CASES=1000000 cargo test --release -p vicinity-curve-math --test props` and `--test no_free_value` | 12.2's "at least 10^6 cases each" (CI runs 1,024 to 4,096 cases, NOTES 1, 35) | run for the first revision of this file (23 October; the crate has not changed since), release build: 12 passed (85.6 s) and 3 passed (32.1 s); the review of the pack ran them again: 12 and 3 passed |
 | smoke | `npm run test:vcurve` | `tests-vcurve/00-smoke`: one coin's life on the production build, then the halt-all build over it and back | 1 passed |
 | SDK | `npm run sdk-test:curve` | `sdk/curve/*.test.mjs`: math parity, events, IDL, batch leaves and proofs, the client pre-checks | 52 passed |
-| litesvm lifecycle and attack suites | `npm run test:curve` | `tests-curve/01` to `34` (the table in `tests-curve/README.md`); the checker of section 7 after every transaction | 203 passed (about 3 minutes) |
-| fuzz, longer | `VCURVE_FUZZ_STEPS=n VCURVE_FUZZ_SEEDS=s node --test tests-curve/23-fuzz.test.mjs` | F01 and F02 with the model byte-equal after every transaction (CI: 300 steps on seeds 1 and 2) | run for this file: seed 11, 20,000 steps, passed in 7 min 30 s: 16,155 transactions, 9,696 succeeded and 6,459 failed (3,830 as the model predicted; 2,392 invalid variants, of which 2,370 were refused, 4 replaced an open slot and were re-synced, 10 replaced the `program` slot of an instruction that emitted nothing, 8 could not be built); 16 coins launched and graduated; 283 publications, 70 clears and 9 batch launches accepted. Earlier long runs: seed 7 at 100,000 steps and seed 8 at 30,000 before the batch path (NOTES 38), eight seeds of 2,500 steps with it (NOTES 76) |
-| batch mutants | `python3 scripts/vcurve/batch-mutants.py . <out dir>` | 46 mutant programs, one batch rule removed or weakened in each, run against `30-batch` (H02 for the halt-all mutant) with and without the checker (NOTES 77, 82; about 1.5 minutes per mutant) | not re-run for this file; NOTES 77 and 82 record all 46 killed in both modes, and the program binary has not changed since (2.3) |
+| litesvm lifecycle and attack suites | `npm run test:curve` | `tests-curve/01` to `34` (the table in `tests-curve/README.md`); the checker of section 7 after every successful transaction, with the exceptions section 7 names | 204 passed (about 3 minutes; 203 before this revision's checklist test) |
+| fuzz, longer | `VCURVE_FUZZ_STEPS=n VCURVE_FUZZ_SEEDS=s node --test tests-curve/23-fuzz.test.mjs` | F01 and F02 with the model byte-equal after every transaction (CI: 300 steps on seeds 1 and 2) | run for the first revision of this file (23 October; the program has not changed since): seed 11, 20,000 steps, passed in 7 min 30 s: 16,155 transactions, 9,696 succeeded and 6,459 failed: 3,830 as the model predicted, 2,370 invalid variants refused and 259 steps whose outcome the model leaves open (`fuzz.mjs`, `anyOutcome`). Of the 2,392 invalid variants, 2,370 were refused, 14 succeeded legitimately (4 replaced a free slot and were re-synced, 10 replaced the `program` slot of an instruction that emitted nothing) and 8 could not be built (never sent, so not among the 16,155); 16 coins launched and graduated; 283 publications, 70 clears and 9 batch launches accepted. The run is deterministic for a seed (reproduced exactly in the review of this pack). Earlier long runs: seed 7 at 100,000 steps and seed 8 at 30,000 before the batch path (NOTES 38), eight seeds of 2,500 steps with it (NOTES 76) |
+| batch mutants | `python3 scripts/vcurve/batch-mutants.py . <out dir>` | 46 mutant programs, one batch rule removed or weakened in each, run against `30-batch` (H02 for the halt-all mutant) with and without the checker (`MUTANT_CHECKS_OFF=1`; NOTES 77, 82) | 43 of them were last recorded (NOTES 77) at `fd516a6` (18 October), before round 6's `ae8e071` changed `publish_launch_batch`, `clear_launch_batch` and `set_launch_approver`; NOTES 82 ran only its three new mutants on the round-6 binary. Run again for this revision on `git archive 0ed0ef8` (the program and tests of the commit in scope): on 23 October 2026, 46 of 46 killed with the checker (23:26 to 23:42 UTC) and 46 of 46 without it (23:42 to 23:54); every pattern still applied, and each mutant was killed by a failing test of `30-batch` (45) or, for the halt-all mutant, `11-halts` (H02); the reviewer of this pack reported the same result independently |
 
 The same gate also runs the repository's other suites, which this program does not touch:
 `cargo test` of `vicinity_rewards` (29) and `vicinity_launchpad` (27), `npm run test:launchpad`
@@ -249,8 +286,13 @@ Meteora program, no other AMM and no third party receives anything; the old prog
 which runs on Meteora, is retired before the first approval here (8.5). One permanent `Coin` PDA
 per city (`["coin", city_id]`, 693 bytes) holds the frozen terms, the reserves, five fee buckets
 and every lifetime counter, and **all of the coin's SOL as native lamports**; the coin's tokens sit
-in one SPL token account it owns (`["coin_vault", coin]`). One coin per city and one per ticker
-(`TickerLock`, permanent), checked across the old program as well (8.5).
+in one SPL token account it owns (`["coin_vault", coin]`). In the Rust source and the IDL the
+`Coin` account is the type `CurveCoin` (discriminator `sha256("account:CurveCoin")[..8]`), named so
+that it shares no discriminator with the old program's `Coin` (review SEC-8); this file says `Coin`.
+One coin per city across both programs: the old program's `Coin` and `Approval` for the city are
+checked at every approval and launch (8.5). One coin per ticker within this program only
+(`TickerLock`, permanent): the old program has no ticker lock and no old-program ticker is read, so
+the ticker of an old-program coin can be used here for another city.
 
 **The default config #0** (5.9): 1,000,000,000 coins at 6 decimals, mint and freeze authority
 none, metadata immutable; 793,099,990 coins sold on the curve; 206,900,000.9 coins kept for the
@@ -282,36 +324,65 @@ Each named share is rounded down; the rounding remainder (0 to 4 lamports) stays
 debit that would leave less than `min(rent_reserve, live rent) + liabilities` (6.5); there are
 exactly five such debits (seller payout, platform withdrawal, founder claim, founder payout,
 holders forward), checked as source rules by `checklist.rs`. Prices and amounts come from stored
-counters, never from balances (1.3), so donations are surplus (T7, T8). No instruction can stop a
-sell, a claim, a forward or a withdrawal; the guardian and the admin can stop buys, buybacks and
-launches (8.3); the `halt-all` build, deployed by upgrade, stops every outflow.
+counters, never from balances (1.3), so donations are surplus (T7, T8). Sells, claims and
+withdrawals cannot be stopped without an upgrade. Forwards can pause, the money waiting in
+`holders_pending`: `forward_holders_fees` requires the city's rewards `CityConfig.authority` to be
+this program's admin with no authority transfer pending (`helpers.rs`, `check_rewards_authority`),
+so after an admin hand-over here (`accept_admin`) every forward fails until each city's rewards
+authority has followed (GOV-5, 4.2), and a city's forwards fail while a rewards-authority transfer
+of that city is pending in `vicinity_rewards`, which the vault, as rewards authority, can start.
+The guardian and the admin can stop buys, buybacks and launches (8.3); the `halt-all` build,
+deployed by upgrade, stops every outflow.
 
 ---
 
 ## 5. Roles and keys
 
 From 8.1, where each row has its references. "Program" means the program refuses it; "rule" means
-an operating rule of 8.4 that the deploy checklist checks where it can.
+an operating rule of 8.4 that the deploy checklist checks where it can. The table states the
+target state of 8.4 and 8.5; what holds on mainnet today is listed after it.
 
 | key | can | cannot |
 |---|---|---|
-| **admin**: the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (multisig `6v8hwKYS...`, 2 of 3), which is also the upgrade authority and, in `vicinity_rewards`, the registry admin, every city's rewards authority and the upgrade authority; the old program's admin must be the same key (8.5) | approve and revoke launches; add configs inside V1 to V11 and enable or disable them; set any pause flag either way; set the payout key and wallet, the guardian and the launch approver; hand over the admin seat in two steps; clear launch batches. As upgrade authority: replace the program (including with `halt-all`) and so take every coin's reserves and buckets, after the 48-hour time lock once the first coin is live (O11). As rewards authority: publish the Merkle roots that decide who receives the holders' money | without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims, forwards or withdrawals; redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker |
-| **guardian**: a separate Squads multisig with no time lock, 1 of 3, controlled by the vault (O35); never `FEE_RECIPIENT`, the payout key or wallet, the admin, the proposed admin or the launch approver (program) | `set_pause` setting `launches`, `buys` and, only while buys are halted, `buybacks` to true; `clear_launch_batch`, with or without halting publication. Each member stops with one transaction (`guardian-stop.mjs`) | clear any flag; lift a batch halt; publish; block exits; touch money; change any setting |
+| **admin**: the Squads vault `AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X` (vault 0 of the Squads v4 multisig `6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV`, 2 of 3; members `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` (`FEE_RECIPIENT`, the owner's hot wallet), `3W8yhnhbU12jQTVZEmJFuoLPBqGU5vJEpmVUWLeeUz2U` and `9CRkALHoEvjAjyXg3P1VCaXMpNTpTsdvDJGR8WzNNH9K`, each with every permission; read on 23 October 2026). By 8.4 and 8.5 it is to be the upgrade authority and, in `vicinity_rewards`, the registry admin, every city's rewards authority and the upgrade authority, and the old program's admin (the program enforces the last, 8.5); the registry admin and the old program's admin are not yet the vault (below), and by 8.4's rule since this revision `FEE_RECIPIENT` leaves the members before the deploy | approve and revoke launches; add configs inside V1 to V11 and enable or disable them; set any pause flag either way; set the payout key and wallet, the guardian and the launch approver; hand over the admin seat in two steps; clear launch batches. As upgrade authority: replace the program (including with `halt-all`) and so take every coin's reserves and buckets, after the 48-hour time lock once the first coin is live (O11). As rewards authority: publish the Merkle roots that decide who receives the holders' money | without an upgrade: move any lamport or token; change a live coin's split, curve, founder or state; block sells, claims or withdrawals (forwards pause during its own hand-over or a pending rewards-authority transfer, section 4); redirect platform fees; change the compiled program ids; mint; freeze; create a second coin for a city or a ticker |
+| **guardian**: a separate Squads multisig with no time lock, 1 of 3, controlled by the vault (O35); never `FEE_RECIPIENT`, the payout key or wallet, the admin, the proposed admin or the launch approver (program); `FEE_RECIPIENT` none of its members (rule, checked) | `set_pause` setting `launches`, `buys` and, only while buys are halted, `buybacks` to true; `clear_launch_batch`, with or without halting publication. Each member stops with one transaction (`guardian-stop.mjs`) | clear any flag; lift a batch halt; publish; block exits; touch money; change any setting |
 | **launch approver** (`Launchpad.launch_approver`; zero turns the batch path off): a dedicated key in the owner's own wallet, on a device or seed with no Squads member key (O32, rule) | `publish_launch_batch`: one Merkle root of at most 512 entries (founder, config, name, ticker, metadata hash per city with no coin), in force no sooner than 12 hours after publication and for at most 48 hours (O30, O31); `clear_launch_batch` | move money; launch for a founder; shorten the review window or lengthen the validity; approve what a per-city launch would refuse; change any setting, flag, config or live coin; lift a halt; publish while halted. It is never `FEE_RECIPIENT`, the admin, the proposed admin, the guardian, the payout key or wallet (program) |
 | **payout key** (off by default) | `payout_founder_fees` for opted-in founders, to the fixed payout wallet, once a day per coin; pause payouts | resume payouts; pay anywhere else; touch another bucket |
 | **founder** (per coin, chosen at approval or named in a batch; never `FEE_RECIPIENT`, the guardian, the payout key or the launch approver, program) | claim, opt in or out of payouts, hand the seat over with both signatures | touch another bucket or coin |
 | **keeper** (Vicinity's fee-payer hot key, O24; not built) | sign permissionless cranks as fee payer: `buyback_burn`, `withdraw_platform_fees`, `forward_holders_fees`; send the rent top-up of 6.5 (a plain transfer) | anything a stranger cannot do; it receives nothing (I21) |
-| **`FEE_RECIPIENT`** `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` (compiled; the owner's wallet) | receive launch fees and platform withdrawals; trade like any wallet | hold any seat (program: admin, proposed admin, guardian, payout key or wallet, founder, launch approver, upgrade authority at `init_launchpad`); later moves of the upgrade authority and its holding of city coins are rules (8.4, O29) |
+| **`FEE_RECIPIENT`** `13qRam63xqqd8KNUoAmHWQu7ro71oHqEsYHYaG5MsRiN` (compiled; the owner's hot wallet) | receive launch fees and platform withdrawals; trade like any wallet. **Outside this program, today**: it is one of the three members of the admin vault's multisig (above), so a stolen `FEE_RECIPIENT` key is one of the two signatures that act as the admin and the upgrade authority of all three programs; and it is still the rewards registry's and the old program's admin (below) | hold any seat in this program (program: admin, proposed admin, guardian, payout key or wallet, founder, launch approver, upgrade authority at `init_launchpad`); later moves of the upgrade authority, its holding of city coins (8.4, O29) and, since this revision, any membership of the vault's, the guardian's or the approver's multisig are rules: the checklist refuses each membership (`FEE_RECIPIENT_IS_VAULT_MEMBER`, `FEE_RECIPIENT_IS_GUARDIAN_MEMBER`, `FEE_RECIPIENT_IS_APPROVER_MEMBER`), and on mainnet the first is not met yet |
 | **anyone** | trade; run `buyback_burn`, `withdraw_platform_fees`, `forward_holders_fees`; revoke an expired approval | everything else |
 | **website** | build unsigned transactions; compute the daily batch list; give founders their entries and proofs | hold any admin, guardian, payout, approver or upgrade key (8.1, 8.4) |
 
 Worst cases (8.1): two of the three Squads keys can, as upgrade authority, take everything after
-the 48-hour time lock, during which holders can sell and the guardian can halt buys; a stolen
-launch approver key can, if nobody clears within the 12-hour window, let founders of the thief's
-choosing take up to 512 cities without a coin, but reaches no lamport or token; a stolen guardian
-can halt buys, buybacks and launches until the admin replaces it; a stolen payout key reaches only
-opted-in founders' shares, to the agreed wallet, daily; a stolen founder key reaches that coin's
-`founder_pending`.
+the 48-hour time lock, during which holders can sell and the guardian can halt buys (today one of
+the three is `FEE_RECIPIENT`'s hot wallet and no time lock is set: a theft of that key and of one
+other member key would act at once; 8.4 closes both: `FEE_RECIPIENT` leaves the members before the
+deploy, and the time lock is set before the first coin launches, O11); a stolen launch
+approver key can let founders of the thief's choosing take up to 512 cities without a coin per
+publication that nobody clears within its 12-hour window, and a thief who goes unnoticed can
+publish again, each new batch taking force 12 hours after its publication, but it reaches no
+lamport or token; a stolen guardian can halt buys, buybacks and launches and halt the batch path
+(`clear_launch_batch(halt = true)`) until the admin replaces it and sets the launch approver again
+(`set_launch_approver` lifts the halt); a stolen payout key reaches only opted-in founders' shares,
+to the agreed wallet, daily; a stolen founder key reaches that coin's `founder_pending`.
+
+**Mainnet state on 23 October 2026** (read-only: `node scripts/vcurve/preflight.mjs --rpc
+https://api.mainnet-beta.solana.com --vault AB5qB1iAukPB7p1dkukQ1qSke3yQBDeSd5o69dLFGs7X
+--vault-multisig 6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV --cluster mainnet`, at 23:34 UTC;
+the multisig read with `getAccountInfo` at slot 460,627,954). These are preconditions of 8.4 and
+8.5 that are **not met yet**; the checklist reports 8 problems and one warning:
+
+| what | state | checklist |
+|---|---|---|
+| `vicinity_curve` | not deployed (no `Launchpad`, no ProgramData, no config #0): expected before the deploy | `CURVE_LAUNCHPAD`, `CURVE_UPGRADE_AUTHORITY`, `CONFIG0` |
+| `vicinity_rewards`' registry admin | `13qRam...` (`FEE_RECIPIENT`), nothing pending; not the vault | `REWARDS_REGISTRY_ADMIN` |
+| the old `vicinity_launchpad`'s admin | `13qRam...` (`FEE_RECIPIENT`), nothing pending; not the vault | `LEGACY_ADMIN` |
+| the old program's launches | open | `LEGACY_LAUNCHES_OPEN` |
+| the old program's `LaunchConfig` `6voKQ4uGtc5YShMJ1a3Xf9ahb1MRf5VTWqKfdidAiY75` | enabled | `LEGACY_CONFIG_ENABLED` |
+| upgrade authority of `vicinity_rewards` and of the old program | the vault | no problem |
+| the vault's multisig `6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV` | autonomous (config authority none), 2 of 3, time lock 0, `FEE_RECIPIENT` one of the three members | warning `VAULT_TIME_LOCK_UNSET` (O11: 48 hours from the first coin launch); `FEE_RECIPIENT_IS_VAULT_MEMBER` (new in this revision; the first revision's checklist read no multisig while no `Launchpad` existed and printed nothing about it) |
+| the guardian multisig | none named yet (no `Launchpad`, so no guardian is set) | (checked once the guardian is proposed, with `--guardian-multisig`) |
 
 ---
 
@@ -341,9 +412,16 @@ for the coin) cannot be prevented by the program; 6.6 and 14.5 say how they are 
 
 Section 9 states 25 invariants. The per-transaction checker `tests-curve/invariants.mjs` asserts
 I1 to I17 and I19 to I25 after every successful transaction of every litesvm suite (I18 is a
-property over sequences; review R5-CONS-5), and `checkFailedTransaction` (line 310) checks that a
-failed transaction moved nothing but its fee. The checker's entry point is `checkTransaction`
-(line 460); the line numbers below are of that file at `cd56508`.
+property over sequences; review R5-CONS-5), except the OPS-4 test of `28-governance`, which turns
+the checker off (`w.checks = false`) to close the old program with the loader, and
+`checkFailedTransaction` (line 310) checks that a failed transaction moved nothing but its fee.
+I22's liveness probe runs after every successful transaction too, except where a test turns it
+off and runs it once at the end instead (`probeEach = false`): one test of `16-attacks-trading`
+(300 steps), two of `20-attacks-runtime` (rent changes), `22-g01-onchain` (once per life),
+`24-configs-f03`, `25-no-free-value`, one test of `27-checker-gaps` and the fuzz (at the end and
+every `probeEvery` steps); a few sends of `14-attacks` and `24-configs-f03` pass `noProbe`. The
+mutant runs of section 3 use `VCURVE_INVARIANTS=off` by design in their second mode. The checker's entry point is `checkTransaction`
+(line 460); the line numbers below are of that file at `bf17550` (unchanged since `cd56508`).
 
 | # | invariant (short; section 9 has the exact text) | enforced in the program by | checked by |
 |---|---|---|---|
@@ -367,7 +445,7 @@ failed transaction moved nothing but its fee. The checker's entry point is `chec
 | I18 | no free value: round trips and random sequences never gain | (a property of the math) | math `tests/props.rs` (P05), `tests/no_free_value.rs` (P11a, P11b), `tests-curve/25-no-free-value`; not per transaction |
 | I19 | one `Coin` per city, one `TickerLock` per ticker; the old program and the rewards registry checked at every approval and launch, with the seats of that call | `init` of the PDAs; `helpers.rs` legacy and registry reads in `approve_launch.rs`, `launch.rs`, `launch_from_batch.rs` | `checkGlobal` (1226) with `seatWalk` (1068); L04, X33 to X35, 28-governance |
 | I20 | settings: role separation, flags set and cleared only by the right keys, buybacks halted only with buys, configs immutable but `enabled`, program bytes change only by upgrade | `helpers.rs` `check_payout_keys_separate`, `check_guardian_separate`, `check_not_fee_recipient`, `check_founder_key`, `pause_allowed`, `pause_flags_consistent` | `checkGlobal` (1314 to 1375), `checkProgramBytes` (337); 28-governance, 27-checker-gaps |
-| I21 | no money path to the admin, guardian, payout key, launch approver, upgrade authority or keeper | the fixed destinations of 6.4; role separation | `checkTransaction` (575, 610); X43, X43b |
+| I21 | no money path to the guardian, payout key, launch approver, upgrade authority or keeper. The admin can be paid only as a founder it approved itself (allowed by the program: `check_founder_key` does not refuse the admin; refused by the checker) and gets back an `Approval`'s rent (at `launch` and `revoke_approval`, to `rent_payer`, which `approve_launch` sets to the admin) | the fixed destinations of 6.4; role separation, except for the admin | `checkTransaction` (575, 610); X43, X43b |
 | I22 | liveness: nothing stuck; the intended permanent balances named | the no-op rule of 4.0; V4 | `probeLiveness` (1406); F01, X40b, X63 |
 | I23 | no launch without an approval or a valid proof from the batch in force | `launch_from_batch.rs` with `batch.rs` (`launch_leaf`, `verify_proof`, `max_proof_len`, `batch_in_force`) | `batchWalk` (1120, I23 at 1180); U13, P12, X66 to X76, CK1 |
 | I24 | `LaunchBatch` written only by its four instructions; `seq` +1 per publication; window bounds; clears and halts | `publish_launch_batch.rs` (`batch_window_ok`, `apply_publication`), `clear_launch_batch.rs` (`may_clear_batches`), `set_launch_approver.rs` | `batchWalk` (1120 to 1210); L14, 31-batch-checker |
@@ -384,33 +462,50 @@ gaps were tested by doctoring real transactions (`13-checker`, `27-checker-gaps`
 ## 8. Review history
 
 The specification's revision 1 was reviewed once before the build, and the build ten times
-(rounds 1 to 10, 17 to 23 October 2026). Each round's findings were reproduced by a separate
-verifier before being accepted; the severities are the verifier's. Appendix C has every finding,
-its response and, where a part was not applied, the reason. Rows with one root cause count once,
-at their highest severity (the number of finding ids is given too).
+(rounds 1 to 10, 17 to 23 October 2026). **Who reviewed**: every review here, the specification's
+included, was internal and automated: AI agents (Claude) run in the same workflow that wrote the
+code, each finding reproduced by a separate verifier agent of the same kind before it was accepted;
+every commit on the branch is authored "Claude". None of them is an independent human audit; this
+outside audit is the first. The severities are the verifiers'. Appendix C has every finding, its
+response and, where a part was not applied, the reason. Rows with one root cause count once, at
+their highest severity (the number of finding ids is given too).
 
-| round (date) | lenses | rows (ids) | severity | outcome | what changed the program |
+**The batch path entered after round 5.** The batch launch approval (`launch_from_batch`,
+`publish_launch_batch`, `clear_launch_batch`, `init_launch_batch`, `set_launch_approver`,
+`batch.rs`) was specified after round 5 (`0fb6379`, 17 October 23:21 UTC) and added to the program
+by `a5fbb42` (18 October 00:21; 2,570 lines added in the program, 944 of them `batch.rs`, mostly its
+tests). Rounds 1 to 5 never saw it; only rounds 6 to 10 did. By `git blame` of the in-scope ranges
+of 1.2, 1,363 of the 5,446 program lines (and 818 of the 2,840 handler lines) are from `a5fbb42`,
+round 6's `ae8e071` or round 7's doc comment `f76c646`.
+
+**When.** The repository does not record when each review started; each began after the previous
+round's last commit, and the table gives the commits that answered it (UTC). Rounds 7 to 10,
+including their fixes and verifications, all fall between 01:44 and 09:11 UTC on 23 October.
+
+| round (date; answering commits, UTC) | lenses | rows (ids) | severity | outcome | what changed the program |
 |---|---|---|---|---|---|
-| spec revision 1 (before the build) | security, math, runtime, integration | 46 (46) | 2 blocker, 14 major, 25 minor, 5 nit | all applied (INT-2 in part) | the design itself (revision 2) |
-| 1 (17 Oct) | accounts, custody, math, governance, integration | 11 (11) | 2 medium, 3 low, 6 info | 5 fixed; 6 rejected | GOV-1 (the old program's admin must be this admin, `LegacyAdminMismatch`), GOV-2 (`FeeRecipientRole`) |
-| 2 (17 Oct) | round-1 fix diff, conformance, attacker economics, fresh audit | 4 (4) | 3 low, 1 info | 4 fixed | R2-DIFF-1 and SPEC-1 (role keys refused as founders; `FEE_RECIPIENT` as upgrade authority at init), ECON-1 (V2b in the crate), FA-1 (`check_name`) |
-| 3 (17 Oct) | round-2 fix diff, math, lifecycle, hostile roles, clients | 8 (8) | 1 medium, 3 low, 4 info | 6 fixed (HR-1 as text and operating rule, O29 open); 2 rejected | R3-DIFF-1 and MATH3-2 (V2b as a sum), LL-1 (separate `buybacks_halted`) |
-| 4 (17 Oct) | round-3 fix diff, operations, cross-program calls, state machine, SDK and docs | 13 (18) | 7 low, 6 info | 13 fixed | OPS-1 (the rewards registry's admin at every approval and launch) |
-| 5 (17 Oct) | round-4 fix diff, registry dependency, economics, consistency, cross-coin arithmetic | 12 (14) | 5 low, 5 info, 2 nit | 9 fixed; 3 rejected | R5-CONS-1 (`GuardianIsAdmin`) |
-| 6 (18 Oct) | the batch launch approval: diff, Merkle and leaf code, roles and timing | 6 (7) | 2 medium, 2 low, 2 info | 5 fixed (O34, O35 opened); 1 rejected | R6-RT-3 (the three batch settings events as event CPIs) |
-| 7 (23 Oct) | batch attacker, conformance; verification of round 6 against the real program and Squads v4 | 11 (13) | 3 medium, 4 low, 3 info, 1 none | 9 fixed; 1 noted; 1 rejected | none (a doc comment; IDL only) |
-| 8 (23 Oct) | operator under attack, round-7 diff; verification of round 8 | 11 (12) | 7 low, 4 info | 11 fixed | none |
-| 9 (23 Oct) | round-8 tools diff, program funds; verification of round 9 | 5 (5) | 4 low, 1 info | 5 fixed (R9-PF-1 as an operating rule, the SDK's `buybackKeepUp` and the checklist; O36 open) | none |
-| 10 (23 Oct) | the program fresh (instruction data read twice); the owner's tools | 2 (2) | 2 info | 1 fixed in the checker and tests; 1 rejected as a defect and hardened | none |
+| spec revision 1 (before the build; the specification's first commit is `ee62c31`, 17 Oct 02:37) | security, math, runtime, integration | 46 (46) | 2 blocker, 14 major, 25 minor, 5 nit | all applied (INT-2 in part) | the design itself (revision 2) |
+| 1 (17 Oct; after the build's last commit at 10:42, answered 13:29 to 13:39) | accounts, custody, math, governance, integration | 11 (11) | 2 medium, 3 low, 6 info | 5 fixed; 6 rejected | GOV-1 (the old program's admin must be this admin, `LegacyAdminMismatch`), GOV-2 (`FeeRecipientRole`) |
+| 2 (17 Oct; 15:16 to 15:40) | round-1 fix diff, conformance, attacker economics, fresh audit | 4 (4) | 3 low, 1 info | 4 fixed | R2-DIFF-1 and SPEC-1 (role keys refused as founders; `FEE_RECIPIENT` as upgrade authority at init), ECON-1 (V2b in the crate), FA-1 (`check_name`) |
+| 3 (17 Oct; 17:12 to 18:04) | round-2 fix diff, math, lifecycle, hostile roles, clients | 8 (8) | 1 medium, 3 low, 4 info | 6 fixed (HR-1 as text and operating rule, O29 open); 2 rejected | R3-DIFF-1 and MATH3-2 (V2b as a sum), LL-1 (separate `buybacks_halted`) |
+| 4 (17 Oct; 19:44 to 20:23) | round-3 fix diff, operations, cross-program calls, state machine, SDK and docs | 13 (18) | 7 low, 6 info | 13 fixed | OPS-1 (the rewards registry's admin at every approval and launch) |
+| 5 (17 Oct; 22:06 to 22:35) | round-4 fix diff, registry dependency, economics, consistency, cross-coin arithmetic | 12 (14) | 5 low, 5 info, 2 nit | 9 fixed; 3 rejected | R5-CONS-1 (`GuardianIsAdmin`) |
+| 6 (18 Oct in Appendix C, after the batch path's last commit at 18 Oct 01:17; answered by four commits dated 23 Oct 01:44) | the batch launch approval: diff, Merkle and leaf code, roles and timing | 6 (7) | 2 medium, 2 low, 2 info | 5 fixed (O34, O35 opened); 1 rejected | R6-RT-3 (the three batch settings events as event CPIs) |
+| 7 (23 Oct; 03:53) | batch attacker, conformance; verification of round 6 against the real program and Squads v4 | 11 (13) | 3 medium, 4 low, 3 info, 1 none | 9 fixed; 1 noted; 1 rejected | none (a doc comment; IDL only) |
+| 8 (23 Oct; 05:45, its verification 06:22) | operator under attack, round-7 diff; verification of round 8 | 11 (12) | 7 low, 4 info | 11 fixed | none |
+| 9 (23 Oct; 07:32, its verification 08:04) | round-8 tools diff, program funds; verification of round 9 | 5 (5) | 4 low, 1 info | 5 fixed (R9-PF-1 as an operating rule, the SDK's `buybackKeepUp` and the checklist; O36 open) | none |
+| 10 (23 Oct; 08:49 to 09:11) | the program fresh (instruction data read twice); the owner's tools | 2 (2) | 2 info | 1 fixed in the checker and tests; 1 rejected as a defect and hardened | none |
 | **build rounds 1 to 10** | | **83 (94)** | **0 high, 8 medium, 38 low, 34 info, 2 nit, 1 none** | **68 fixed or applied, 14 rejected, 1 noted** | rounds 1 to 6 only |
 
 Where the fixes went: rounds 1 to 6 changed the program or the crate in the rows named above, and
 the SDK, the checker and the text elsewhere; rounds 7 to 10 changed only the owner's tools
 (`scripts/vcurve/`), the SDK's client helpers, the checker, the tests and the text. Two reported
 "high" findings were judged medium by the verifier (R3-CLI-1, R6-RT-1). Rounds 7 to 10 changed
-no program code; the one finding of those rounds about the program's own rules, R9-PF-1, is
-answered by an operating rule, the SDK and the checklist, and its program rule is open decision
-O36.
+no program code. Two findings of those rounds were about the program's own behaviour: R9-PF-1 (the
+buyback share against the fixed per-run cap), answered by an operating rule, the SDK and the
+checklist, its program rule open as decision O36; and R10-FRESH-1 (every instruction accepts bytes
+after its arguments, Anchor 0.31 decoding by prefix), accepted as the program's behaviour, with the
+checker and the tests changed (limitation 24).
 
 What was rejected, and why (Appendix C has the full reasons):
 
@@ -422,7 +517,7 @@ What was rejected, and why (Appendix C has the full reasons):
 | GOV-4 | 1 | the time lock is a Squads property and already a precondition (8.4) |
 | GOV-5 | 1 | specified (4.2, 8.2) and tested |
 | HR-2 | 3 | the recorded design (4.17, T52, O22): the seat moves only with both signatures |
-| HR-3 | 3 | recorded (R9, 3.2): `FEE_RECIPIENT` changes only by upgrade; no third party's money is reachable |
+| HR-3 | 3 | recorded (R9, 3.2): `FEE_RECIPIENT` changes only by upgrade; no third party's money is reachable. **Revisited in this revision**: that reasoning left out that `FEE_RECIPIENT` is one of the three members of the admin vault's 2-of-3 multisig, so its stolen key is one of the two signatures that act as the admin and upgrade authority of all three programs. The rejection stands for what HR-3 reported (the platform's income); the membership is now 8.4's operating rule (`FEE_RECIPIENT` is no member of the vault's, the guardian's or the approver's multisig) and the checklist refuses it; on mainnet it is not met yet (section 5) |
 | R5-REG-2 | 5 | needs a deliberately wrong build; fails closed at the first approval, before any time lock |
 | R5-REG-3 | 5 | the accepted fail-closed coupling with the registry, enforced in CI by the IDL diff and U12 |
 | R5-CONS-6 | 5 | the keeper is website work not yet built, as the spec says |
@@ -436,26 +531,70 @@ INT-2's larger buyback step and dropping the first-run delay (spec review); ECON
 HR-1's change to V8 and V11 (open as O29); R9-PF-1's rule V12 (open as O36); R7-CONF-1's hardware
 wallet transport in the verifier; R5-REG-1's SDK helper for the hand-over.
 
+**The review of this pack (23 October 2026).** The first revision of this file (`0ed0ef8`) and of
+`VICINITY-CURVE-DEVNET.md` were reviewed in the same internal, automated way (it found no program
+defect and re-derived most figures; the program binary did not change). Each item was checked
+before it was answered (Appendix C of the specification, "the review of the audit pack", has the
+same list):
+
+| item | answered in |
+|---|---|
+| `FEE_RECIPIENT` is a member of the admin vault's multisig; the checklist was silent; HR-3's reasoning left it out | 1.1, 5 (admin and `FEE_RECIPIENT` rows, worst cases, mainnet state), 8 (HR-3), 9 item 1; 8.4's new operating rule and the checklist's `FEE_RECIPIENT_IS_*_MEMBER` (NOTES 106; `32-batch-checklist`) |
+| the admin row described the target state as current; the multisig shortened | 5 (full addresses, mainnet state), 1.5, the status paragraph |
+| who reviewed; the batch path after round 5; the time of each round | 8 |
+| "no instruction can stop a forward" | 4, 5 |
+| I21 overstated (the admin as a self-approved founder; `Approval` rent) | 7 |
+| section 10 incomplete; section 9's opening sentence | 9, 10 |
+| D01's signatures cannot be looked up; the record not kept | 11, 1.4; `rehearsals/vicinity-curve-d01/`; `VICINITY-CURVE-DEVNET.md` sections 3, 11 and 12 |
+| the mutants' basis stale | 3 (all 46 run again) |
+| the fuzz's failure breakdown | 3 |
+| the checker and the I22 probe are not on everywhere | 7 |
+| one coin per ticker is not checked across the old program | 4 |
+| 512 cities per publication, not in all; the guardian's batch halt | 5, 9 item 8 |
+| the guardian stop's cost and count are D01's | 9 item 13; `VICINITY-CURVE-DEVNET.md` section 8 item 5 |
+| "every item of D01"; the specification and NOTES said D01's batch rehearsal was not built | 11; `VICINITY-CURVE-DEVNET.md`; the specification's Appendix C status and NOTES 76, 87 |
+| devnet's Squads binary not recorded | 11; `VICINITY-CURVE-DEVNET.md` section 1 |
+| every file holding the throwaway program id | 2.3 |
+| `Coin` is the type `CurveCoin` | 4 |
+| R10-FRESH-1 is about the program's own behaviour too | 8 |
+| `strings` shows `library/...` too | 2.4 |
+| CI does not pin the hashes; no CI run cited; `main` | 1.1, 2.3, 2.4 (CI's own builds differ) |
+| D01's small inconsistencies (the graduating buy's offer, the payout wallet's funding, a litesvm total) | `VICINITY-CURVE-DEVNET.md` 6.6, 6.7, 7.1, section 11 |
+| the KR-1 figures the owner signs off | 9 item 4, 10 (O25) |
+| the claims it re-checked and found to hold (builds, IDL, counts, tests, review table, roles, devnet accounts) | no change |
+
 ---
 
 ## 9. Known limitations and accepted risks
 
-Each is stated in the specification or the notes; none is hidden behind an owner decision that is
-not listed in section 10.
+Each is stated in the specification or the notes. Several rest on a default of section 13 that
+the owner has not signed off yet (no sign-off of any decision of section 13 is recorded in the
+repository): limitation 3 on O2, 4 on O25, 5 on O29, 6 on O36, 9 on O33, 16 on O26, 19 on O28 and
+20 on O10 and O23; section 10 lists each of them with the other decisions that await him.
 
 1. **The upgrade authority is the main trust** (8.1, 8.4). Two of the three Squads keys can replace
    the program and take every coin's reserves and buckets, and as rewards authority every forwarded
    holder lamport; the 48-hour time lock (from the first mainnet coin, O11) and the guardian's buy
    halt are the mitigations. The time lock is a property of the Squads multisig, not of the program,
-   and applies to every proposal of the vault in every program (8.4).
+   and applies to every proposal of the vault in every program (8.4). On mainnet today the multisig
+   (`6v8hwKYSAWXXx6ZGGmvbg87n8eVy9MAgNruFgVqRFjYV`) has no time lock and one of its three members
+   is `FEE_RECIPIENT`'s hot wallet `13qRam...`, so that key and any one other member key act as the
+   vault at once; 8.4's operating rule (`FEE_RECIPIENT` no member, since this revision; the
+   checklist refuses it) closes the first before the deploy, its precondition on the time lock the
+   second before the first coin launches (O11), and section 5 lists the state as of this pack's
+   date.
 2. **A mathematical exploit can drain in the first block**, before anyone signs a halt (8.3).
 3. **Liquidity of a coin that never graduates is locked for ever** (O2, I22's intended permanent
    balances), as are the buyback bucket's dust below one raw coin, curve-phase rounding remainders
    when `liquidity_bps = 0`, and donations (O21).
 4. **The multi-run buyback hold** (Theorem M_K, O25): a trader who buys while a public backlog above
    about 2.0% to 2.6% of depth exists and holds through 21 to 26 runs with no other trading can
-   profit (lower figures for a founder, and lower again with an honest trade inside the hold, review
-   KR-1). Open, section 10.
+   profit (16 to 21 runs above 1.5% to 2.0% for a founder). With one honest trade inside the hold
+   (one buy at the clients' round-4 threshold; review KR-1) the figures are lower: on chain the
+   founder profited after 8 runs of a backlog of 0.84% of depth and an outsider after 15 runs of
+   1.5%; the model's least hold is 13 runs for an outsider, 8 for the founder and 3 for a founder
+   holding the float. The SDK's own trades now count every run the backlog pays for, so they leave
+   every class at a loss; a client allowing more slippage than the SDK does not. Open, section 10.
 5. **The platform's key** (`FEE_RECIPIENT`) is credited `b_P` of its own legs and is outside V8 and
    V11; an operating rule keeps it and the owner's wallets out of city coins and founder seats
    (review HR-1). Open as O29.
@@ -469,8 +608,10 @@ not listed in section 10.
    seed with a member key; the guardian multisig is controlled by the vault, with a threshold of 1
    and at least two members able to act alone. `scripts/vcurve/preflight.mjs` checks what can be
    read from the chain.
-8. **A stolen launch approver key** can take up to 512 coin-less cities if no stop lands within the
-   12-hour window (8.1, T85). The stops are the guardian members (one transaction each), the owner
+8. **A stolen launch approver key** can take up to 512 coin-less cities per publication that
+   nobody clears within its 12-hour window (8.1, T85: at most 512 cities per batch); a thief who
+   goes unnoticed past one window can publish again, and each new batch takes force 12 hours after
+   its publication. The stops are the guardian members (one transaction each), the owner
    with his restored key and the admin. A thief who also holds one guardian member key can race the
    multisig's transaction index at the rent of a vault transaction per index (8.1; O34 would remove
    the race).
@@ -487,10 +628,17 @@ not listed in section 10.
     (14.1, R5-CONS-6); a Squads mode of the verifier, without which an approver multisig (O32 (a))
     is reported not ready (R8-DIFF-6); the hardware-wallet transport of R7-CONF-1 (a); clear-only
     stopper keys (O34).
-13. **A guardian stop can execute up to four times** on a quiet chain, each extra execution costing
-    the member the rent of a vault transaction and proposal (about 0.0056 SOL), and the monitor sees
-    up to four `LaunchBatchCleared` events; NOTES 87 says twice (D01, `VICINITY-CURVE-DEVNET.md`
-    section 8 item 5). Harmless to the program; not changed.
+13. **A guardian stop can execute more than once** on a quiet chain: each of its variants for the
+    next indices (`--variants`, default 4, at most 16) executes when the one before has just moved
+    the index there, so up to `--variants` executions per RPC view, and up to 8 with the default
+    when the two RPCs show different transaction indices (`guardian-stop.mjs` `nextIndices` takes
+    up to `--variants` indices per RPC); D01 saw four (`VICINITY-CURVE-DEVNET.md` section 8 item 5;
+    NOTES 87 said twice). Each extra execution costs the member the rent of a vault transaction and
+    a proposal it cannot close: at mainnet's and devnet's 5,080 lamports per byte (read on 23
+    October 2026: `getMinimumBalanceForRentExemption(738109)` = 3,750,243,960 on both) about 0.0041
+    SOL for a clear (285 + 262 bytes) and 0.0038 SOL for a pause (223 + 262 bytes), about 0.016 SOL
+    for four clears; D01's 0.0056 SOL is its validator's 6,960 lamports per byte. The monitor sees
+    as many `LaunchBatchCleared` events. Harmless to the program; not changed.
 14. **`payout_founder_fees` with nothing pending is a quiet success** (no event, no sequence, no
     cooldown, 4.20); a payout hook must read the `FounderPaidOut` event or `founder_paid_out` (D01,
     section 8 item 6).
@@ -528,7 +676,7 @@ nothing in the program changes until he decides.
 
 | # | question | default (built) | alternatives in section 13 |
 |---|---|---|---|
-| O25 | the residual multi-run buyback risk (Theorem M_K) | accept and disclose: a buyer who holds through about 21 to 26 runs (16 to 21 for a founder) of a backlog above about 2.0% to 2.6% of depth (1.5% to 2.0% for a founder) with no other trading can profit; with one honest trade inside the hold the figures are lower (review KR-1); the sign-off covers configs within config #0's keep-up only (O36). Mitigated by the 0.1% step, V11, a keeper every interval, an alert above two caps and the backlog shown on the coin page | execute buybacks inside trades (contradicts R7's "executed separately" and R5; not offered) |
+| O25 | the residual multi-run buyback risk (Theorem M_K) | accept and disclose: a buyer who holds through about 21 to 26 runs (16 to 21 for a founder) of a backlog above about 2.0% to 2.6% of depth (1.5% to 2.0% for a founder) with no other trading can profit; with one honest trade inside the hold the figures the owner signs off are lower (review KR-1): on chain the founder profited after 8 runs of a backlog of 0.84% of depth and an outsider after 15 runs of 1.5%, and the model's least hold is 13 runs for an outsider, 8 for the founder and 3 for a founder holding the float; the sign-off covers configs within config #0's keep-up only (O36). Mitigated by the 0.1% step, V11, a keeper every interval, an alert above two caps and the backlog shown on the coin page | execute buybacks inside trades (contradicts R7's "executed separately" and R5; not offered) |
 | O29 | the platform's key in the MEV rules (review HR-1) | not counted by V8 and V11; the operating rule of 8.4 keeps `FEE_RECIPIENT` and the owner's wallets out of city coins and founder seats | (a) count `b_P` in V8 and give the platform its own horizon in V11; (b) keep `b_P <= max(b_F, b_H)` in every config. Either changes which fee splits are allowed and needs a crate, model and vector change before the audit |
 | O30 | the batch review window `BATCH_REVIEW_SECS` | 12 hours | 6 hours (a guardian member on call overnight); 1 to 2 hours (needs an automatic clear-only key on a server, which the owner ruled out); 24 hours (founders wait a further day). A compiled constant |
 | O31 | the longest batch validity `BATCH_MAX_VALIDITY_SECS` and the SDK's default | at most 48 hours; the SDK proposes 36 | at most 24 hours (a late signature closes batch launches until the next batch); at most 72 hours (a weekend without signing; a stale founder can launch for up to three days) |
@@ -538,9 +686,22 @@ nothing in the program changes until he decides.
 | O35 | the guardian multisig's configuration | controlled by the admin vault, no time lock, 1 of 3, at least two members able to act alone (the checklist refuses anything else) | an autonomous multisig with a threshold of 2 or more (slower stops; two members can remove the third) |
 | O36 | the buyback share against the fixed per-run cap (review R9-PF-1) | not a program rule: the operating rule `C * b_B <= 3t` (config #0 at the edge), checked by `buybackKeepUp` and the checklist | (a) a rule V12 in `validate_config` with `K_B` = 3 or 8 (a new error, a binary change); (b) a per-run cap scaled by `b_B` (changes V8, V11 and Theorem M_K) |
 
-Section 13 also lists O1 to O24 and O26 to O28 with the default this build implements; it marks
-O3 (the 9.1 leftover coins), O9 (the guardian, because aggregators copy the 10-account trade list)
-and O10 (native SOL against WSOL custody) for a decision before the audit freeze.
+The decisions above are the ones section 13 calls open. The others (O1 to O24, O26 to O28) have a
+default this build implements, but **no owner sign-off of any of them is recorded in the
+repository**, and section 13 says that several need one, or a decision before the audit freeze.
+They await the owner as well:
+
+| # | what section 13 asks of the owner | default (built) | limitations of section 9 that rest on it |
+|---|---|---|---|
+| O2 | "needs the owner's explicit sign-off" (also 0.1 and 5.8): the 0.5% liquidity share collected before graduation stays locked for ever in a coin that never graduates | set aside in `liquidity_pending`, dripped into the pool after graduation; locked for a coin that never graduates | 3 |
+| O3 | "decide before the audit freeze": R8's 9.1 leftover coins | burned at launch (config #0's integers of 5.9) | none (it fixes config #0's figures) |
+| O7 | "sign-off needed": no fee on the buyback, an exception to R2's "every buy", with the 0.1% step and 150-slot interval | at most 0.1% of depth per run, once per 150 slots, no fee | 4 (the step) |
+| O9 | "decide before the audit freeze, because aggregators copy the list": the guardian and the 10-account trade lists | a guardian (buys, buybacks, launches), exits never paused | none |
+| O10 | written confirmation from Jupiter, Axiom, GMGN and FOMO "before the audit freeze": native SOL custody | native lamports in the `Coin` | 20 |
+| O11 | among "the decisions the owner should see first": the 48-hour time lock and everything it delays in the existing programs | Squads 2 of 3, 48-hour time lock from the first coin launch, a guardian | 1 |
+| O23 | among the decisions to see first (with O10): visibility on aggregators and wallets | ship the crate, IDL and spec; ask for integration after the audit | 20 |
+| O26 | the holders' money of a coin whose rewards config is wrong waits for an upgrade | waits in `holders_pending` | 16 |
+| O28 | the metadata JSON served by the website | hash approved, stored and emitted; served write-once | 19 |
 
 ---
 
@@ -556,10 +717,26 @@ UTC with throwaway keys only (no mainnet key, RPC or account).
   (sections 1 and 9). D01 ran on a local Agave 4.3.0 validator that cloned devnet's feature set and
   every program and account the `devnet` build reads (the old `vicinity_launchpad` with its
   `Launchpad` and configs, `vicinity_rewards` with its registry, Metaplex, Squads v4). The
-  `devnet` build (sha256 `d052b8fc...`) was deployed at the throwaway id `nhgCm...` and read back
-  byte for byte.
-* **What was rehearsed** (81 transactions, each with its signature, compute, fee and size in
-  section 11): 8.5's hand-over; a real Squads v4 guardian (controlled by the admin, 1 of 2, no time
+  `devnet` build (sha256 `d052b8fc...`) was deployed there at the throwaway id `nhgCm...` and read
+  back from that validator byte for byte. The Metaplex and Squads v4 it ran against are devnet's
+  binaries, not the pinned mainnet dumps the litesvm suites and the round-7 to round-9 fixes were
+  tested against: devnet's Squads v4 is sha256
+  `97fb2a5c08e5df5e862d8354ac5b97d3587117f98c4457754ca12e30bef0664d`, 1,774,800 bytes (dumped from
+  devnet for this revision), against the pinned mainnet dump `dec8d3e0...`, 1,470,416 bytes;
+  devnet's Metaplex is `bb0842f6...`, 1,295,344 bytes, against `31f0a627...`.
+* **What an auditor can check, and what not.** None of D01's 81 signatures can be looked up on any
+  public cluster: they exist only on that local validator (slots 651 to 113,384), whose ledger was
+  pruned across 31 restarts and deleted after the run; devnet holds none of D01's accounts
+  (`nhgCm...`, `F7V1h...` and `BXDJiox...` do not exist there). The figures of
+  `VICINITY-CURVE-DEVNET.md` are therefore a record, not evidence a third party can verify on a
+  chain. What is kept, in `rehearsals/vicinity-curve-d01/`: the driver as run (`d01.mjs` and its
+  helpers), every transaction's record as read soon after it landed (`d01-log-local.jsonl`: slot,
+  compute, fee, size, events, result), the account table and state it read, the three batch lists
+  and every output of the owner's tools (`tool-*.txt`), committed for this revision; no key, no
+  ledger and no account dump (the validator is gone). Section 10 of that file says what running
+  D01 on devnet itself needs, which would give signatures anyone can look up.
+* **What was rehearsed** (81 transactions on the local validator, each with its signature,
+  compute, fee and size in section 11 of that file): 8.5's hand-over; a real Squads v4 guardian (controlled by the admin, 1 of 2, no time
   lock); init, config #0 and a demonstration config graduating at 1.000000001 SOL; a per-city
   approval and launch with the first buy; curve trading; a partially filled graduating buy capped
   by the SDK; pool trades and the drip; five buybacks (one on the curve, four in the pool);
@@ -577,8 +754,8 @@ UTC with throwaway keys only (no mainnet key, RPC or account).
   stated causes (devnet's Metaplex is another binary with 607-byte metadata accounts, the `devnet`
   build's bump searches, the validator's rent of 6,960 lamports per byte). One documentation point
   (limitation 13 above) and wording notes on the checklist and `check`.
-* **Not reached**: devnet itself; the website's list and `verify --tx` (the batch page and the
-  monitor are not built); two independent RPC providers (two addresses of one validator; against
+* **Not reached**: devnet itself; the website's list, `verify --tx` and the monitor process (the
+  batch page and the monitor are not built; `check`, the monitor's comparison, was run by hand); two independent RPC providers (two addresses of one validator; against
   devnet itself `preflight.mjs` and `check` were run read-only, `check` through two real
   providers); a
   three-member guardian; a launch from the second batch (its window opened after the run); the
@@ -638,40 +815,41 @@ and 1.3.
 
 ## Appendix: the gate run for this file
 
-Run on 23 October 2026 with the toolchain of 2.1, on the tree of the commit that adds this file
-(`cd56508` plus the three documentation files of 1.1) before this table was written into it; no
-test reads this file. The script is a local copy of the CI steps of `.github/workflows/solana.yml`
-for the curve, plus the repository's other suites; the same steps were also run on `cd56508`
-itself with the same results. Logs are not committed.
+Run on 24 October 2026 (00:03 to 00:09 UTC) with the toolchain of 2.1, on the tree of the commit
+that adds this revision (`bf17550` plus its documentation files) before this table and the CI row of
+1.1 were written into it; no test reads this file. The script is a local copy of the CI steps of
+`.github/workflows/solana.yml` for the curve, plus the repository's other suites and the three hash
+checks of 2.3; the same steps were also run on `bf17550` itself (23:55 to 00:01) with the same
+results. Logs are not committed.
 
 | # | step (from `solana/`, the last two from the repository root) | result | time | detail |
 |---|---|---|---|---|
-| 1 | `cargo fmt --all -- --check` | PASS | 1 s |  |
-| 2 | `cargo clippy --all-targets -- -D warnings` | PASS | 1 s |  |
-| 3 | `cargo clippy --all-targets --features short-windows -- -D warnings` | PASS | 1 s |  |
+| 1 | `cargo fmt --all -- --check` | PASS | 0 s |  |
+| 2 | `cargo clippy --all-targets -- -D warnings` | PASS | 2 s |  |
+| 3 | `cargo clippy --all-targets --features short-windows -- -D warnings` | PASS | 2 s |  |
 | 4 | `cargo clippy -p vicinity-curve --all-targets --features devnet -- -D warnings` | PASS | 2 s |  |
 | 5 | `cargo clippy -p vicinity-curve --all-targets --features halt-all -- -D warnings` | PASS | 2 s |  |
-| 6 | `cargo test` | PASS | 15 s | 187 passed, 0 failed (14 test binaries) |
-| 7 | `cargo test -p vicinity-curve --features devnet` | PASS | 2 s | 77 passed, 0 failed (2 test binaries) |
-| 8 | `cargo test -p vicinity-curve --features halt-all` | PASS | 3 s | 77 passed, 0 failed (2 test binaries) |
+| 6 | `cargo test` | PASS | 14 s | 187 passed, 0 failed (14 test binaries) |
+| 7 | `cargo test -p vicinity-curve --features devnet` | PASS | 3 s | 77 passed, 0 failed (2 test binaries) |
+| 8 | `cargo test -p vicinity-curve --features halt-all` | PASS | 2 s | 77 passed, 0 failed (2 test binaries) |
 | 9 | `anchor build` | PASS | 16 s |  |
-| 10 | no stack warning in anchor build | PASS | | |
+| 10 | no stack warning in anchor build | PASS | 0 s |  |
 | 11 | `diff target/idl/vicinity_curve.json sdk/idl/vicinity_curve.json` | PASS | 0 s |  |
 | 12 | `diff target/idl/vicinity_rewards.json sdk/idl/vicinity_rewards.json` | PASS | 0 s |  |
 | 13 | `diff target/idl/vicinity_launchpad.json sdk/idl/vicinity_launchpad.json` | PASS | 0 s |  |
-| 14 | `npm run vcurve:idl` | PASS | 0 s |  |
+| 14 | `npm run vcurve:idl` | PASS | 1 s |  |
 | 15 | `git diff --exit-code -- sdk/idl/vicinity_curve.json` | PASS | 0 s |  |
 | 16 | `npm run vcurve:idl:check` | PASS | 0 s |  |
-| 17 | `npm run vcurve:sbf` | PASS | 34 s | no stack warning: yes |
-| 18 | hash 0a5beef231cfcc1327d9e497bb631f7c8edc99468338daed932ddce90bba3b5b | PASS | | |
-| 19 | hash d052b8fccf5ed0fc9bbb0ee56e4a77ae5a3ec99c6fa6c906119f51db71c18fa3 | PASS | | |
-| 20 | hash 4d631647c38230690ad57a28e49d021e0ad956a7edbc454dc107558849a0d868 | PASS | | |
+| 17 | `npm run vcurve:sbf` | PASS | 34 s | no stack warning: yes; cargo-build-sbf 4.4.0 |
+| 18 | hash 0a5beef231cfcc1327d9e497bb631f7c8edc99468338daed932ddce90bba3b5b (production) | PASS |  |  |
+| 19 | hash d052b8fccf5ed0fc9bbb0ee56e4a77ae5a3ec99c6fa6c906119f51db71c18fa3 (devnet) | PASS |  |  |
+| 20 | hash 4d631647c38230690ad57a28e49d021e0ad956a7edbc454dc107558849a0d868 (halt-all) | PASS |  |  |
 | 21 | `sha256sum target/deploy/vicinity_curve.so` | PASS | 0 s | 0a5beef231cfcc13... |
-| 22 | `npm run curve:router` | PASS | 1 s |  |
-| 23 | `npm run test:vcurve` | PASS | 1 s | 1 tests, 1 passed, 0 failed |
-| 24 | `npm run sdk-test:curve` | PASS | 2 s | 52 tests, 52 passed, 0 failed |
-| 25 | `npm run test:curve` | PASS | 177 s | 203 tests, 203 passed, 0 failed |
-| 26 | `bash -c cp <pinned dumps>/*.so tests-launchpad/fixtures/programs/` | PASS | 0 s |  |
-| 27 | `npm run test:launchpad` | PASS | 36 s | 155 tests, 155 passed, 0 failed |
-| 28 | `bash -c node scripts/copy-assets.mjs && node scripts/pages/build.mjs && npm test` | PASS | 61 s | 1910 tests, 1909 passed, 0 failed, 1 skipped |
-| 29 | `git status --porcelain` | PASS | 0 s | modified: `solana/README.md`, `solana/VICINITY-CURVE-DESIGN.md`; new: `solana/VICINITY-CURVE-AUDIT.md`; untracked symlinks, never committed: `node_modules`, `solana/node_modules`, `solana/target` |
+| 22 | `npm run curve:router` | PASS | 0 s |  |
+| 23 | `npm run test:vcurve` | PASS | 1 s | 1 test, 1 passed, 0 failed |
+| 24 | `npm run sdk-test:curve` | PASS | 3 s | 52 tests, 52 passed, 0 failed |
+| 25 | `npm run test:curve` | PASS | 175 s | 204 tests, 204 passed, 0 failed |
+| 26 | `cp <pinned dumps>/*.so tests-launchpad/fixtures/programs/` | PASS | 0 s |  |
+| 27 | `npm run test:launchpad` | PASS | 35 s | 155 tests, 155 passed, 0 failed |
+| 28 | `node scripts/copy-assets.mjs && node scripts/pages/build.mjs && npm test` | PASS | 65 s | 1910 tests, 1909 passed, 0 failed, 1 skipped |
+| 29 | `git status --porcelain` | PASS | 0 s | modified: `solana/README.md`, `solana/VICINITY-CURVE-AUDIT.md`, `-DESIGN.md`, `-DEVNET.md`, `-NOTES.md`; untracked symlinks, never committed: `node_modules`, `solana/node_modules`, `solana/target` |
