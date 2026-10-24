@@ -6,8 +6,8 @@ report is updated by the release step.
 
 **Status on 24 October 2026: nothing here is applied or called.** Local branch `cc/s08` only (not pushed, not merged, not deployed). No
 route, job or `src/index.js` path imports the new module, so the Worker issues exactly the D1 statements it issues today, whatever the
-switches say, and the built `public/` does not change. No production or remote database was read or written for this work. Live facts
-at the time: 5 members, 0 seats, 0 open windows, no city coin listed.
+switches say (shown statement by statement in section 5), and the built `public/` does not change. No production or remote database was
+read or written for this work. Live facts at the time: 5 members, 0 seats, 0 open windows, no city coin listed.
 
 ## 1. What this part of S08 built
 
@@ -15,8 +15,13 @@ at the time: 5 members, 0 seats, 0 open windows, no city coin listed.
 |---|---|
 | `src/cc5schema.js` | The seven statement lists of `schema-and-api.md` sections 3.2 to 3.8 (`cc5-ops`, `cc5-selection`, `cc5-activity`, `cc5-managers`, `cc5-metadata`, `cc5-launch`, `cc5-hourly`), the order of section 3.10 step 2 with a reserved first slot for `cc5-identity`, the pure helper `groupsForFlags(flags)`, the runner `ensureCc5Group(envOrDb, id)` and its named error `Cc5SchemaError` |
 | `test/cc5-schema.test.js` | 27 tests on Node's SQLite (the engine D1 runs): the doc parity, the switch mapping, the runner, every append-only and conditional trigger, the CHECK constraints and partial indexes, and the guard that nothing in the Worker or the pages calls the runner yet |
+| `test/cc5-d1copy.test.js` | 12 tests, each run twice: on Cloudflare's local D1 inside workerd (Miniflare) and on Node's SQLite, against a copy of the production database's shape with synthetic rows (section 5) |
+| `test/cc5-parity.test.js` | 3 tests: the switches-off parity claim, by running the Worker's real request and job entry points against a fake D1 that records every statement (section 5) |
+| `test/helpers/cc5-d1copy.js` | The copy: the schema read, synthetic rows in every one of its 55 tables, the two engines, and a reader of section 3 as data (tables, columns, CHECKs, keys, indexes) |
+| `test/helpers/cc5-d1copy-worker.js` | The executor the D1-copy tests drive: inside workerd it is the Worker (so `src/cc5schema.js` runs in the Workers runtime against local D1); in Node it runs in-process |
+| `test/fixtures/prod-schema-2026-10-24.sql` | The production D1 schema as read on 24 October 2026: `sqlite_master` text of 88 objects, **schema only, no rows** |
 
-The census script, the backup step and a committed, repeatable D1-copy harness are the rest of S08 (section 8).
+The census script and the backup step are the rest of S08 (section 8).
 
 ## 2. The groups
 
@@ -124,20 +129,61 @@ The doc's own trigger statements (`selection_cities_founded_terminal`, `selectio
 
 ## 5. Evidence on D1
 
-`test/cc5-schema.test.js` runs on Node's SQLite (`node --test test/cc5-schema.test.js`: 27 passed). The design was also run on a **local
-D1** (workerd, through wrangler 4.137.0 `getPlatformProxy`, a throwaway database in a temporary folder with a placeholder database id and
-no remote binding) loaded with the production schema read on 24 October 2026 (schema only, no rows, 88 objects). With the real
-`ensureCc5Group`: all seven groups created (each resolving to itself and its prerequisites), every one of the 88 production objects
-unchanged, exactly the 88 new objects added, seven records, a second isolate changing nothing, two racing isolates on a fresh D1
-recording each group once; and on the kept tables every REPLACE, upsert, `INSERT OR IGNORE`, UPDATE, `UPDATE OR REPLACE` and DELETE
-attempt refused with its name and the row unchanged, a batch containing one rolled back whole, a guarded `INSERT ... WHERE NOT EXISTS` a
-quiet no-op, unfounded and unlaunched rows still changing, and, with the overwrite guard dropped, D1 letting REPLACE rewrite a founder
-record. 55 checks, 55 passed. This is a copy of the production **schema**; the dry run on a copy of the production **data** (backup
-restored locally) belongs to the backup step (section 8).
+Run with `node --test test/cc5-d1copy.test.js test/cc5-parity.test.js` (part of `npm test`; about 9 seconds, nearly all of it workerd).
 
-Observation for the census: the production schema read of 24 October has no index `streaks_active`, which `src/store.js:199` (`SCHEMA`)
-declares; on the local copy, today's `ensureSchema` added it before any group ran. Not caused by this stage; worth confirming in the
-count-only census.
+**The copy.** `test/fixtures/prod-schema-2026-10-24.sql` (the production schema read on 24 October 2026: 88 objects, no rows) is loaded
+into a fresh database, then synthetic rows go into every one of its 55 tables (185 rows): 5 members (Google, e-mail and wallet sign-ins,
+one without a wallet), sessions (live and expired), posts, a reply, votes, follows, mutes, blocks, two city coins without a mint, devnet
+launchpad coins, price history, notices and feedback; seats, windows and elections only as closed history, so the live facts hold (no live
+seat, no open window, no listed coin). Every wallet is base58 of `sha256("cc5-synthetic-...")`, every e-mail address is under
+`example.invalid`, and no member data is copied anywhere. `schema_migrations` carries the migration ids the production shape implies (every
+`MIGRATIONS` entry and the lazy migrations whose objects the read shows), so today's `ensureSchema` treats the copy like production.
+
+**The engines.** Every test of `test/cc5-d1copy.test.js` runs twice. (1) **Cloudflare's local D1 inside workerd**, through Miniflare
+5.20260921.0-alpha (installed with wrangler 4.137.0): the executor module is the Worker, so the real `src/cc5schema.js` and
+`src/store.js` run inside the Workers runtime against local D1 databases; temporary, never persisted, `cf: false` so Miniflare fetches
+nothing; no account, no remote binding. (2) **Node's SQLite** (`test/helpers/d1.js`, with a batch that runs in one step like D1's). When
+workerd cannot start, the workerd half is reported as skipped with the reason and the Node half still runs; on 24 October both ran here.
+Both engines report `PRAGMA recursive_triggers` = 0 and `foreign_keys` = 1.
+
+**What the 12 tests show, on both engines** (24 passed, 0 skipped):
+
+| Check | Result |
+|---|---|
+| The copy | 88 objects loaded; every table has rows |
+| Order (3.10 step 2) | `cc5-identity` answers `group_not_built` and touches nothing; the seven groups apply in `CC5_ORDER`, each resolving to itself and its prerequisites; the 88 group statements run exactly once and in order; the seven records land in that order, after every statement of their group |
+| Re-run | the same isolate issues no statement at all; a new isolate reads the records and issues no group statement and no write; the copy (every object, every table's hash, every record) is identical afterwards |
+| Nothing existing changes | for each of the 56 existing tables (`sqlite_sequence` included): the same columns, row count and sha256 over its sorted rows (each row as SQLite's `quote()` of every column) before and after all seven groups; each of the 88 existing objects byte-identical; `schema_migrations` keeps its rows and gains exactly the seven ids; the only objects added are the 88 group objects and SQLite's automatic indexes of their keys |
+| Schema matches the doc | read back from `sqlite_master` and `PRAGMA table_xinfo`, `index_list`, `index_xinfo`: identical to a database built straight from the doc's SQL (section 3, Node's SQLite, independent of `src/cc5schema.js`): 26 tables, every column, type, NOT NULL, default, key, CHECK and index; the doc's 6 triggers word for word; each of the other 41 triggers is a BEFORE trigger on its own table that only `RAISE(ABORT, ...)`s with a name section 4 lists |
+| Append-only and kept tables | each of the 14 tables with an overwrite guard (the test asserts the list is complete), with a row in its kept state: UPDATE, DELETE, `INSERT OR REPLACE`, `REPLACE`, upsert (`ON CONFLICT DO UPDATE`), `INSERT OR IGNORE`, `ON CONFLICT DO NOTHING` and `UPDATE OR REPLACE` onto the kept key are refused with the table's name and every row stays byte-identical (112 attempts); the same statements succeed on `activity_totals`, which the doc keeps mutable |
+| CHECK, NOT NULL, UNIQUE | read from the doc and walked: each of the 26 CHECK lists refuses a value outside it and accepts each of its 107 values; each of the 4 ranges refuses one past either end and accepts both ends; each of the 211 NOT NULL columns refuses NULL; each of the 45 keys and non-partial unique indexes refuses a second row (UNIQUE, or the table's guard name first); each of the 5 partial unique indexes refuses a second row inside it and accepts one outside |
+| Two runners at once | two requests, each racing every group from new isolates (21 runners), plus, on workerd, a runner in Node on the same local D1 (a second runtime): all succeed, each group recorded once, the same objects as one runner in order |
+| Failure mid-group | an injected D1 error at `cc5-ops`' second statement (through `cc5-hourly`): `prerequisite_failed`, no record for either; at `cc5-metadata`'s third table: `statement_failed` at that step, no record, the earlier tables kept; at `cc5-launch`'s overwrite guard: its prerequisites recorded, it not; a failing record insert: `record_failed`, no record. The same isolate then retries every group and each completes; the end state equals a clean run's, and every existing table's hash is unchanged |
+| Real engine error | a stray `city_metadata_requests` table without the doc's columns makes `cc5-metadata` fail at its index (`no such column`), with no record; once the stray table is dropped the retry completes with the clean run's objects |
+| Why the overwrite guard | with `founder_records_no_overwrite` dropped, `INSERT OR REPLACE` rewrites a founder record on both engines (its DELETE trigger never fires); with the guard restored the same statement is refused and the row is unchanged |
+| Open item O9 | pinned: the 9 single-column primary keys without NOT NULL accept NULL (section 7) |
+
+**Switches-off parity** (`test/cc5-parity.test.js`, 3 passed). The import graph of `src/index.js`, static and dynamic imports, does not
+reach `src/cc5schema.js`. The Worker's real entry points (the default `fetch` and `scheduled`) run 26 visitor requests, 8 signed-in reads
+and 5 signed-in writes (a post, a vote, a notices call, a feedback message, a logout), then the cron twice (once at 03:05 UTC, which also
+prunes the balance history), against a fake D1 that records every statement: the copy above, with a fixed clock, a seeded random
+generator and a fake chain. With the switches as committed in `wrangler.jsonc` (481 statements), with every v5 switch set to its default,
+and with no setting at all: no statement names any of the 88 group objects or a `cc5-` id, and the database ends with exactly the objects it
+started with (no table, index or trigger added or changed). The committed and the all-defaults runs issue the same statements in the same
+order and give the same answers. Even with the six group switches set away from their defaults, no cc5 statement is issued and no table
+appears, because nothing in this stage calls the runner.
+
+**Mutation checks** (run by hand on 24 October, not committed): dropping `city_launches`' overwrite guard, recording a group before its
+statements, widening the `segment` range to 0-5, adding a group index on `users`, letting the job call `ensureCc5Group`, and changing one
+member's row during a migration each made the tests above fail.
+
+**Census observation (pre-existing, not caused by this stage).** The production schema read has no index `streaks_active`. It is declared
+inside the migration `2026-09-27-fair-launch` (`src/store.js:199`), but that line was added on 3 October (commit 1c8c047) to a migration
+production had already recorded on 27 September, so production never ran it; a recorded id never runs again (the rule O8 exists for). The
+copy reproduces it: today's `ensureSchema` adds nothing to it, and no group adds the index. Open item O10.
+
+This is a copy of the production **schema** with synthetic rows; the dry run on a copy of the production **data** (a validated backup,
+restored locally) belongs to the backup step (section 8).
 
 ## 6. Readings of the design (where it is abbreviated or ambiguous)
 
@@ -173,6 +219,8 @@ section) or `master-v5.txt`.
 | O6 | S21, S22 | The manager check "confirmed launch" (line 526) reads `city_launches` or `lp_coins`; `MANAGER_APPS` does not require `LAUNCH_V5`, so it reads `city_launches` only when `cc5-launch` is recorded (or reads the `launch:<city>` activity event). |
 | O7 | every writer | A kept table takes a plain INSERT or a guarded `INSERT ... SELECT ... WHERE NOT EXISTS`; any conflict clause on a kept row aborts (section 3). |
 | O8 | every later change | A recorded group never runs again. A change to a group's statements ships under a new id (the pattern of `APPROVED_MIGRATION` in `src/coinart-store.js`), never by editing a recorded list. |
+| O9 | every writer; a later doc revision | Nine single-column primary keys in section 3 have no NOT NULL: `selection_cities.city_id`, `founder_records.city_id`, `city_metadata_active.city_id`, `city_review_locks.city_id`, `launch_preparations.id`, `hourly_actions.action_key`, `job_leases.name` (TEXT: SQLite's legacy rule, on D1 too, accepts NULL, and NULLs never collide) and `selection_receipts.cycle_id`, `activity_totals.user_id` (INTEGER PRIMARY KEY: NULL is given the next rowid). The text is kept word for word (R1), so writers always bind the key; on an append-only table a NULL-key row could never be removed. Adding NOT NULL means a new table definition under a new id (O8). Pinned by `test/cc5-d1copy.test.js`. |
+| O10 | S16, census | `streaks_active` is missing in production (section 5): `src/store.js` declares it inside the already-recorded `2026-09-27-fair-launch` migration. The streak update runs without it until a later change ships the index under a new migration id, or until `LEGACY_SEATS=frozen` stops streak updates (3.9). Not an S08 change. |
 
 ## 8. Still to do in S08
 
@@ -182,7 +230,9 @@ section) or `master-v5.txt`.
 - **Backup step before each migration** (3.10 step 1, §07 "Take/validate backups before migration; dry-run on a copy", `master-v5.txt`
   477): before a switch change that `groupsForFlags` says creates a group, a validated backup and a dry run of that group on a restored
   copy, compared by the census. Run by the credential holder (E9); nothing in this repository runs against production.
-- **A committed, repeatable D1-copy harness** for the checks of section 5.
+- ~~A committed, repeatable D1-copy harness for the checks of section 5~~: done (`test/cc5-d1copy.test.js`, `test/cc5-parity.test.js`,
+  section 5). The census can reuse its row hash (`tableHash` in `test/helpers/cc5-d1copy-worker.js`: count and sha256 per table, never a
+  row).
 
 ## 9. Rule for stage S09 (`cc5-identity`): the `signup_completed_at` backfill
 
