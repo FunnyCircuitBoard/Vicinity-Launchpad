@@ -12,14 +12,18 @@
  * SITE_ORIGINS_INVALID, SITE_ORIGIN_NOT_ALLOWED, the same names the v5 configuration check uses).
  *
  * Nothing here reads a request: no Host header, no request URL. A trusted address (a redirect target, a link in a mail, our User-Agent)
- * is built from this configuration only. The redirect itself (308, 421 and the HOST_REDIRECT switch) is stage S03; session and hand-off
- * host binding is stage S04.
+ * is built from this configuration only. The redirect itself (308, 421 and the HOST_REDIRECT switch) is stage S03 (src/hostroute.js, read
+ * only while src/v5policy.js hostRedirect counts); session and hand-off host binding is stage S04.
  */
 
 export const DEFAULT_SITE_ORIGIN = "https://vicinity.city";
 export const DEFAULT_SITE_ORIGINS = Object.freeze(["https://vicinity.city"]);
 /** The old names that forward to the canonical host (compatibility, rebrand-inventory.md C02). Never served in place unless listed. */
 export const LEGACY_FORWARD_HOSTS = Object.freeze(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
+/** Today's own host and the three old names: the legacy hosts. Under HOST_REDIRECT (stage S03, src/hostroute.js) each one stays an accepted
+ *  host whatever SITE_ORIGINS lists (master section 04: the vicinity.city routes stay at least 12 months after the cutover, and the
+ *  immutable /coin-meta/* and /brand/vicinity-512.png bytes for as long as anything names them), so they are never "unknown". */
+export const LEGACY_HOSTS = Object.freeze([new URL(DEFAULT_SITE_ORIGIN).hostname, ...LEGACY_FORWARD_HOSTS]);
 
 const blank = (v) => v == null || (typeof v === "string" && v.trim() === "");
 

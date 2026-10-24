@@ -124,7 +124,8 @@ test("pages not built for the switch: every value accepted, and the whole API, t
 
 test("the page build writes the marker the Worker reads, and refuses the switch while the client scripts still label the main token $VICINITY", () => {
   assert.equal(readFileSync(PAGES_BUILT_FILE, "utf8"), pagesBuiltSource(), "src/pages-built.js is the build's output for wrangler.jsonc");
-  assert.deepEqual({ ...PAGES_BUILT }, { mainTokenV5: false, brand: "" });
+  // pagesReachWorker (stage S03): wrangler.jsonc's run_worker_first is a list today, so the pages bypass the Worker (test/host-redirect.test.js)
+  assert.deepEqual({ ...PAGES_BUILT }, { mainTokenV5: false, brand: "", pagesReachWorker: false });
   const swapJs = readFileSync(new URL("../public/swap.js", import.meta.url), "utf8");
   assert.match(swapJs, /t\.kind === "vicinity" \? "\$VICINITY"/, "the Buy panel still names the main token $VICINITY (label migration S48)");
   for (const BRAND of [...Object.keys(BRANDS), "citycoin"]) {

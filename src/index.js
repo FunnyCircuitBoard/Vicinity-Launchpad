@@ -65,6 +65,10 @@
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
+ * Hosts (stage S03, src/hostroute.js; only while HOST_REDIRECT counts, otherwise today's 301s from the old names and from http):
+ *   GET/HEAD of a page on a host other than SITE_ORIGIN 308 there (safe query keys only) · /coin-meta/*, /brand/vicinity-512.png,
+ *   /official-coins.csv and read-only /api/* served in place · any other method, /api/message, sign-in, hand-offs, callbacks and
+ *   webhooks 421 {"error":"wrong_host"} (no Location) · unknown hosts 421
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
@@ -119,7 +123,8 @@ import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
 import { DEFAULT_SITE, isForwardHost, siteConfig } from "./site-config.js";
 import { checkDeploymentConfig } from "./maintoken.js";
-import { checkPolicyConfig, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
+import { checkPolicyConfig, hostRedirect, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
+import { hostAnswer, isLocal } from "./hostroute.js";
 import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
@@ -709,15 +714,17 @@ export function withSecurityHeaders(response) {
   return res;
 }
 
-/** The old names (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name
- *  SITE_ORIGINS serves in place) forward to today's canonical host, vicinity.city, keeping the path. The target is a constant, never the
- *  request and not SITE_ORIGIN: a permanent cross-domain redirect to a configured origin belongs to the HOST_REDIRECT switch and its own
- *  checks (stage S03), so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this computer,
- *  for `wrangler dev`). */
-const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
-// `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
-const isLocal = (request, url) =>
-  LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
+/** Which host answers (Citycoin.dev master v5, stage S03).
+ *  HOST_REDIRECT off (unset, any other value, or refused by src/v5policy.js hostRedirect): exactly as before. The old names
+ *  (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name SITE_ORIGINS serves
+ *  in place) forward to today's canonical host, vicinity.city, keeping the path, for every method. The target is a constant, never the
+ *  request and not SITE_ORIGIN, so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this
+ *  computer, for `wrangler dev`, which presents local visits as http://vicinity.city from a local address: src/hostroute.js isLocal).
+ *  HOST_REDIRECT counting: src/hostroute.js hostAnswer decides first (308 to SITE_ORIGIN for ordinary public GET and HEAD on every other
+ *  accepted host, 421 wrong_host for every other method, wallet challenge, sign-in, hand-off, callback or webhook, the immutable legacy
+ *  files and the read-only API served in place, unknown hosts refused). It needs every page to reach the Worker (wrangler.jsonc
+ *  run_worker_first true, recorded by the page build); today run_worker_first lists only /api/*, /coin-meta/* and /official-coins.csv,
+ *  so the switch stays off. */
 
 // The configuration checks run once at the first request of an isolate, inside the handler's try and in a try of their own, so not even a
 // future fault in one of them can change an answer. They change no answer by themselves:
@@ -735,20 +742,27 @@ export default {
         try { checkDeploymentConfig(env); checkPolicyConfig(env); } catch { /* a check is never worth a failed request */ }
       }
       const url = new URL(request.url);
-      const insecure = url.protocol === "http:" && !isLocal(request, url);
-      const site = siteConfig(env), forward = isForwardHost(site, url.hostname);
-      if (forward || insecure) {
-        if (forward) url.hostname = DEFAULT_SITE.host;
-        url.protocol = "https:"; url.port = "";
-        return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
+      const site = siteConfig(env);
+      if (hostRedirect(env)) {
+        const answer = hostAnswer(request, url, site, isLocal(request, url));
+        if (answer) return answer;
+      } else {
+        const insecure = url.protocol === "http:" && !isLocal(request, url);
+        const forward = isForwardHost(site, url.hostname);
+        if (forward || insecure) {
+          if (forward) url.hostname = DEFAULT_SITE.host;
+          url.protocol = "https:"; url.port = "";
+          return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
+        }
       }
       // the official city-coin CSV lives outside /api (a plain file address, made for Jupiter's token tags) but is answered like /api/*
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
       // an asset the Worker fetches itself. In production no page comes this way (wrangler.jsonc run_worker_first lists only the paths
-      // above, and not_found_handling serves the 404 page from the assets without the Worker); with MAIN_TOKEN_V5 counting, an HTML answer
-      // gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
+      // above, and not_found_handling serves the 404 page from the assets without the Worker; the later configuration for HOST_REDIRECT
+      // sets run_worker_first true, and then the canonical host's pages and the immutable logo come here); with MAIN_TOKEN_V5 counting,
+      // an HTML answer gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
       return withSecurityHeaders(await officialLinksInPage(await env.ASSETS.fetch(request), env));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);

@@ -98,7 +98,7 @@ off while any error exists.
 | `LEGACY_LAUNCH` | on, off | "off": the website builds no legacy approval, batch or launch (§27, §37 step 9) | none |
 | `CC_TRADING` | off, on | buys and sells on the custom curve and pool (§27, §28) | `program_id`, `cluster`, enabled quote configs; an enabled `main_token` quote also needs `MAIN_TOKEN_MINT` and chain facts keyed by it (`MAIN_TOKEN_MINT_MISSING`, `QUOTE_FACTS_MISSING`) |
 | `CC_HOURLY` | off, shadow, on | hourly processing; "shadow" computes and publishes evidence, sends nothing (§30, §31) | shadow: `program_id`, `cluster`; on: also `treasury`, `keeper`, `hourly_verifier_a`, `hourly_verifier_b` |
-| `HOST_REDIRECT` | off, on | 308 redirects from old public GET/HEAD pages (§04) | `SITE_ORIGIN` equal to `https://citycoin.dev` (`HOST_REDIRECT_TARGET_NOT_CANONICAL`) |
+| `HOST_REDIRECT` | off, on | 308 redirects from old public GET/HEAD pages (§04). Built in stage S03 (`src/hostroute.js`; route contract in `domain-cutover.md` section 1.1) | `SITE_ORIGIN` equal to `https://citycoin.dev` (`HOST_REDIRECT_TARGET_NOT_CANONICAL`, `MISSING_SITE_ORIGIN`). At run time also every page reaching the Worker (`run_worker_first: true`; refusal `HOST_REDIRECT_PAGES_BYPASS_WORKER`) and an accepted site configuration (`HOST_REDIRECT_SITE_REFUSED`) |
 | `PUBLIC_V5` | off, on | `/api/status`, `/api/policy/master`, the `master` key and the public pages (§16, §35) | none |
 | `MAIN_TOKEN_V5` | off, on | amendment 01: every main-token consumer (token page, holder list, balance sampling, purchase links, Buy panel default, official list) reads the verified `MAIN_TOKEN_MINT`; `$VICINITY` is shown as legacy; the footer and link checker use the configured official links; the legacy seats and elections make no new decision | `MAIN_TOKEN_MINT` (`MAIN_TOKEN_MINT_MISSING`) and `LEGACY_SEATS=frozen` (`MAIN_TOKEN_ON_WITH_LEGACY_SEATS`: the legacy seats measure `$VICINITY`); at run time also pages built with the switch (below) |
 
@@ -935,8 +935,9 @@ lease (slow, crashed, or on the other host) cannot write. Per-item claims (`clai
   - `founder`: `session` + the session wallet equals `founder_records.wallet` for the city in the path.
   - `moderator`, `admin`, `owner`: today's console roles; owner comes only from `ADMIN_WALLETS` (src/admin.js:42-57) and every
     console write needs a fresh proof (src/admin.js:783-784).
-- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS`. A mutation on a non-canonical
-  host answers `421 {ok:false, error:"wrong_host", origin}` with no `Location` (§04, D05).
+- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS`. While `HOST_REDIRECT` counts, a
+  mutation (any method but GET and HEAD) on a non-canonical host answers `421 {"error":"wrong_host"}` with no `Location` (§04, D05;
+  stage S03 built the body without `ok` or `origin`: a reload of the page follows the 308 to the canonical origin).
 - **Errors** keep today's envelope `{ ok: false, error: "<code>" }` with an HTTP status, plus a plain `message` (§34 "understandable
   error/recovery messages"). Common: `400 bad_request`, `401 sign_in`, `403 forbidden`, `404 not_found` (also every route whose
   switch is off), `405 method_not_allowed`, `409` state conflicts, `410` retired or expired, `421 wrong_host`, `429 slow_down`,
