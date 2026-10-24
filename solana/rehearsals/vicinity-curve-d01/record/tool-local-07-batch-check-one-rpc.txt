@@ -1,0 +1,2 @@
+warning ONE_RPC: only one --rpc was given: a single RPC can make a refused list look confirmed or hide a bad batch (it alone serves every account, the clock and the block this run judges); two RPCs from different providers that the website does not operate (--rpc twice) are required for the stolen-key alarm and the monitor to mean anything (8.4; review R10-RPC-1)
+the stored batch is the list on one RPC's word (see warning ONE_RPC)

@@ -1,0 +1,5 @@
+$ node scripts/vcurve/batch.mjs check /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive/nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk/signed/1-16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e.json --rpc http://127.0.0.1:8899 --rpc http://127.0.0.2:8899 --cluster devnet
+exit 1
+PROBLEM CLEARED: the stored batch is cleared
+PROBLEM HALTED: the batch path is halted
+2 problem(s): page the guardian members; have one clear the batch with halt (guardian-stop.mjs --clear) if it is not the one you signed (8.4)

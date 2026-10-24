@@ -1,0 +1,33 @@
+{
+ "version": 1,
+ "programId": "nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk",
+ "seq": "2",
+ "leafCount": 3,
+ "root": "1a4413d6898615d416f0e2145bd6122e7c5cd1f58cfc0bdc073c350050459f4c",
+ "entries": [
+  {
+   "cityId": "990000021",
+   "founder": "Gebo69Byc6cC6EupUqy9AFvPvrhek7U4TW2ocfqLcd3r",
+   "configId": 0,
+   "metaHash": "86ddc58aa3ec287b3078c9e0537f46e740072f002841a1c9aa71a4098b883c00",
+   "name": "D01 Next 1",
+   "symbol": "D01N1"
+  },
+  {
+   "cityId": "990000022",
+   "founder": "3LvbUaEQ6qd5B9hkmgqTVVhk6X5o19Au3AZ8X8MH2ruP",
+   "configId": 0,
+   "metaHash": "1350a1ac18b580b2ca59872839de396bea447efa59574e701bf92a15f0167a56",
+   "name": "D01 Next 2",
+   "symbol": "D01N2"
+  },
+  {
+   "cityId": "990000023",
+   "founder": "AdsDgzBQsrwyi6grRMk79VbRmmJyZqR5Xb7cJ5GygVbn",
+   "configId": 0,
+   "metaHash": "394a75a24198e08f000d49aaeb20fa548222d2db61d4b683a79c0d14795b026b",
+   "name": "D01 Next 3",
+   "symbol": "D01N3"
+  }
+ ]
+}

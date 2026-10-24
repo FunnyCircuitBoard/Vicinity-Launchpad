@@ -322,3 +322,54 @@ test('R8-DIFF-3, R8-DIFF-6 (review round 8) an approver multisig is refused when
   assert.deepEqual(checkSquadsRoles({ guardian: guardianVault, approver: k1, vault, guardianMultisig: G, accounts: { [G]: w.accountInfo(G) } }), { problems: [], warnings: [] });
   await w.finish();
 });
+
+test('audit pack review (23 October 2026) FEE_RECIPIENT is no member key of the vault\'s, the guardian\'s or the approver\'s multisig (8.4), and the vault\'s multisig is read before the Launchpad exists: the mainnet state of that day (an autonomous 2-of-3 vault multisig with FEE_RECIPIENT among its members and no time lock) is not ready', async () => {
+  const w = await World.create();
+  const FR = S.ADDRESSES.feeRecipient;
+  const [m2, m3, g1, g2] = [await w.signer(1n), await w.signer(1n), await w.signer(1n), await w.signer(1n)].map((k) => String(k.address));
+  const ms = (tag) => S.findPda([Buffer.from(tag)], SQUADS.programId)[0];
+  const put = (addr, o) => w.setRaw(addr, encodeSquadsMultisig({ createKey: m2, threshold: 1, timeLock: 0, ...o }), SQUADS.programId, 10_000_000n);
+  const A = checklistAddresses({ programId: w.programId, cluster: 'mainnet' });
+  const snapshot = (extra, { noLaunchpad = false } = {}) => {
+    const keys = [...['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => A[k]), ...extra];
+    const accounts = Object.fromEntries(keys.map((k) => [k, w.accountInfo(k)]));
+    if (noLaunchpad) accounts[A.curveLaunchpad] = null;
+    return { accounts, legacyAccounts: [], curveAccounts: [] };
+  };
+  const run = (o = {}, s = {}) => checkDeployPreconditions({ ...snapshot([o.guardianMultisig, o.vaultMultisig, o.approverMultisig].filter(Boolean), s), programId: w.programId, ...o });
+  const fr = (r) => codes(r.problems).filter((c) => c.startsWith('FEE_RECIPIENT_IS_'));
+  // the vault's multisig as it stood on mainnet on 23 October 2026 (6v8hwKYS...): autonomous, 2 of 3, no time lock, and
+  // FEE_RECIPIENT one of the three members; before this check the checklist printed nothing about it
+  const V = ms('pack-vault'); const vault = squadsVaultPda(V);
+  put(V, { members: [FR, m2, m3], threshold: 2, configAuthority: ZERO });
+  let r = run({ vault, vaultMultisig: V }, { noLaunchpad: true });
+  assert.ok(codes(r.problems).includes('CURVE_LAUNCHPAD'), 'no Launchpad yet');
+  assert.deepEqual(fr(r), ['FEE_RECIPIENT_IS_VAULT_MEMBER']);
+  assert.ok(codes(r.warnings).includes('VAULT_TIME_LOCK_UNSET'), 'the vault multisig is read before the Launchpad exists');
+  assert.match(r.problems.find((p) => p.code === 'FEE_RECIPIENT_IS_VAULT_MEMBER').message, new RegExp(`${FR} .*\\(threshold 2 of 3\\): a stolen FEE_RECIPIENT key would be one of the 2 signatures needed to act as the admin and the upgrade authority`));
+  // and with the Launchpad (the same rule); a vault multisig without FEE_RECIPIENT passes it
+  assert.deepEqual(fr(run({ vault, vaultMultisig: V })), ['FEE_RECIPIENT_IS_VAULT_MEMBER']);
+  put(V, { members: [m2, m3, g1], threshold: 2, configAuthority: ZERO });
+  assert.deepEqual(fr(run({ vault, vaultMultisig: V }, { noLaunchpad: true })), []);
+  // the guardian's multisig (controlled by the vault, 1 of 3): FEE_RECIPIENT as a member would act as the guardian
+  const G = ms('pack-guardian'); const gVault = squadsVaultPda(G);
+  put(G, { members: [FR, g1, g2], configAuthority: vault });
+  await w.send([w.ix.setGuardian({ admin: w.admin.address, guardian: gVault })], [w.admin], 'set_guardian(vault 0 of G)');
+  r = run({ vault, vaultMultisig: V, guardianMultisig: G });
+  assert.deepEqual(fr(r), ['FEE_RECIPIENT_IS_GUARDIAN_MEMBER']);
+  assert.match(r.problems.find((p) => p.code === 'FEE_RECIPIENT_IS_GUARDIAN_MEMBER').message, /would act as the guardian/);
+  // before the Launchpad exists, a proposed guardian is checked against its multisig too
+  assert.deepEqual(fr(run({ vault, vaultMultisig: V, guardianMultisig: G, proposed: { guardian: gVault } }, { noLaunchpad: true })), ['FEE_RECIPIENT_IS_GUARDIAN_MEMBER']);
+  put(G, { members: [m2, g1, g2], configAuthority: vault });
+  assert.deepEqual(fr(run({ vault, vaultMultisig: V, guardianMultisig: G })), []);
+  // an approver multisig (O32 (a), not ready anyway while the verifier cannot check it): FEE_RECIPIENT as a member is refused too
+  const AM = ms('pack-approver'); const amVault = squadsVaultPda(AM);
+  put(AM, { members: [FR, g1], threshold: 2, configAuthority: ZERO });
+  r = run({ vault, vaultMultisig: V, guardianMultisig: G, approverMultisig: AM, proposed: { launchApprover: amVault } });
+  assert.deepEqual(fr(r), ['FEE_RECIPIENT_IS_APPROVER_MEMBER']);
+  assert.ok(codes(r.problems).includes('APPROVER_NOT_VERIFIABLE'));
+  // the multisigs that no role uses are not read for it: a guardian multisig named while no guardian is set or proposed
+  const r0 = checkDeployPreconditions({ accounts: Object.fromEntries(['curveLaunchpad', 'curveProgramData', 'curveConfig0', 'rewardsRegistry', 'rewardsProgramData', 'legacyLaunchpad', 'legacyProgramData'].map((k) => [A[k], null])), legacyAccounts: [], curveAccounts: [], vault, programId: w.programId, guardianMultisig: ms('nowhere') });
+  assert.deepEqual(codes(r0.problems).filter((c) => /^(GUARDIAN_|FEE_RECIPIENT_IS_)/.test(c)), [], 'no guardian, no guardian multisig read (the devnet run of D01, section 7.4)');
+  await w.finish();
+});

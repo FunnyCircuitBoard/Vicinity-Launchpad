@@ -56,7 +56,12 @@
 //   * the vault's Squads multisig (`--vault-multisig`, optional): the vault is
 //     one of its vaults; the launch approver (and a proposed one) is none of
 //     its member keys and none of its vaults; a warning while it has no time
-//     lock (O11);
+//     lock (O11); read also before the Launchpad exists;
+//   * FEE_RECIPIENT is no member key of the vault's, the guardian's or the
+//     approver's multisig (8.4's operating rule; review of the audit pack,
+//     23 October 2026): it holds no seat (GOV-2), and as a member of the 2-of-3
+//     vault its hot key would be one of the two signatures that make up the
+//     admin and the upgrade authority of every program the vault holds;
 //   * an approver that is not a wallet key (off the ed25519 curve) can only be
 //     a multisig vault (O32 (a)), which the batch verifier cannot check a
 //     publication of (it refuses such an approver), so it is not ready (review
@@ -292,6 +297,13 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
   const read = (addr, code, what) => {
     try { return decodeSquadsMultisig(accounts[String(addr)] ?? null); } catch (e) { bad(code, `${what} ${addr} is not a Squads v4 multisig: ${e.message}`); return null; }
   };
+  // FEE_RECIPIENT holds no seat (GOV-2), so it is no member key of a multisig that holds one (8.4's operating rule; review
+  // of the audit pack, 23 October 2026: on mainnet it is a member of the vault's 2-of-3 multisig, so its hot key is one of
+  // the two signatures that make up the admin and the upgrade authority of all three programs)
+  const feeRecipientMember = (msAccount, msAddr, code, what, power) => {
+    if (!msAccount || !msAccount.members.some((m) => m.key === ADDRESSES.feeRecipient)) return;
+    bad(code, `FEE_RECIPIENT ${ADDRESSES.feeRecipient} (a hot wallet that holds no seat, GOV-2) is a member key of ${what} ${msAddr} (threshold ${msAccount.threshold} of ${msAccount.members.length}): ${power}; remove it from the members by a config transaction of that multisig before the deploy (8.4)`);
+  };
   const approverSet = approver && approver !== ZERO;
   if (guardian && guardian !== ZERO) {
     if (!guardianMultisig) {
@@ -302,6 +314,7 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
         const index = squadsVaultIndexOf(guardianMultisig, guardian);
         if (index === null) bad('GUARDIAN_NOT_MULTISIG_VAULT', `the guardian ${guardian} is not a vault of the multisig ${guardianMultisig}`);
         if (ms.timeLock !== 0) bad('GUARDIAN_TIME_LOCK', `the guardian multisig has a time lock of ${ms.timeLock} seconds: its clears and pauses would wait for it (8.1, 8.3)`);
+        feeRecipientMember(ms, guardianMultisig, 'FEE_RECIPIENT_IS_GUARDIAN_MEMBER', 'the guardian multisig', 'a stolen FEE_RECIPIENT key would act as the guardian (pause launches, buys and buybacks; clear and halt the launch batches)');
         if (ms.configAuthority !== String(vault)) {
           const who = ms.configAuthority === ZERO
             ? `it is autonomous: any ${ms.threshold} of its ${ms.members.length} members can change its members, threshold and time lock by a config transaction; ${ms.threshold === 1 ? 'one stolen member key removes the other members, whose clears and pauses then fail' : 'that many members acting together can remove the others'}`
@@ -324,6 +337,8 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
     if (squadsVaultIndexOf(vaultMultisig, vault) === null) bad('VAULT_NOT_MULTISIG_VAULT', `the vault ${vault} is not a vault of the multisig ${vaultMultisig}`);
     if (approverSet && vaultMs.members.some((m) => m.key === approver)) bad('APPROVER_IS_VAULT_MEMBER', `the launch approver ${approver} is a member key of the vault's multisig (8.4, O32)`);
     if (vaultMs.timeLock === 0) warnings.push({ code: 'VAULT_TIME_LOCK_UNSET', message: 'the vault\'s multisig has no time lock: O11 sets 48 hours from the first coin launch, unless the owner chose its alternative' });
+    feeRecipientMember(vaultMs, vaultMultisig, 'FEE_RECIPIENT_IS_VAULT_MEMBER', 'the vault\'s multisig',
+      `a stolen FEE_RECIPIENT key would be ${vaultMs.threshold <= 1 ? 'enough' : `one of the ${vaultMs.threshold} signatures needed`} to act as the admin and the upgrade authority of every program the vault holds (vicinity_curve, vicinity_rewards, the old vicinity_launchpad), so the key that receives the platform's income would also be a key to every coin's reserves`);
   }
   // the approver is never a vault of the guardian's or the vault's multisig (review R7-CONF-3): the program compares exact
   // keys only, so vault 1 of the guardian multisig would let any guardian member publish batches alone
@@ -344,6 +359,7 @@ export function checkSquadsRoles({ guardian, approver, vault, guardianMultisig =
         const ams = read(approverMultisig, 'APPROVER_MULTISIG_INVALID', 'the approver multisig');
         if (ams) {
           if (squadsVaultIndexOf(approverMultisig, approver) === null) bad('APPROVER_NOT_MULTISIG_VAULT', `the launch approver ${approver} is not a vault of the multisig ${approverMultisig}`);
+          feeRecipientMember(ams, approverMultisig, 'FEE_RECIPIENT_IS_APPROVER_MEMBER', 'the approver multisig', 'a stolen FEE_RECIPIENT key would vote on launch batches, a seat the program refuses it (FeeRecipientRole)');
           if (ams.timeLock !== 0) bad('APPROVER_TIME_LOCK', `the approver multisig has a time lock of ${ams.timeLock} seconds: a publication would execute later than it was prepared, with a window the program may refuse (O32 (a): no time lock)`);
           const guardianMs = guardianMultisig ? (() => { try { return decodeSquadsMultisig(accounts[String(guardianMultisig)] ?? null); } catch { return null; } })() : null;
           for (const [other, what] of [[guardianMs, 'the guardian multisig'], [vaultMs, 'the vault\'s multisig']]) {
@@ -495,11 +511,13 @@ export function checkDeployPreconditions(opts) {
     const r = checkProposedRoleKey({ role, key: proposed[role], lp: after, curveAccounts, vault, programId });
     problems.push(...r.problems); warnings.push(...r.warnings);
   }
-  // the Squads multisigs behind the guardian and the vault, with the proposal's keys applied (review R6-RT-2)
-  if (after) {
-    const r = checkSquadsRoles({ guardian: after.guardian, approver: after.launchApprover, vault, guardianMultisig, vaultMultisig, approverMultisig, accounts });
-    problems.push(...r.problems); warnings.push(...r.warnings);
-  }
+  // the Squads multisigs behind the guardian and the vault, with the proposal's keys applied (review R6-RT-2); before the
+  // Launchpad exists only the proposed keys count, and the vault's multisig is read all the same (its members and time
+  // lock are deploy preconditions, 8.4; review of the audit pack, 23 October 2026: on mainnet the checklist was silent)
+  const seats = after ?? { guardian: proposed.guardian ?? null, launchApprover: proposed.launchApprover ?? null };
+  const key = (k) => (k === null || k === undefined ? null : String(k));
+  const r = checkSquadsRoles({ guardian: key(seats.guardian), approver: key(seats.launchApprover), vault, guardianMultisig, vaultMultisig, approverMultisig, accounts });
+  problems.push(...r.problems); warnings.push(...r.warnings);
   return { problems, warnings };
 }
 

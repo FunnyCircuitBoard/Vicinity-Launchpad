@@ -1,0 +1,16 @@
+$ node scripts/vcurve/batch.mjs verify /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/lists-local/batch-1.json --rpc http://127.0.0.1:8899 --rpc http://127.0.0.2:8899 --approver FTLBdYDg92UGFkejbe7j2nM79pGytBpFzBpCcEedahmk --archive /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive --cluster devnet
+exit 0
+archive /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive (key /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/.vicinity-curve/archive.key, not created yet: the first list you verify creates it)
+changes against no live batch (every entry is a new approval): 5 added, 0 removed, 0 changed
+  + city 990000002 D01B "D01 Batch One" founder 6FnXFQY3N5EcrAoAWqPLsy6JNLoeoQ5b9GK31tuzDxME config 0 meta 0c708bb44bc5a0c55244587a3e1fdd42cb481bef7355acd790aa03b55671112a
+  + city 990000003 D01C "D01 Batch Two" founder FXDRMihpZsNKebVaAzaH49Ve3MoRPioxw8t15t75NgYS config 1 meta 09b1a3e17813f8eb597f61ee5a836c5e85ab98fa047c8c0d47351b8cd31e1287
+  + city 990000011 D01F1 "D01 Filler 1" founder 4LUKdnXVeLAMmZBXGNnTHywW2ii27SQ1ih5YvpSPpEP8 config 0 meta 93da2f42316e7864b5e7def643aa11769b94eb4f5da0f1e9308f701ba36fa424
+  + city 990000012 D01F2 "D01 Filler 2" founder 4wT2EcaqzVTC6vJg2kJFYgmXUP1PofmcW2iSbHBxcgB7 config 0 meta cf47bea641573aed0f1d1ca872c2ae25a45f2ca1cb834256fc961b9147717cbb
+  + city 990000013 D01F3 "D01 Filler 3" founder 5T777GvRi6dauGHUUoN3DrNvHHcbiZEsDnkn4JNxqRsX config 0 meta db82f8dc65ba95d3846116c6d3d6a0a89d328ee2dd82e665143c01eac828bafa
+kept as pending (never a baseline until you confirm it): /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive/nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk/pending/1-16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e-1792791672.json
+batch 1, 5 entries, root 16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e
+valid from 2026-10-23T21:41:12.000Z until 2026-10-25T09:41:12.000Z
+message hash EjeR8QmDzHJ5FCRkEmHZses4yEHW4dmN3yAafmjwX8Pc: sign only on a hardware wallet that shows this message hash (blind signing); any other hash is another transaction
+unsigned publish_launch_batch for FTLBdYDg92UGFkejbe7j2nM79pGytBpFzBpCcEedahmk (base64; valid for about a minute, until its blockhash expires):
+AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAMF1sJomjyUNw1mohZr5Z59gpK6fPfz0S5hVY0QiGeNjwsMGevDH/DHGGM12y3je5gN/QNjy8ECqPQN4DuoxePpaxW1I9nqvwbexP8vi8+f9yXU6fapyMf+m+SkbVl4utoyUAiyCySvL/OWu2nchACuy95HL7KWYjMTBLvE+58+x9ELtSD5dyhzVbcWySvadaHvz12vxppX4BSBCDrk3y4cSWKEizqBJ3u6Qr4o+iXFtxozx0cxx1s6+eQotnz57o1gAQQFAAMBAgREqSXhZgAm9VMBAAAAAAAAABbvX0XB3GOc7+RWXCPGvu0OSgNEnjQpXhh3yrE1n3kOBQAAAHjU22oAAAAAuM7dagAAAAA=
+within minutes of its landing, run: node scripts/vcurve/batch.mjs confirm 1 16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e --rpc <url> --rpc <url of another provider>

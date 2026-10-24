@@ -1,0 +1,13 @@
+$ node scripts/vcurve/preflight.mjs --rpc https://api.devnet.solana.com --vault F7V1hNXCdPZMKhXJpDg3UCAiqDDzjKNJh3wEPc8A87tt --guardian-multisig BXDJioxLKY46h4yv4LMp5PdQwuP6vkWAdkWAAhFU27iw --cluster devnet
+NOT READY CURVE_LAUNCHPAD: vicinity_curve is not initialised (no Launchpad)
+NOT READY CURVE_UPGRADE_AUTHORITY: vicinity_curve's upgrade authority is null, not the vault
+NOT READY CONFIG0: config #0 is not added
+NOT READY REWARDS_REGISTRY_ADMIN: vicinity_rewards' registry admin is 9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa (pending 11111111111111111111111111111111), not the vault with nothing pending: that key alone could create a new coin's rewards config with wrong economics (OPS-1); approve_launch and launch refuse with RewardsRegistryAdminMismatch
+NOT READY REWARDS_UPGRADE_AUTHORITY: vicinity_rewards' upgrade authority is 9SzJe6zmFxAmxMK2vNsHoT9sekyNRk681ZkHE7JF3RJB, not the vault
+NOT READY LEGACY_ADMIN: the old program's admin is 9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa (pending 11111111111111111111111111111111), not the vault with nothing pending (GOV-1)
+NOT READY LEGACY_LAUNCHES_OPEN: the old program's launches are not paused (8.5)
+NOT READY LEGACY_UPGRADE_AUTHORITY: the old program's upgrade authority is 9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa, not the vault
+NOT READY LEGACY_CONFIG_ENABLED: the old program's LaunchConfig 8pfgRZNLfftPAYF652GGPQVrjj2KgQf44AtZxfvpQ1Wa is enabled (8.5)
+NOT READY LEGACY_CONFIG_ENABLED: the old program's LaunchConfig GCZJQJXSaNppSVEwj88V9gHatPf28mqLhL2ttbuHT1K8 is enabled (8.5)
+10 problem(s): not ready
+exit 1

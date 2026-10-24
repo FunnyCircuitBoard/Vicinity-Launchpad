@@ -1,0 +1,4 @@
+archive /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive (key /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/.vicinity-curve/archive.key, fingerprint c4b019c802a48ec6)
+PROBLEM BAD_ENTRY: entry 1 (city 990000003, D01C, founder FXDRMihpZsNKebVaAzaH49Ve3MoRPioxw8t15t75NgYS): the city has a pending per-city approval (it wins, ApprovalPending)
+changes against the stored batch 1 (its list from the archive): 0 added, 0 removed, 0 changed
+1 problem(s): do not sign
