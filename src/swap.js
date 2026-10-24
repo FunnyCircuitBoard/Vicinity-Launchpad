@@ -26,7 +26,9 @@ import { json, readJson } from "./http.js";
 import { mintInfo, rpc } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { Source, codeOf, retryAfterMs } from "./sources.js";
-import { activeMint } from "./official.js";
+import { activeMint, tokenMint } from "./official.js";
+import { mainTokenV5On } from "./flags.js";
+import { MAIN_TOKEN_LABEL } from "./maintoken.js";
 import { PAIRS, launchedCoins } from "./coins.js";
 import { jupiterPriceFor } from "./marketlive.js";
 import { ensureSchema } from "./store.js";
@@ -93,7 +95,7 @@ const failed = { keyed: { until: 0, code: null }, lite: { until: 0, code: null }
 const paused = (keyed, now) => now < (keyed ? failed.keyed : failed.lite).until;
 const decimalsOf = new Map(); // mint -> { at, promise }
 const alts = new Source("jupiter_alt", { ttlMs: 10 * 60_000, staleMs: 10 * 60_000 });
-export const _resetSwap = () => { builds.clear(); quotes.clear(); failed.keyed = { until: 0, code: null }; failed.lite = { until: 0, code: null }; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; standIn.at = -Infinity; standIn.until = 0; standIn.code = null; };
+export const _resetSwap = () => { routes.clear(); builds.clear(); quotes.clear(); failed.keyed = { until: 0, code: null }; failed.lite = { until: 0, code: null }; decimalsOf.clear(); alts.reset(); budget.tokens = 0; budget.at = 0; budget.rps = 0; standIn.at = -Infinity; standIn.until = 0; standIn.code = null; };
 export const _swapState = () => ({ builds: builds.size, quotes: quotes.size, failedUntil: Math.max(failed.keyed.until, failed.lite.until), failed: { keyed: failed.keyed.until, lite: failed.lite.until }, bucket: budget.tokens, standInAt: standIn.at, standInUntil: standIn.until });
 
 class JupiterError extends Error { constructor(code, status, retryAfterS) { super(code); this.code = code; this.status = status; this.retryAfterS = retryAfterS; } }
@@ -355,12 +357,50 @@ export async function handleSwapTx(request, env, fetchImpl = fetch, now = Date.n
   } catch (e) { return fail(e); }
 }
 
+/* ---------------------------------------------------------------- the main token's route (owner amendment 01) */
+/**
+ * Does Jupiter route SOL into the configured main token (MAIN_TOKEN_V5 on only)? The existing quote path (jupiterQuote: the keyless lite
+ * /swap/v1/quote, one call per key, its own pauses) for 0.1 SOL, kept 5 minutes per server when a route is found and 1 minute when not.
+ * Purchase links and the Buy panel's default token for the main token exist only while this answers true: a mint with no route
+ * gets no Buy (amendment section 2, "shown only when a live quote finds a real route"). Any failure is "no route": hidden, never a 500.
+ */
+const ROUTE_PROBE_LAMPORTS = 100_000_000n, ROUTE_MS = 5 * 60_000, NO_ROUTE_MS = 60_000;
+const routes = new Map(); // mint -> { at, ttl, promise }
+export function mainTokenRoute(env, mint, fetchImpl = fetch, now = Date.now()) {
+  if (!isSolanaAddress(mint)) return Promise.resolve(false);
+  let hit = routes.get(mint);
+  if (!hit || now - hit.at >= hit.ttl || now < hit.at) {
+    const entry = { at: now, ttl: ROUTE_MS, promise: null };
+    entry.promise = jupiterQuote(env, { inputMint: SOL, outputMint: mint, amountRaw: ROUTE_PROBE_LAMPORTS, slippageBps: DEFAULT_SLIPPAGE_BPS }, fetchImpl, now)
+      .then((b) => Boolean(b && /^\d+$/.test(String(b.outAmount)) && BigInt(b.outAmount) > 0n), () => false)
+      .then((ok) => { if (!ok) entry.ttl = NO_ROUTE_MS; return ok; });
+    routes.set(mint, entry);
+    if (routes.size > 50) routes.delete(routes.keys().next().value);
+    hit = entry;
+  }
+  return hit.promise;
+}
+
+/**
+ * The swap's entry for the configured main token (MAIN_TOKEN_V5 on): `kind: "vicinity"` stays the API's name for the site's main token
+ * (the Buy panel opens on it), with its decimals read from the chain (never the 6 written for $VICINITY) and no symbol or name of
+ * $VICINITY's; null while the mint is not a mint on chain or Jupiter finds no route for it (then no Buy panel default and no Buy).
+ */
+async function mainTokenEntry(env, mint, fetchImpl, now) {
+  let decimals = null;
+  try { decimals = await mintDecimals(env, mint, fetchImpl, now); } catch (e) { console.error("main token decimals unavailable", codeOf(e)); return null; }
+  if (!Number.isInteger(decimals) || !(await mainTokenRoute(env, mint, fetchImpl, now))) return null;
+  return { mint, symbol: null, name: MAIN_TOKEN_LABEL, decimals, kind: "vicinity", stage: "jupiter" };
+}
+
 /* ---------------------------------------------------------------- config and token search */
 /** GET /api/swap/config (public; edge-cached 60 s by the route). Booleans only about secrets. */
 export async function handleSwapConfig(env, fetchImpl = fetch, now = Date.now()) {
-  const jc = jupiterConfig(env), lp = launchpadCluster(env), vic = activeMint(env);
+  const jc = jupiterConfig(env), lp = launchpadCluster(env), vic = mainTokenV5On(env) ? null : activeMint(env);
   const tokens = [{ mint: SOL, ...KNOWN[SOL] }, { mint: USDC, ...KNOWN[USDC] }, { mint: USDT, ...KNOWN[USDT] }];
   if (vic) tokens.push({ mint: vic, symbol: "VICINITY", name: "Vicinity", decimals: 6, kind: "vicinity", stage: "jupiter" });
+  // MAIN_TOKEN_V5 on: the configured main token instead (only with a route), and no $VICINITY entry at all (no swap is offered for it)
+  if (mainTokenV5On(env) && tokenMint(env)) { const main = await mainTokenEntry(env, tokenMint(env), fetchImpl, now); if (main) tokens.push(main); }
   if (env.DB) {
     try {
       await ensureSchema(env.DB);

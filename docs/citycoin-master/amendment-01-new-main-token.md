@@ -64,7 +64,7 @@ mint or freeze authority (`QUOTE_TOKEN_PROGRAM`, `QUOTE_DECIMALS`, `QUOTE_MINT_A
 A policy edited to name a legacy mint as `main_token.mint` or `quote_configs.main_token.quote_mint` fails with
 `MAIN_TOKEN_IS_LEGACY_MINT` as well as `POLICY_VALUE_MISMATCH`.
 
-**Helpers** (pure, in `src/masterpolicy.js`, imported by no live module yet):
+**Helpers** (pure, in `src/masterpolicy.js`; since stage S02A imported by exactly one module, the adapter `src/maintoken.js`, section 11):
 
 - `mainTokenConfig(env)` returns `{ configKey: "MAIN_TOKEN_MINT", mint, problem }`. `mint` is `null` when the key is unset, blank,
   malformed or a legacy mint, so a consumer can never pick up an unusable or legacy value; `problem` names the refusal. It never
@@ -154,7 +154,7 @@ All references are to main `4aa408e` (no tracked file in the worktree differs fr
 `isTeamWallet(`, `kind: "vicinity"`, and the purchase-link hosts (section 10). Today every consumer below reads the Worker setting
 `VICINITY_MINT` (wrangler.jsonc:32), whose value is the legacy mint, through `activeMint(env)` (src/official.js:267-268).
 
-**The rule for the migration:** one adapter, `mainMint(env)` (the `mainTokenConfig` helper wired into `src/official.js`), replaces
+**The rule for the migration:** one adapter, `mainMint(env)` (the `mainTokenConfig` helper, wired in `src/maintoken.js` and applied by `tokenMint(env)` in `src/official.js` since S02A), replaces
 `activeMint(env)` for every main-token use under `MAIN_TOKEN_V5=on`. `VICINITY_MINT` keeps its name (rebrand-inventory.md P06) and is
 read only to show legacy history. Many places today use `Boolean(activeMint(env))` to mean "the token has launched"
 (src/index.js:427, 510, 516; src/signup-finish.js:140; src/auth.js:657; src/roles.js:44; src/me.js:100; src/profiles.js:127).
@@ -321,3 +321,39 @@ None yet. The owner has not supplied any of the three values. This section recei
   scripts/pages/build.mjs at the cited lines.
 - No RPC call, no network request, no transaction, no keypair and no secret. Nothing about the new mint was read, because no mint
   has been supplied.
+
+## 11. Stage S02A implementation (local branch `cc/s02`, not merged, nothing deployed)
+
+Built on 24 October 2026 on top of stage S02. No value was supplied: `MAIN_TOKEN_MINT`, `OFFICIAL_X_URL` and `OFFICIAL_TELEGRAM_URL`
+stay unset, and `wrangler.jsonc` is unchanged. With `MAIN_TOKEN_V5` unset the site is today's: the built `public/` folder is byte
+for byte the committed one, and a scratch sweep of the real Worker (public and signed-in API answers with every header, the static
+asset fallback, the old-host and http redirects, two scheduled job runs, every D1 row and the D1 schema, every log line) gave the
+same bytes for the reference tree `361cbe2` and this branch (implementation-report.md section 11).
+
+| Piece | Where | With `MAIN_TOKEN_V5` on |
+|---|---|---|
+| The switch | src/flags.js `mainTokenV5On` | Exactly "on" (trimmed, any letter case); anything else is off |
+| Adapters | src/maintoken.js `mainMint`, `officialLinks`, `mainTokenFeatures`, `checkDeploymentConfig`, `mainTokenStatus` | `mainMint` reads only `MAIN_TOKEN_MINT` through `mainTokenConfig` (never `VICINITY_MINT`, never a legacy or malformed mint); the configuration check runs at the first request of an isolate (src/index.js) and at each job start (src/jobs.js): off it reports nothing, on each named error is logged once per isolate as its code and key name only |
+| One reader for every consumer | src/official.js `tokenMint(env)` | Off: exactly `activeMint(env)`. On: `mainMint(env)`, or `null`, and then each consumer takes its existing "not launched" path. Moved behind it: /api/token, /api/holders, /api/rank, /api/verify, /api/policy and /api/seats `launched`, the edge-cache keys (src/index.js, src/cointakedown.js), the coin page's allow-list (src/coin.js), /api/coins and the price allow-list (src/coins.js), the Launchpad's first card, its holder counts and the job's coin stats (src/launchpad.js), the price history (src/pricehistory.js), roles, seats, the dashboard and profiles (src/roles.js, src/seats.js, src/me.js, src/profiles.js), the portfolio and Send (src/portfolio.js, src/walletsend.js), the swap's token list (src/swap.js) and the balance sampler (src/ledger.js). The early-member flags (src/signup-finish.js, src/auth.js) and the legacy referral account (src/lpadmin.js) keep reading `VICINITY_MINT`: history and the legacy program. |
+| `$VICINITY` facts | src/official.js `teamFor`, `withMint`, `officialAddresses`, `checkOfficial`; src/chain.js | The team wallets and the Jupiter Lock never label, unrank or set aside anyone in the new token's holder list (they still do in every other list); /api/official names the configured mint (`tokens[0]` "Main token", no venue), lists `teamWallets` and `teamLocks` empty, and carries `$VICINITY` with its team wallets and lock under `legacyTokens` (swap false) and the configured links under `officialLinks`; the link checker answers the legacy mint, the old X account and market links for the legacy mint as legacy (`verdict: "warning"`, `legacy: true`); the /official page lists a "Legacy" group; the holding badges read "main tokens", "Early member" keeps its history wording |
+| Purchase links and the Buy panel default | src/swap.js `mainTokenRoute`, `mainTokenEntry`; src/launchpad.js `mainTokenLinks`; src/coin.js | The existing quote path (Jupiter lite `/swap/v1/quote`, 0.1 SOL into the mint, kept 5 minutes with a route, 1 minute without) decides: with a route the swap's list has the main token (`kind: "vicinity"`, decimals read from the chain, no symbol of `$VICINITY`'s) and the Launchpad card and coin page carry Jupiter, DEX Screener and Solscan links (never Raydium LaunchLab); without one there is no default, no Buy and no purchase link. `$VICINITY` gets no swap entry and no coin page. |
+| Balance history | src/ledger.js `dayKey` | A series of the new token's own (`mday:<mint>:<day>` blobs), never summed with a `$VICINITY` day; no legacy hold streak is started, continued, ended or counted (`tenure` answers not qualified); its own old days are pruned; the `day:` series and the Founding Supporters data stay as history |
+| Social links, one source | src/official.js `socialProfiles`; src/footer-social.js; scripts/pages/build.mjs | The page build and the Worker's response-time rewrite use the same functions, so a built page and a rewritten one are the same bytes; only configured, checked links are shown, an unset link is removed (the dashboard's "Contact us on X" item with it), and the old account is never shown as official. Today the Worker sees only the HTML it serves itself through its static-asset fallback (an address no file matches, so the 404 page): `run_worker_first` lists only `/api/*`, `/coin-meta/*` and `/official-coins.csv` (wrangler.jsonc). The other pages get their links from the page build, which reads `wrangler.jsonc`. |
+| Admin and preflight | src/admin.js (`mainToken` in /api/admin/config); scripts/mainnet-preflight.mjs | Presence of the three settings and the check's error codes, never a value; both appear only once the switch or a setting is set |
+
+Deliberately not done in S02A, and why:
+
+- **The pages' and client scripts' own `$VICINITY` wording.** The token page copy (title, hero, FAQ, "Minting disabled", "60M team
+  tokens locked", the founder amount), the client scripts' labels for `kind: "vicinity"` ("$VICINITY", "Buy $VICINITY", the
+  Launchpad card's "Pair: $VICINITY / SOL"), the client-side purchase-link fallbacks (public/launchpad.js builds Raydium, Jupiter and
+  DEX Screener links from any card's mint; public/token.js builds its four tiles from the contract) and the page sources of section 5.5
+  live in `public/`. Changing them would change the live bytes with the switch off, and their new wording is the label migration of
+  stage S48. Until then the page build refuses `MAIN_TOKEN_V5=on` in `wrangler.jsonc` (scripts/pages/build.mjs `pageSocials`), which
+  enforces section 3's rule that the switch rolls out with the brand rollout or after it. A dashboard-only setting would bypass that
+  check; the repository's rule is that switches change by a `wrangler.jsonc` pull request.
+- **The Terms of Use contact clauses** that name the old X account: a new Terms version needs the owner's approval (section 6).
+- **The on-chain name and symbol of the new token**: shown as "Main token" with no symbol until the verification record exists; no
+  name is invented.
+- **A mint column for `balance_samples`**: not added, so the D1 schema stays today's. The sampler's cadence still reads the table's
+  last row; under the switch its shrink guard compares with the new token's own last sample instead.
+

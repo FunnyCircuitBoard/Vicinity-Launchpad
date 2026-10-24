@@ -27,6 +27,7 @@ import { base58Decode, base58Encode, isSolanaAddress } from "../src/solana.js";
 import { configDiff, decodeRegistry, decodeTable } from "../src/lpadmin.js";
 import { lookupTableAddresses, partnerMetadataAddress, rewards as rewardsPdas } from "../src/sol/lpadmin-ix.js";
 import { checkMultisig } from "../src/sol/squads.js";
+import { mainMint, mainTokenStatus } from "../src/maintoken.js";
 
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const PUBLIC_RPC = { mainnet: "https://api.mainnet-beta.solana.com", devnet: "https://api.devnet.solana.com" };
@@ -185,6 +186,11 @@ export async function preflight(env, { fetchImpl = fetch, now = Date.now(), site
   row(trading && !mainnetLp ? "WARN" : "PASS", "LAUNCHPAD_CLUSTER", mainnetLp ? "mainnet" : `devnet${trading ? ": curve trades are DEVNET test coins (test SOL, no value) — a test path, not the real thing; set LAUNCHPAD_CLUSTER=mainnet after docs/MAINNET.md section 4" : ""}`);
   const mint = String(env.VICINITY_MINT || "").trim();
   row(isSolanaAddress(mint) ? "PASS" : "FAIL", "VICINITY_MINT", isSolanaAddress(mint) ? mint : "not a Solana address: the panel has no $VICINITY and /token shows the countdown");
+  // owner amendment 01 (src/maintoken.js): only once MAIN_TOKEN_V5 or one of its settings is set, so today's report is unchanged. Shape
+  // only: the on-chain verification record of docs/citycoin-master/amendment-01-new-main-token.md section 4 is a separate, human step.
+  const mt = mainTokenStatus(env);
+  if (mt) row(mt.errors.length ? "FAIL" : "PASS", "MAIN_TOKEN (amendment 01)", mt.errors.length ? `refused: ${mt.errors.join(", ")} (the main-token features answer "not launched" until fixed)`
+    : `MAIN_TOKEN_V5 ${mt.MAIN_TOKEN_V5 ? "on" : "off"}; MAIN_TOKEN_MINT ${mainMint(env) || "unset"}; X ${mt.OFFICIAL_X_URL ? "set" : "unset (not shown)"}; Telegram ${mt.OFFICIAL_TELEGRAM_URL ? "set" : "unset (not shown)"}`);
   const mainRpc = String(env.SOLANA_RPC_URL || "").trim();
   row(mainRpc ? "PASS" : "FAIL", "SOLANA_RPC_URL", mainRpc ? `set (${new URL(mainRpc).host})` : "not set here: the Worker would fall back to the public mainnet RPC, which rate-limits and refuses getProgramAccounts (set the provider's URL as a Secret)");
   const rpcUrl = mainRpc || PUBLIC_RPC.mainnet;

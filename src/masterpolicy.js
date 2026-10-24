@@ -1,9 +1,10 @@
 /**
  * The Citycoin.dev master policy (MASTER CHANGE ORDER V5, 23 Oct 2026) as one deeply frozen object, plus pure helpers.
  *
- * DESIGN, NOT LIVE. No module of the Worker imports this file yet (test/masterpolicy.test.js checks that), so it changes nothing
- * on the live site: the bundler never reaches it from src/index.js. The same document is docs/citycoin-master/policy.json, and the
- * test keeps the two identical. Approval of a policy is not evidence of deployment (master section 16, Configuration acceptance):
+ * DESIGN, NOT LIVE, except the amendment-01 helpers: since stage S02A exactly one module imports this file, src/maintoken.js, and only
+ * for mainTokenConfig, officialLinks and validateDeploymentConfig (test/masterpolicy.test.js checks both). With MAIN_TOKEN_V5 unset and
+ * none of MAIN_TOKEN_MINT, OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL set they change nothing on the live site. The same document is
+ * docs/citycoin-master/policy.json, and the test keeps the two identical. Approval of a policy is not evidence of deployment (master section 16, Configuration acceptance):
  * live status comes from deployment and chain state only.
  *
  * Exports:

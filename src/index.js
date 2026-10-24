@@ -66,7 +66,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
-import { activeMint, checkOfficial, marketLink, officialFor, teamWalletLabel, withMint } from "./official.js";
+import { activeMint, checkOfficial, marketLink, officialFor, teamFor, teamWalletLabel, tokenMint, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamLock, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -116,6 +116,8 @@ import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
 import { isForwardHost, siteConfig } from "./site-config.js";
+import { checkDeploymentConfig } from "./maintoken.js";
+import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -167,7 +169,7 @@ export async function handleVerify(request, env = {}, now = Date.now(), fetchImp
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
   const out = { verified: true, address, verifiedAt: new Date(now).toISOString(), launched: false };
-  const mint = activeMint(env);
+  const mint = tokenMint(env);
   if (mint) {
     out.launched = true;
     try {
@@ -231,8 +233,8 @@ async function rankResponse(env, mint, address, fetchImpl) {
   try {
     const amount = await getHolding(env, address, mint, fetchImpl);
     // a team wallet's label rides along (the rank check names "Team wallet (FOMO)" from it, list or no list)
-    const team = isTeamWallet(address);
-    return json({ launched: true, full: false, address, amount, rank: null, total: null, team, ...(team ? { label: teamWalletLabel(address) } : {}), ...(isTeamLock(address) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
+    const facts = teamFor(env, mint), team = isTeamWallet(address, facts);
+    return json({ launched: true, full: false, address, amount, rank: null, total: null, team, ...(team ? { label: teamWalletLabel(address) } : {}), ...(isTeamLock(address, facts) ? { lock: true } : {}), founderMin, updatedAt: new Date().toISOString() });
   } catch {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }
@@ -305,7 +307,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // the Launchpad's coin list (LAUNCHPAD_V2=on): same rule; one answer per region every 30 seconds (edge cache + a copy per server)
   if (path === "/api/launchpad") {
     if (!launchpadV2On(env)) return json({ ok: false, error: "not_enabled" }, 404);
-    return only("GET") || needsDb() || cached("launchpad-" + (activeMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
+    return only("GET") || needsDb() || cached("launchpad-" + (tokenMint(env) || "pre"), 30, () => handleLaunchpad(env, fetchImpl));
   }
   // one coin's page and chart (LAUNCHPAD_V2=on): allow-listed mints only (src/coin.js), edge-cached, counted on a cache miss
   if (path === "/api/coin" || path === "/api/coin/chart") {
@@ -327,7 +329,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       && !(lpSetup(env).on && ["/api/swap/send", "/api/swap/status"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
     const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
-      case "/api/swap/config": return only("GET") || cached("swap-config-" + (activeMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
+      case "/api/swap/config": return only("GET") || cached("swap-config-" + (tokenMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
       case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()), 300, () => handleSwapTokens(request, env, fetchImpl));
       case "/api/swap/quote": return post(() => handleSwapQuote(request, env, fetchImpl));
       case "/api/swap/tx": return post(() => handleSwapTx(request, env, fetchImpl));
@@ -425,7 +427,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/official":
       return only("GET") || json(officialFor(env));
     case "/api/policy":
-      return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(activeMint(env)),
+      return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(tokenMint(env)),
         balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
     case "/api/check": {
       const blocked = only("GET");
@@ -450,7 +452,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/token": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, registry: withMint(env).tokens });
       return cached("token-" + mint, 60, async () => {
         try {
@@ -463,7 +465,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/holders": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, holders: [] });
       // pages start at a multiple of 1,000, so the edge cache holds one answer per page and nothing else; the first page keeps its old key
       const offset = Math.floor(Math.min(Math.max(0, Number(url.searchParams.get("offset")) || 0), 10_000_000) / HOLDERS_PAGE) * HOLDERS_PAGE;
@@ -474,7 +476,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (blocked) return blocked;
       const address = url.searchParams.get("address");
       if (!isSolanaAddress(address)) return json({ error: "bad_address" }, 400);
-      const mint = activeMint(env);
+      const mint = tokenMint(env);
       if (!mint) return json({ launched: false, address, founderMin: founderAmount(0) });
       // the attempt is counted only when the 30-second cache has no answer: looking at the same wallet again is free
       return cached(`rank-${mint}-${address}`, 30, async () => (await publicLimit(env, request, "rank")) || rankResponse(env, mint, address, fetchImpl));
@@ -508,13 +510,13 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/claims": {
       const blocked = only("GET");
       if (blocked) return blocked;
-      if (!env.DB) return json({ launched: Boolean(activeMint(env)), seats: [], windows: [] });
+      if (!env.DB) return json({ launched: Boolean(tokenMint(env)), seats: [], windows: [] });
       // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server
       return cached("seats", 30, async () => {
         await ensureSchema(env.DB);
         const res = await handleSeats(env);
         const body = await res.json();
-        return json({ ...body, launched: Boolean(activeMint(env)), founderAmount: founderAmount(0) });
+        return json({ ...body, launched: Boolean(tokenMint(env)), founderAmount: founderAmount(0) });
       });
     }
     case "/api/seats/apply":
@@ -695,8 +697,13 @@ const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
 const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
+// The amendment-01 configuration check (src/maintoken.js) runs once at the first request of an isolate: with MAIN_TOKEN_V5 off it
+// reports nothing; with it on, each named problem is logged once (its code and the key's name, never a value). It never throws.
+let configChecked = false;
+
 export default {
   async fetch(request, env, ctx) {
+    if (!configChecked) { configChecked = true; checkDeploymentConfig(env); }
     try {
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);
@@ -710,7 +717,9 @@ export default {
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
-      return withSecurityHeaders(await env.ASSETS.fetch(request));
+      // a page the Worker serves itself (an address no file matches, so today the 404 page): with MAIN_TOKEN_V5 on, its footer's social
+      // links are rewritten to the configured ones (src/footer-social.js); with it off the asset's response is passed on untouched
+      return withSecurityHeaders(await officialLinksInPage(await env.ASSETS.fetch(request), env));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);
       return json({ error: "internal_error" }, 500);

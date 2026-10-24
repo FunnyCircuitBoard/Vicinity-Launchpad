@@ -12,7 +12,8 @@
  * Each sample's blockchain slot and a hash of its data are kept, so the numbers can be checked.
  */
 import { DAY, POLICY, founderLevels, iso } from "./policy.js";
-import { activeMint } from "./official.js";
+import { tokenMint } from "./official.js";
+import { mainTokenV5On } from "./flags.js";
 import { getAllHolders, publishHolders } from "./chain.js";
 import { getBlob, putBlob, sha256hex } from "./blobs.js";
 import { ensureSchema } from "./store.js";
@@ -20,9 +21,22 @@ import { ensureSchema } from "./store.js";
 export const dayOf = (ms) => iso(ms).slice(0, 10);
 const daysBack = (endDay, n) => Array.from({ length: n }, (_, i) => dayOf(Date.parse(endDay + "T00:00:00Z") - i * DAY));
 
+/**
+ * The blob key of one UTC day of the balance history. MAIN_TOKEN_V5 off: `day:<d>`, the one series as before (it is $VICINITY's). On:
+ * `mday:<mint>:<d>`, a series of the configured main token's own (owner amendment 01, section 5.3), so two tokens are never summed
+ * into one day and the $VICINITY days stay as they were, history; null while no main token is configured (nothing is read or written).
+ * The `mday:` prefix keeps these keys out of the `day:%` pruning below and out of the Founding Supporters snapshot (src/snapshot.js),
+ * which reads the $VICINITY days only.
+ */
+export function dayKey(env, day) {
+  if (!mainTokenV5On(env)) return `day:${day}`;
+  const mint = tokenMint(env);
+  return mint ? `mday:${mint}:${day}` : null;
+}
+
 /** Called by the scheduled job: take a sample now, or not (unpredictably, about once an hour). */
 export async function maybeSample(env, now, fetchImpl = fetch, rand = Math.random) {
-  if (!env.DB || !activeMint(env)) return { sampled: false, why: "not_launched" };
+  if (!env.DB || !tokenMint(env)) return { sampled: false, why: "not_launched" };
   await ensureSchema(env.DB);
   const last = await env.DB.prepare("SELECT taken_at FROM balance_samples ORDER BY id DESC LIMIT 1").first();
   const gap = last ? now - Date.parse(last.taken_at) : Infinity;
@@ -39,8 +53,11 @@ export async function maybeSample(env, now, fetchImpl = fetch, rand = Math.rando
  * undone) and lower everyone's 14-day average. After 6 hours without a sample the guard steps aside, so a real drop is recorded.
  */
 const SHRINK_MIN = 20, SHRINK_WITHIN_MS = 6 * 3_600_000;
-async function shrankTooMuch(db, list, now) {
-  const prev = await db.prepare("SELECT taken_at, holders FROM balance_samples ORDER BY id DESC LIMIT 1").first();
+async function shrankTooMuch(env, list, now) {
+  const db = env.DB;
+  // under MAIN_TOKEN_V5 the last sample OF THIS TOKEN's series (the table's last row may be a $VICINITY sample, whose holder count says
+  // nothing about the new token's); with the switch off the table's last row, as before
+  const prev = mainTokenV5On(env) ? await lastOfSeries(env, now) : await db.prepare("SELECT taken_at, holders FROM balance_samples ORDER BY id DESC LIMIT 1").first();
   return Boolean(prev && prev.holders >= SHRINK_MIN && list.length * 2 < prev.holders && now - Date.parse(prev.taken_at) < SHRINK_WITHIN_MS);
 }
 
@@ -48,17 +65,18 @@ async function shrankTooMuch(db, list, now) {
 export async function takeSample(env, now, fetchImpl = fetch) {
   const db = env.DB;
   await ensureSchema(db);
-  const read = await getAllHolders(env, activeMint(env), fetchImpl);
+  const mint = tokenMint(env);
+  const read = await getAllHolders(env, mint, fetchImpl);
   const { facts, list, labels, slot } = read;
-  if (await shrankTooMuch(db, list, now)) {
+  if (await shrankTooMuch(env, list, now)) {
     console.error("balance sample skipped: the holder list shrank by more than half", list.length);
     return { sampled: false, why: "list_shrank", holders: list.length };
   }
   // the sample read every holder anyway: the holder list, the dashboards and the coin stats of this run use it instead of
   // reading the chain again (a shared copy only; a failure to share is not a failure of the sample)
-  await publishHolders(env, activeMint(env), read).catch(() => {});
-  const takenAt = iso(now), day = dayOf(now);
-  const acc = (await getBlob(db, `day:${day}`)) || { day, n: 0, sums: {}, last: {}, lastAt: null, lastSlot: null, labels: {} };
+  await publishHolders(env, mint, read).catch(() => {});
+  const takenAt = iso(now), day = dayOf(now), key = dayKey(env, day);
+  const acc = (await getBlob(db, key)) || { day, n: 0, sums: {}, last: {}, lastAt: null, lastSlot: null, labels: {} };
   acc.n += 1;
   const last = {};
   for (const [owner, amount] of list) { acc.sums[owner] = (acc.sums[owner] || 0) + amount; last[owner] = amount; }
@@ -66,8 +84,10 @@ export async function takeSample(env, now, fetchImpl = fetch) {
   for (const [owner, label] of labels) acc.labels[owner] = label;
   // the streaks first, the sample's own records last: if the streaks fail (a database hiccup, a limit) nothing says this sample
   // happened, so the next run takes it again instead of waiting an hour with half the founder clocks never started
-  await updateStreaks(db, list, takenAt);
-  await putBlob(db, `day:${day}`, acc);
+  // the founder hold streaks are $VICINITY's history (frozen with the legacy seats): under MAIN_TOKEN_V5 a sample of the new token never
+  // starts, continues or ends one (tenure below answers "not qualified" then)
+  if (!mainTokenV5On(env)) await updateStreaks(db, list, takenAt);
+  await putBlob(db, key, acc);
   await db.prepare("INSERT INTO balance_samples (taken_at, day, slot, holders, hash) VALUES (?, ?, ?, ?, ?)")
     .bind(takenAt, day, slot, list.length, await sha256hex(JSON.stringify(list))).run();
   return { sampled: true, takenAt, slot, holders: list.length };
@@ -98,8 +118,21 @@ async function updateStreaks(db, list, takenAt) {
   for (let i = 0; i < stmts.length; i += STREAK_BATCH) await db.batch(stmts.slice(i, i + STREAK_BATCH));
 }
 
-/** How long has this wallet held `level` tokens in every sample? { since, days, needed, qualified } */
+/** The newest sample of the configured main token's own series in the last two days: { taken_at, holders }, or null. */
+async function lastOfSeries(env, now) {
+  for (const d of daysBack(dayOf(now), 2)) {
+    const key = dayKey(env, d), acc = key ? await getBlob(env.DB, key) : null;
+    if (acc && acc.lastAt) return { taken_at: acc.lastAt, holders: Object.keys(acc.last || {}).length };
+  }
+  return null;
+}
+
+/**
+ * How long has this wallet held `level` tokens in every sample? { since, days, needed, qualified }. Under MAIN_TOKEN_V5 a hold streak
+ * is $VICINITY's history and never counts for the new main token: the answer is "no streak" (fail closed: no legacy seat is won on it).
+ */
 export async function tenure(env, wallet, level, now) {
+  if (mainTokenV5On(env)) return { since: null, days: 0, needed: POLICY.founder.qualifyingDays, qualified: false };
   const r = await env.DB.prepare("SELECT above_since FROM streaks WHERE wallet = ? AND level = ?").bind(wallet, level).first();
   const since = r && r.above_since ? Date.parse(r.above_since) : null;
   const days = since ? Math.max(0, (now - since) / DAY) : 0;
@@ -117,7 +150,7 @@ export async function averages(env, endDay, days, wallets = null) {
   let samples = 0;
   const used = [];
   for (const d of daysBack(endDay, days)) {
-    const acc = await getBlob(env.DB, `day:${d}`);
+    const key = dayKey(env, d), acc = key ? await getBlob(env.DB, key) : null;
     if (!acc) continue;
     used.push({ day: d, samples: acc.n });
     samples += acc.n;
@@ -133,7 +166,7 @@ export async function averages(env, endDay, days, wallets = null) {
 /** The most recent sample's balances (today's, else the latest day with data in the last `lookback` days). */
 export async function latestBalances(env, now, lookback = 2) {
   for (const d of daysBack(dayOf(now), lookback + 1)) {
-    const acc = await getBlob(env.DB, `day:${d}`);
+    const key = dayKey(env, d), acc = key ? await getBlob(env.DB, key) : null;
     if (acc && acc.lastAt) return { at: acc.lastAt, slot: acc.lastSlot, balances: acc.last, labels: acc.labels || {}, decimals: acc.decimals ?? 6, day: d };
   }
   return null;
@@ -165,5 +198,7 @@ export async function pruneLedger(env, now) {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM blobs WHERE key LIKE 'day:%' AND key < ?").bind(`day:${cutoff}`),
     env.DB.prepare("DELETE FROM balance_samples WHERE day < ?").bind(cutoff),
+    // the main token's own series (MAIN_TOKEN_V5 on only: with it off the batch is exactly as before); its keys end with the day
+    ...(mainTokenV5On(env) ? [env.DB.prepare("DELETE FROM blobs WHERE key LIKE 'mday:%' AND substr(key, -10) < ?").bind(cutoff)] : []),
   ]);
 }

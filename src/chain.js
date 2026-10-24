@@ -10,7 +10,7 @@
  * provider) for when it stops answering. Without SOLANA_RPC_URL we fall back to the public endpoint, which can't list holders.
  * Every request goes out through src/rpcpool.js (endpoints, failover, breaker; never a URL in an error or a log).
  */
-import { OFFICIAL, teamLockLabel, teamWalletLabel } from "./official.js";
+import { TEAM, teamFor, teamLockLabel, teamWalletLabel } from "./official.js";
 import { base58Decode, base58Encode } from "./solana.js";
 import { isOnCurve } from "./sol/oncurve.js";
 import { rpcPost } from "./rpcpool.js";
@@ -42,21 +42,23 @@ const PROGRAM_ACCOUNT = "Pool or program account";
 export { isOnCurve };
 /** Every wallet the team publishes (src/official.js) is labelled "Team wallet (public)" in the holder list ("Team wallet (FOMO)" for
  *  the team's FOMO account: teamWalletLabel) and, like a pool, never ranked. */
-export const isTeamWallet = (owner) => (OFFICIAL.teamWallets || []).includes(owner);
+export const isTeamWallet = (owner, team = TEAM) => (team.wallets || []).includes(owner);
 /** The team's locked tokens (src/official.js teamLocks): labelled "Team lock (Jupiter Lock)" and, like a team wallet, never ranked. */
-const teamLockOf = (owner) => (OFFICIAL.teamLocks || []).find((l) => l.address === owner) || null;
-export const isTeamLock = (owner) => Boolean(teamLockOf(owner));
-/** The label of a team wallet or a team lock, else null. It wins over a pool label: a lock is a program's account too. */
-const teamLabel = (owner) => (isTeamWallet(owner) ? teamWalletLabel(owner) : teamLockOf(owner) ? teamLockLabel(teamLockOf(owner)) : null);
+const teamLockOf = (owner, team = TEAM) => (team.locks || []).find((l) => l.address === owner) || null;
+export const isTeamLock = (owner, team = TEAM) => Boolean(teamLockOf(owner, team));
+/** The label of a team wallet or a team lock, else null. It wins over a pool label: a lock is a program's account too.
+ *  `team`: whose team facts apply to the list being labelled (src/official.js teamFor: none in the new main token's list under
+ *  MAIN_TOKEN_V5; today's published wallets and lock everywhere else). */
+const teamLabel = (owner, team = TEAM) => (isTeamWallet(owner, team) ? teamWalletLabel(owner) : teamLockOf(owner, team) ? teamLockLabel(teamLockOf(owner, team)) : null);
 /**
  * The order the holder list is shown in (the owner, 13 Oct 2026: "put all the team wallets on the top after the pool and lock"):
  * pools and program accounts, then the team lock(s), then the team wallets, then people. Rows come in biggest first and with
  * their ranks already given (people only, in amount order), so ranks and percentages do not change; each group keeps its order.
  */
-const holderGroup = (row) => (!row.label ? 3 : isTeamWallet(row.owner) ? 2 : isTeamLock(row.owner) ? 1 : 0);
-function holderOrder(rows) {
+const holderGroup = (row, team) => (!row.label ? 3 : isTeamWallet(row.owner, team) ? 2 : isTeamLock(row.owner, team) ? 1 : 0);
+function holderOrder(rows, team = TEAM) {
   const groups = [[], [], [], []];
-  for (const r of rows) groups[holderGroup(r)].push(r);
+  for (const r of rows) groups[holderGroup(r, team)].push(r);
   return groups.flat();
 }
 /** A known pool or program account by address alone (the pool authorities above, the pool programs we label): never a person's wallet. */
@@ -150,6 +152,7 @@ export async function mintInfo(env, mint, fetchImpl = fetch) {
 /** Top holders (up to 20), with owner wallets and labels for pools/curves/team. Labelled wallets are not ranked: ranks are for people.
  *  In the holder list's order (holderOrder), like the full list. */
 export async function getTopHolders(env, mint, fetchImpl) {
+  const team = teamFor(env, mint);
   const facts = await cachedTokenFacts(env, mint, fetchImpl);
   const largest = await rpc(env, "getTokenLargestAccounts", [mint], fetchImpl);
   const accounts = (largest?.value || []).filter((a) => a.amount !== "0");
@@ -174,9 +177,9 @@ export async function getTopHolders(env, mint, fetchImpl) {
   const holders = holderOrder([...byOwner.entries()]
     .sort((x, y) => y[1] - x[1])
     .map(([owner, amount]) => {
-      const label = teamLabel(owner) || poolLabel(owner, ownerProgram[owner]);
+      const label = teamLabel(owner, team) || poolLabel(owner, ownerProgram[owner]);
       return { rank: label ? null : ++rank, owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, label };
-    }));
+    }), team);
   return { facts, holders };
 }
 
@@ -298,7 +301,8 @@ export async function getAllHolders(env, mint, fetchImpl = fetch) {
     const acc = await rpc(env, "getMultipleAccounts", [top, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }], fetchImpl);
     top.forEach((o, i) => { const l = poolLabel(o, acc?.value?.[i]?.owner); if (l) labels.set(o, l); });
   }
-  for (const w of [...(OFFICIAL.teamWallets || []), ...(OFFICIAL.teamLocks || []).map((l) => l.address)]) labels.set(w, teamLabel(w));
+  const team = teamFor(env, mint);
+  for (const w of [...(team.wallets || []), ...(team.locks || []).map((l) => l.address)]) labels.set(w, teamLabel(w, team));
   return { facts, list, labels, slot };
 }
 
@@ -424,16 +428,22 @@ const lastGood = new Map(); // mint -> this server's last good snapshot (for sta
 const FAILED_FOR_MS = 5_000, LATE_RETRY_MS = 5_000;
 /** How old a list the display routes may show while the chain cannot be read. */
 export const SHOW_STALE_MS = 15 * 60_000;
-function ranked({ facts, list, labels, builtAt }) {
+function ranked({ facts, list, labels, builtAt }, team = TEAM) {
   let rank = 0;
   // ranks first, down the list biggest first; then the order it is shown in
   const rows = holderOrder(list.map(([owner, amount]) => {
     // a team label first: a list read before a lock was listed calls it "Pool or program account"
-    const label = teamLabel(owner) || labels.get(owner) || null;
+    const label = teamLabel(owner, team) || labels.get(owner) || null;
     return { owner, amount, percent: facts.supply ? (amount / facts.supply) * 100 : 0, rank: label ? null : ++rank, label };
-  }));
-  return { facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() };
+  }), team);
+  return withTeam({ facts, rows, byOwner: new Map(rows.map((r) => [r.owner, r])), people: rank, at: new Date(builtAt).toISOString() }, team);
 }
+/** The team facts a list was labelled with ride along on the snapshot, not enumerable (its keys and its JSON stay as they were). */
+function withTeam(snap, team) {
+  Object.defineProperty(snap, "team", { value: team, enumerable: false });
+  return snap;
+}
+const teamOfSnap = (snap) => (snap && snap.team) || TEAM;
 function strictSnapshot(env, mint, fetchImpl, maxAgeMs, allowLate = false) {
   const hit = snaps.get(mint);
   if (hit && Date.now() < (hit.failedAt == null ? hit.at + maxAgeMs : hit.failedAt + FAILED_FOR_MS)) {
@@ -451,7 +461,7 @@ function startSnapshot(env, mint, fetchImpl, maxAgeMs, allowLate) {
     // a shared copy ages from when it was read, not from when this server picked it up; one used past its age while another
     // caller rebuilds is asked again after 5 s here (not at every call: each would read the database)
     entry.at = copy.late ? Date.now() - maxAgeMs + LATE_RETRY_MS : copy.builtAt;
-    const snap = ranked(copy);
+    const snap = ranked(copy, teamFor(env, mint));
     lastGood.set(mint, snap);
     return snap;
   });
@@ -464,9 +474,9 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000, 
   const p = strictSnapshot(env, mint, fetchImpl, maxAgeMs, staleMs > 0);
   if (!(staleMs > 0)) return p;
   return p.catch((e) => {
-    const mine = lastGood.get(mint), theirs = e && e.stale ? ranked(e.stale) : null;
+    const mine = lastGood.get(mint), theirs = e && e.stale ? ranked(e.stale, teamFor(env, mint)) : null;
     const best = [mine, theirs].filter(Boolean).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
-    if (best && Date.now() - Date.parse(best.at) < staleMs) return { ...best, stale: true };
+    if (best && Date.now() - Date.parse(best.at) < staleMs) return withTeam({ ...best, stale: true }, teamOfSnap(best));
     throw e;
   });
 }
@@ -474,7 +484,7 @@ export function holderSnapshot(env, mint, fetchImpl = fetch, maxAgeMs = 60_000, 
 export async function publishHolders(env, mint, fresh) {
   const builtAt = Date.now();
   await shareFresh(env, mint, fresh, builtAt);
-  const snap = ranked({ ...fresh, builtAt });
+  const snap = ranked({ ...fresh, builtAt }, teamFor(env, mint));
   lastGood.set(mint, snap);
   snaps.set(mint, { at: builtAt, promise: Promise.resolve(snap), failedAt: null, late: false });
 }
@@ -489,9 +499,10 @@ export const _resetSnapshots = () => { _forgetServerMemory(); epoch++; };
  * a team lock (`lock: true`, a key only a lock's answer has).
  */
 export function rankOf(snap, owner) {
-  const row = snap.byOwner.get(owner), team = isTeamWallet(owner), lock = isTeamLock(owner);
+  const facts = teamOfSnap(snap);
+  const row = snap.byOwner.get(owner), team = isTeamWallet(owner, facts), lock = isTeamLock(owner, facts);
   // a team wallet or lock holding nothing right now still has its label (the rank check names "Team wallet (FOMO)" from it)
-  const out = { amount: row ? row.amount : 0, rank: row ? row.rank : null, total: snap.people, label: row ? row.label : teamLabel(owner),
+  const out = { amount: row ? row.amount : 0, rank: row ? row.rank : null, total: snap.people, label: row ? row.label : teamLabel(owner, facts),
     percent: row ? row.percent : 0, percentile: null, next: null, team, ...(lock ? { lock: true } : {}) };
   if (row && row.rank) {
     out.percentile = Math.max(0.01, (row.rank / Math.max(1, snap.people)) * 100);
@@ -513,7 +524,7 @@ export function rankWithAmount(snap, owner, amount) {
   const list = snap.rows.filter((r) => r.owner !== owner).map((r) => [r.owner, r.amount]);
   if (amount > 0) list.push([owner, amount]);
   list.sort((x, y) => y[1] - x[1]); // biggest first again (the rows are in the shown order), so ranks count down amounts
-  return rankOf(ranked({ facts: snap.facts, list, labels, builtAt: Date.parse(snap.at) }), owner);
+  return rankOf(ranked({ facts: snap.facts, list, labels, builtAt: Date.parse(snap.at) }, teamOfSnap(snap)), owner);
 }
 
 /**

@@ -36,7 +36,7 @@ import { useAttestation } from "./attest.js";
 import { DAY, POLICY, founderAmount, iso } from "./policy.js";
 import { averages, dayOf, latestBalances, samplesStale, tenure } from "./ledger.js";
 import { LIVE, activeBan, adminWallets, amountsFor, liveSeatOfCity, liveSeatOfUser } from "./roles.js";
-import { LAUNCHPAD_OPENS_AT, activeMint } from "./official.js";
+import { LAUNCHPAD_OPENS_AT, tokenMint } from "./official.js";
 import { countryCities } from "./cities.js";
 import { sha256hex } from "./blobs.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
@@ -120,7 +120,7 @@ export async function eligibility(env, u, now = Date.now(), fetchImpl = fetch, t
   const homeReadyAt = u.home_city && u.home_at ? iso(Date.parse(u.home_at) + F.localDays * DAY) : null;
   const out = { ok: false, threshold: null, tenure: null, amount: 0, cooldownUntil: null, homeReadyAt,
     cityId: null, cityName: null, country: null, challenging: null, darkAdoption: false };
-  if (!activeMint(env)) return { ...out, error: "not_launched" };
+  if (!tokenMint(env)) return { ...out, error: "not_launched" };
   // Which city? Home by default; a different one only via dark-city adoption.
   const city = target && target.id ? target
     : u.home_city ? { id: u.home_city, name: u.home_name, country: u.home_country } : null;
@@ -757,7 +757,7 @@ export async function handleSquadCreate(request, env, now = Date.now()) {
   if (a.error) return a.error;
   const u = a.u, db = env.DB;
   if (!u.wallet) return json({ ok: false, error: "no_wallet" }, 400); // a squad pools wallets: link one first
-  if (!activeMint(env)) return json({ ok: false, error: "not_launched" }, 403);
+  if (!tokenMint(env)) return json({ ok: false, error: "not_launched" }, 403);
   if (!u.home_city) return json({ ok: false, error: "no_home" }, 403);
   if (await liveSeatOfCity(db, u.home_city)) return json({ ok: false, error: "city_taken" }, 409);
   if (await liveSeatOfUser(db, u.id)) return json({ ok: false, error: "has_seat" }, 403);
@@ -1035,7 +1035,7 @@ export async function cityPicture(env, cityId, viewer, now = Date.now(), fetchIm
   let quorum = null;
   if (seat && seat.status === "steward") {
     const wallets = await checkedInWallets(db, cityId);
-    const amounts = activeMint(env) && wallets.length ? await amountsFor(env, wallets, fetchImpl) : new Map();
+    const amounts = tokenMint(env) && wallets.length ? await amountsFor(env, wallets, fetchImpl) : new Map();
     quorum = { have: wallets.filter((w) => (amounts.get(w) || 0) > 0).length, need: F.stewardQuorum };
   }
   return {

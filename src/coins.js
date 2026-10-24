@@ -30,7 +30,7 @@ import { countRecent, noteEvent } from "./attest.js";
 import { DAY, POLICY, iso } from "./policy.js";
 import { powersOf } from "./roles.js";
 import { stillFounder } from "./seats.js";
-import { activeMint } from "./official.js";
+import { activeMint, tokenMint } from "./official.js";
 import { mintInfo } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
@@ -116,7 +116,7 @@ async function admin(request, env, now, fetchImpl, { write = true, fresh = true 
  */
 export async function handleCoins(request, env, fetchImpl = fetch, now = Date.now()) {
   const pairs = Object.fromEntries(Object.entries(PAIRS).map(([k, v]) => [k, { ...v, symbol: k }]));
-  const vicinity = activeMint(env) || null; // the live $VICINITY contract (for the swap panel)
+  const vicinity = tokenMint(env) || null; // the live main-token contract (for the swap panel): $VICINITY with MAIN_TOKEN_V5 off
   // the old Raydium LaunchLab path is closed here (lpSetup on): every answer says so (launchLabClosed: true), so the dashboard's words
   // about a coin come from the same answer as the coin, never from a second request that may fail. With the launchpad's settings off
   // the key does not exist and every answer is exactly as it always was (the path is open then).
@@ -266,7 +266,8 @@ export async function handleProposeMint(request, env, fetchImpl = fetch, now = D
   const body = await readJson(request);
   const mint = body && typeof body.mint === "string" ? body.mint.trim() : "";
   if (!isSolanaAddress(mint)) return json({ ok: false, error: "bad_address" }, 400);
-  if (mint === activeMint(env) || Object.values(PAIRS).some((p) => p.mint === mint)) return json({ ok: false, error: "not_a_city_coin" }, 400);
+  // neither the main token nor the legacy $VICINITY (MAIN_TOKEN_V5 on: two different mints; off: one and the same) is ever a city coin
+  if (mint === tokenMint(env) || mint === activeMint(env) || Object.values(PAIRS).some((p) => p.mint === mint)) return json({ ok: false, error: "not_a_city_coin" }, 400);
   const coin = await coinOf(db, seat.city_id);
   if (!coin) return json({ ok: false, error: "design_first" }, 409);
   if (coin.mint) return json({ ok: false, error: "coin_locked" }, 409);
@@ -469,7 +470,7 @@ export async function launchedCoins(db, limit = 300) {
 /** Prices in US dollars for the tokens the swap panel shows (only those: $VICINITY, the pairs, launched city coins). */
 export async function handlePrices(request, env, fetchImpl = fetch) {
   const wanted = wantedMints(request);
-  const allowed = new Set([activeMint(env), ...Object.values(PAIRS).map((p) => p.mint)].filter(Boolean));
+  const allowed = new Set([tokenMint(env), ...Object.values(PAIRS).map((p) => p.mint)].filter(Boolean));
   if (env.DB && wanted.some((m) => !allowed.has(m))) {
     await ensureSchema(env.DB);
     for (const m of wanted) if (!allowed.has(m) && await env.DB.prepare("SELECT 1 FROM city_coins WHERE mint = ?").bind(m).first()) allowed.add(m);

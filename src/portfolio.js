@@ -32,7 +32,9 @@
  */
 import { json } from "./http.js";
 import { access } from "./access.js";
-import { activeMint } from "./official.js";
+import { activeMint, tokenMint } from "./official.js";
+import { mainTokenV5On } from "./flags.js";
+import { MAIN_TOKEN_LABEL } from "./maintoken.js";
 import { ensureSchema } from "./store.js";
 import { chainSymbolsOf, displayTicker } from "./tickers.js";
 import { PAIRS, jupiterPrices, launchedCoins } from "./coins.js";
@@ -97,10 +99,17 @@ async function loadMints(env, now) {
   const flight = (async () => {
     const list = [];
     const seen = new Set(Object.values(PAIRS).map((p) => p.mint)); // SOL, USDC and RAY are never a city coin, whatever the table says
-    const live = activeMint(env);
+    const v5 = mainTokenV5On(env), live = v5 ? null : activeMint(env);
     if (live && isSolanaAddress(live) && !seen.has(live)) {
       seen.add(live);
       list.push({ kind: "vicinity", mint: live, symbol: "VICINITY", name: "Vicinity" });
+    }
+    if (v5) {
+      // MAIN_TOKEN_V5 on: the configured main token first (`kind: "vicinity"` is the API's name for the site's main token; nothing of
+      // $VICINITY's name), then $VICINITY as a legacy item (`kind: "legacy"`): a member may still see and send their own, labelled legacy
+      const main = tokenMint(env), legacy = activeMint(env);
+      if (main && isSolanaAddress(main) && !seen.has(main)) { seen.add(main); list.push({ kind: "vicinity", mint: main, symbol: null, name: MAIN_TOKEN_LABEL }); }
+      if (legacy && isSolanaAddress(legacy) && !seen.has(legacy)) { seen.add(legacy); list.push({ kind: "legacy", mint: legacy, symbol: "VICINITY", name: "Vicinity (legacy token)" }); }
     }
     if (env && env.DB) {
       await ensureSchema(env.DB);

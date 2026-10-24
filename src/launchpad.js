@@ -17,7 +17,9 @@
  *             shows nothing for it.
  */
 import { json } from "./http.js";
-import { activeMint, launchedAtOf, officialFor } from "./official.js";
+import { launchedAtOf, officialFor, teamFor, tokenMint } from "./official.js";
+import { MAIN_TOKEN_LABEL } from "./maintoken.js";
+import { mainTokenRoute } from "./swap.js";
 import { swapOn } from "./cluster.js";
 import { PAIRS, handleCoins, launchedCoins } from "./coins.js";
 import { handleSeats } from "./seats.js";
@@ -31,7 +33,7 @@ import { DAY, iso } from "./policy.js";
 import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
 import { madeByOf, readyChoices } from "./coinart-store.js";
 import { choiceHolds } from "./coinready.js";
-import { coinV2ReadyOn } from "./flags.js";
+import { coinV2ReadyOn, mainTokenV5On } from "./flags.js";
 import { onForget } from "./memos.js";
 
 const SOL = PAIRS.SOL.mint;
@@ -61,7 +63,19 @@ export function tradeLinks(mint, pairMint, here = null) {
   };
 }
 /** The page on this site that buys and sells `mint` once the in-app swap is on: the token page's panel for $VICINITY, the coin page for a city coin; null while the switch is off. */
-export const buyHereLink = (env, mint, vicMint = activeMint(env)) => (swapOn(env) && mint ? (mint === vicMint ? "/token#buy-slot" : `/coin?mint=${mint}`) : null);
+export const buyHereLink = (env, mint, vicMint = tokenMint(env)) => (swapOn(env) && mint ? (mint === vicMint ? "/token#buy-slot" : `/coin?mint=${mint}`) : null);
+
+/**
+ * Where to look up and trade the configured main token (MAIN_TOKEN_V5 on, and only once the existing quote path finds a route for it,
+ * src/swap.js mainTokenRoute): Jupiter (its information page while the in-app swap is on), DEX Screener and Solscan. Never a Raydium
+ * LaunchLab address: that is where $VICINITY launched, not the new token. null without a route (no purchase link at all).
+ */
+export async function mainTokenLinks(env, mint, fetchImpl = fetch, now = Date.now()) {
+  if (!mint || !(await mainTokenRoute(env, mint, fetchImpl, now))) return null;
+  const here = buyHereLink(env, mint, mint);
+  return { jupiter: here ? `https://jup.ag/tokens/${mint}` : `https://jup.ag/swap/SOL-${mint}`, dexscreener: `https://dexscreener.com/solana/${mint}`,
+    solscan: `https://solscan.io/token/${mint}`, ...(here ? { here } : {}) };
+}
 
 /** How many people hold a coin, by the rule of the token page: every owner except pools, program accounts and team wallets (the labelled ones). */
 export const peopleOf = ({ list, labels }) => list.filter(([owner]) => !labels.get(owner)).length;
@@ -113,12 +127,13 @@ async function communityCounts(env, cityIds, now) {
   const placed = (await env.DB.prepare("SELECT wallet, home_city FROM users WHERE home_city IS NOT NULL AND provider != 'testlab'").all()).results;
   let balances = null;
   try { balances = (await latestBalances(env, now))?.balances || null; } catch { balances = null; }
+  const team = teamFor(env, tokenMint(env)); // the balances are the main token's: under MAIN_TOKEN_V5 no $VICINITY team wallet is set aside
   for (const u of placed) {
     const id = String(u.home_city);
     if (!cityIds.has(id)) continue;
     const c = out.get(id) || { members: 0, holders: 0 };
     c.members++;
-    if (balances && u.wallet && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet)) c.holders++; // a member without a wallet is counted, never a holder
+    if (balances && u.wallet && (balances[u.wallet] || 0) > 0 && !isTeamWallet(u.wallet, team)) c.holders++; // a member without a wallet is counted, never a holder
     out.set(id, c);
   }
   return out;
@@ -127,7 +142,7 @@ async function communityCounts(env, cityIds, now) {
 /** The whole answer, built from the sources. { body, degraded } (degraded: some source failed, keep it only briefly). */
 async function build(env, fetchImpl, now) {
   const official = officialFor(env);
-  const vicMint = activeMint(env) || null;
+  const vicMint = tokenMint(env) || null;
   // one source after the other: some of them run a batch, and batches must not overlap on one database
   const coinsRes = await (await handleCoins(new Request("https://launchpad.internal/api/coins"), env, fetchImpl, now)).json();
   const seatsRes = await (await handleSeats(env, now)).json();
@@ -192,6 +207,9 @@ async function build(env, fetchImpl, now) {
     market: vicMint ? market.markets.get(vicMint) || null : null, holders: vicMint ? stats.counts.get(vicMint) || null : null,
     links: tradeLinks(vicMint, SOL, buyHereLink(env, vicMint, vicMint)), rewardModel: null, opensAt: official.launchpadOpensAt,
   };
+  // MAIN_TOKEN_V5 on: the first card is the configured main token (or "upcoming" without one), with nothing of $VICINITY's: no ticker
+  // or name of its own until its on-chain metadata is recorded, no launch date, and purchase links only once a route exists
+  if (mainTokenV5On(env)) Object.assign(vicinity, { ticker: null, name: MAIN_TOKEN_LABEL, launchedAt: null, links: await mainTokenLinks(env, vicMint, fetchImpl, now) });
 
   const all = [vicinity, ...cards];
   const isNew = (k) => k.status === "live" && k.launchedAt && now - Date.parse(k.launchedAt) < NEW_DAYS * DAY;
@@ -237,12 +255,12 @@ const COUNT_REUSE_MS = 10 * 60_000; // one run of the job
 export async function refreshCoinStats(env, now = Date.now(), fetchImpl = fetch, { max = 40 } = {}) {
   const db = env.DB;
   await ensureLaunchpadSchema(db);
-  const mints = [...new Set([activeMint(env), ...(await launchedCoins(db, 10_000)).map((c) => c.mint)].filter(Boolean))];
+  const mints = [...new Set([tokenMint(env), ...(await launchedCoins(db, 10_000)).map((c) => c.mint)].filter(Boolean))];
   if (!mints.length) return { counted: 0, failed: 0, left: 0 };
   const last = new Map((await db.prepare("SELECT mint, updated_at FROM coin_stats").all()).results.map((r) => [r.mint, r.updated_at]));
   const due = mints.sort((a, b) => (last.get(a) || "").localeCompare(last.get(b) || "")).slice(0, max);
   let counted = 0, failed = 0;
-  const vicinity = activeMint(env);
+  const vicinity = tokenMint(env);
   for (const mint of due) {
     try {
       // $VICINITY: the holder list the site already keeps (src/chain.js holderSnapshot, shared everywhere and refreshed by the
