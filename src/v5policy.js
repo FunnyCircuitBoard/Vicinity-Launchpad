@@ -16,7 +16,8 @@
  *   checkPolicyConfig(env)   the check run at the first request of an isolate (src/index.js) and at each job start (src/jobs.js): each named
  *                            error is logged once per isolate, as its code and path only, never a value. With everything unset it logs
  *                            nothing: today's site. While MAIN_TOKEN_V5 is on, the three amendment-01 keys are reported by
- *                            src/maintoken.js checkDeploymentConfig (stage S02A), so they are not logged a second time here.
+ *                            src/maintoken.js checkDeploymentConfig (stage S02A), so they are not logged a second time here. While
+ *                            HOST_REDIRECT is set on, each reason that holds it off is logged once too.
  *   publicV5(env)            PUBLIC_V5 is on AND the configuration is accepted (schema-and-api.md 2.2: validation "keeps every dependent
  *                            feature off while any error exists"). Off: GET /api/policy answers as before and /api/policy/master is an
  *                            unknown path.
@@ -24,6 +25,10 @@
  *                            the deployed pages were built with the switch, the label set they were built with is this Worker's, and both
  *                            configuration checks accept the deployment). Otherwise the whole Worker answers exactly as with the switch
  *                            off. Every main-token consumer reads the switch through this, never through src/flags.js mainTokenV5On.
+ *   hostRedirect(env)        HOST_REDIRECT as the Worker applies it (stage S03, src/hostroute.js): on only while every precondition holds
+ *                            (hostRedirectRefusals below: the deployed wrangler.jsonc sends every page through the Worker, SITE_ORIGIN and
+ *                            SITE_ORIGINS are accepted, and the v5 configuration check accepts the deployment, which needs DEPLOYMENT_ENV and
+ *                            SITE_ORIGIN = https://citycoin.dev). Otherwise src/index.js answers exactly as with the switch off.
  *   publicMaster(env, opts)  the `master` key of GET /api/policy: version, approved and active pairs, the selection schedule, the fee
  *                            policy, the main_token block (mint null until configured, verified and in use), legacy_tokens, official_links
  *                            (null when unset) and the public authority addresses. Every part says its own status.
@@ -35,7 +40,7 @@
  * which reads MAIN_TOKEN_MINT, OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL (none of them supplied by the owner yet).
  */
 import { FLAG_VALUES, MASTER_POLICY, nextSelectionBoundary, validatePolicy } from "./masterpolicy.js";
-import { mainTokenV5On, publicV5On } from "./flags.js";
+import { hostRedirectOn, mainTokenV5On, publicV5On } from "./flags.js";
 import { deploymentAccepted, mainMint, officialLinks } from "./maintoken.js";
 import { DEFAULT_SITE_ORIGIN, DEFAULT_SITE_ORIGINS, normalizeOrigin, siteConfig } from "./site-config.js";
 import { brandOf } from "./brand.js";
@@ -147,6 +152,9 @@ export function checkPolicyConfig(env, { log = (...args) => console.error(...arg
     say(`${e.code}|${e.path}`, "policy config refused", e.code, e.path);
   }
   if (tokenOn) for (const code of mainTokenRefusals(env)) say(`gate|${code}`, "main token switch refused", code);
+  let redirectOn = false;
+  try { redirectOn = hostRedirectOn(env); } catch { /* the switch reads as off */ }
+  if (redirectOn) for (const code of hostRedirectRefusals(env)) say(`host|${code}`, "host redirect switch refused", code);
   return { ok: r.ok, codes: r.errors.map((e) => e.code) };
 }
 
@@ -158,7 +166,8 @@ export function publicV5(env) {
 /* ---------------------------------------------------------------- MAIN_TOKEN_V5 as the Worker applies it */
 
 let pagesBuilt = PAGES_BUILT;
-/** Tests only: stand in for a page build made with the switch ({ mainTokenV5: true, brand }), or null for the committed src/pages-built.js. */
+/** Tests only: stand in for a page build made with the switch ({ mainTokenV5: true, brand }) or with every page sent through the Worker
+ *  ({ pagesReachWorker: true }), or null for the committed src/pages-built.js. */
 export const _pagesBuiltForTests = (p) => { pagesBuilt = p ? Object.freeze({ ...PAGES_BUILT, ...p }) : PAGES_BUILT; };
 
 /**
@@ -193,6 +202,40 @@ export function mainTokenRefusals(env) {
 /** MAIN_TOKEN_V5 is set on AND nothing refuses it (above). Never throws: anything odd reads as off, which is today's site. */
 export function mainTokenV5(env) {
   try { return mainTokenV5On(env) && mainTokenRefusals(env).length === 0; } catch { return false; }
+}
+
+/* ---------------------------------------------------------------- HOST_REDIRECT as the Worker applies it */
+
+/**
+ * Why HOST_REDIRECT does not count in this environment: [] when every precondition holds, else the reasons (codes only, never a value).
+ *   HOST_REDIRECT_PAGES_BYPASS_WORKER  the deployed wrangler.jsonc does not send every request through the Worker first (its assets block's
+ *                                      run_worker_first is not true; the page build records it in src/pages-built.js pagesReachWorker).
+ *                                      Today run_worker_first lists only /api/*, /coin-meta/* and /official-coins.csv, so on an old host
+ *                                      the pages would still be served straight from the static assets while their /api writes answered
+ *                                      421: a half-moved site. The switch stays off until the pages reach the Worker.
+ *   HOST_REDIRECT_SITE_REFUSED         src/site-config.js has no accepted configuration (SITE_ORIGIN and SITE_ORIGINS unset, or refused):
+ *                                      no configured redirect target.
+ *   HOST_REDIRECT_POLICY_REFUSED       the v5 configuration check refuses the deployment: DEPLOYMENT_ENV unset (ENVIRONMENT_UNSET),
+ *                                      SITE_ORIGIN missing (MISSING_SITE_ORIGIN) or not https://citycoin.dev
+ *                                      (HOST_REDIRECT_TARGET_NOT_CANONICAL), or any other named error (schema-and-api.md 2.2: "keeps every
+ *                                      dependent feature off while any error exists").
+ */
+export function hostRedirectRefusals(env) {
+  try {
+    const out = [];
+    if (pagesBuilt.pagesReachWorker !== true) out.push("HOST_REDIRECT_PAGES_BYPASS_WORKER");
+    if (!siteConfig(env).configured) out.push("HOST_REDIRECT_SITE_REFUSED");
+    if (!policyConfig(env).ok) out.push("HOST_REDIRECT_POLICY_REFUSED");
+    return out;
+  } catch {
+    return ["HOST_REDIRECT_CHECK_FAILED"];
+  }
+}
+
+/** HOST_REDIRECT is set on AND nothing refuses it (above). Never throws: anything odd reads as off, which is today's site. With the switch
+ *  unset this reads one setting and nothing else, so the Worker's every request costs what it cost before. */
+export function hostRedirect(env) {
+  try { return hostRedirectOn(env) && hostRedirectRefusals(env).length === 0; } catch { return false; }
 }
 
 /* ---------------------------------------------------------------- the public policy */

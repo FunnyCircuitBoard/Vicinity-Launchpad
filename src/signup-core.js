@@ -10,7 +10,8 @@
  * is made or when the person signs in to an existing account.
  */
 import { clearCookie, cookie, getCookie, json, randomToken, sameSite, sha256 } from "./http.js";
-import { ensureOnboardSchema } from "./store.js";
+import { ensureHostSignupSchema, ensureOnboardSchema } from "./store.js";
+import { hostWrite, onThisHost, servedHost, signupDelete } from "./hostbind.js";
 import { DAY, iso } from "./policy.js";
 
 export const SIGNUP_COOKIE = "vsu";
@@ -26,7 +27,7 @@ const CAP_SECONDS = 3 * 3600;      // ... and never more than three hours from t
  * link, never the rest of the site). Returns a Response to send, or null.
  */
 export async function guardV2(request, env) {
-  if (request.method !== "GET" && !sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (request.method !== "GET" && !sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
   try { await ensureOnboardSchema(env.DB); }
   catch (e) {
@@ -50,20 +51,31 @@ export const expiryFor = (now, createdMs) => Math.min(now + SLIDE_SECONDS * 1000
 /** The latest a sign-up made at `createdMs` can ever live. */
 export const capFor = (createdMs) => createdMs + CAP_SECONDS * 1000;
 
-/** The live sign-up of this browser (its `vsu` cookie), or null. Callers have run ensureSignupSchema. */
+/**
+ * The live sign-up of this browser (its `vsu` cookie), or null. Callers have run ensureSignupSchema. While the host binding counts
+ * (src/hostbind.js), a sign-up started on another host is not this browser's here (a copied cookie finds nothing); one started before the
+ * binding (host NULL) belongs to vicinity.city. The row is returned as it is stored.
+ */
 export async function getSignup(env, request, now = Date.now()) {
   const token = getCookie(request, SIGNUP_COOKIE);
   if (!token || token.length > 100) return null;
   const row = await env.DB.prepare("SELECT * FROM signups WHERE id = ?").bind(await sha256(token)).first();
-  return row && Date.parse(row.expires_at) > now ? row : null;
+  return row && Date.parse(row.expires_at) > now && onThisHost(servedHost(env, request), row.host) ? row : null;
 }
 
-/** A new, empty sign-up with a fresh random token (never reuses a token the browser sent: no fixation). Returns { id, cookie }. */
-export async function startSignup(env, now = Date.now()) {
+/**
+ * A new, empty sign-up with a fresh random token (never reuses a token the browser sent: no fixation). Returns { id, cookie }. `served`
+ * (src/hostbind.js servedHost of the request): while the host binding counts, the sign-up records its host in the same transaction.
+ */
+export async function startSignup(env, now = Date.now(), served = null) {
   const token = randomToken(32);
   const id = await sha256(token);
   const exp = expiryFor(now, now);
-  await env.DB.prepare("INSERT INTO signups (id, created_at, expires_at) VALUES (?, ?, ?)").bind(id, iso(now), iso(exp)).run();
+  const insert = env.DB.prepare("INSERT INTO signups (id, created_at, expires_at) VALUES (?, ?, ?)").bind(id, iso(now), iso(exp));
+  if (served && served.bound) {
+    await ensureHostSignupSchema(env.DB);
+    await env.DB.batch([insert, hostWrite(env.DB, "signups", id, served)]);
+  } else await insert.run();
   return { id, cookie: cookie(SIGNUP_COOKIE, token, Math.floor((exp - now) / 1000)) };
 }
 
@@ -77,7 +89,8 @@ export async function touchSignup(env, row, request, now = Date.now()) {
 /**
  * Throw away this browser's half-done sign-up (and any hand-off bound to it): the person just signed in to an account they
  * already had. Returns the Set-Cookie values that clear the `vsu` cookie ([] when the request carried none). Never throws: a
- * person who just signed in must not fail on tidying up.
+ * person who just signed in must not fail on tidying up. While the host binding counts (src/hostbind.js), only a sign-up of this host is
+ * deleted: a vsu cookie copied from another host clears here and ends nothing there.
  */
 export async function endSignup(env, request) {
   const token = getCookie(request, SIGNUP_COOKIE);
@@ -85,11 +98,10 @@ export async function endSignup(env, request) {
   if (token.length <= 100) {
     try {
       await ensureOnboardSchema(env.DB);
-      const id = await sha256(token);
-      await env.DB.batch([
-        env.DB.prepare("DELETE FROM handoffs WHERE signup_id = ?").bind(id),
-        env.DB.prepare("DELETE FROM signups WHERE id = ?").bind(id),
-      ]);
+      const id = await sha256(token), served = servedHost(env, request);
+      if (served.bound) await ensureHostSignupSchema(env.DB);
+      const del = signupDelete(env.DB, id, served);
+      if (del.length) await env.DB.batch(del);
     } catch (e) { console.error("ending the sign-up failed", String((e && e.message) || e)); }
   }
   return [clearCookie(SIGNUP_COOKIE)];
@@ -126,11 +138,14 @@ export async function recordIdentity(env, request, provider, who, now) {
   return { recorded: true, to: `/connect?step=${nextStep(updated || row)}`, cookie, row: updated || row };
 }
 
-/** A phone-browser hand-off row by its code (the same lookup src/handoff.js does, without importing it). */
-export async function findHandoff(env, code, now) {
+/**
+ * A phone-browser hand-off row by its code (the same lookup src/handoff.js does, without importing it). `served` (src/hostbind.js): while the
+ * host binding counts, a hand-off made on another host is unknown here (handoffs.host NULL reads as vicinity.city).
+ */
+export async function findHandoff(env, code, now, served = null) {
   if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(code)) return null;
   const row = await env.DB.prepare("SELECT * FROM handoffs WHERE id = ? AND kind = 'locate'").bind(await sha256(code)).first();
-  return row && Date.parse(row.expires_at) > now ? row : null;
+  return row && Date.parse(row.expires_at) > now && (!served || onThisHost(served, row.host)) ? row : null;
 }
 
 /**

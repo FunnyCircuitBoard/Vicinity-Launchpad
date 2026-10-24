@@ -13,7 +13,7 @@ import { activeBan } from "./roles.js";
  *   fresh: a sensitive action (the wallet must have been proven in the last 30 minutes)
  */
 export async function access(request, env, now = Date.now(), { write = true, fresh = false } = {}) {
-  if (write && !sameSite(request)) return { error: json({ ok: false, error: "wrong_origin" }, 403) };
+  if (write && !sameSite(request, env)) return { error: json({ ok: false, error: "wrong_origin" }, 403) };
   const s = await getSession(env, request, now);
   if (!s || !s.user) return { error: json({ ok: false, error: "sign_in" }, 401) };
   await ensureSchema(env.DB);

@@ -21,7 +21,8 @@ import { activeMint } from "./official.js";
 import { autoUsername } from "./text.js";
 import { check, limitKey } from "./limits.js";
 import { HOUR, iso } from "./policy.js";
-import { ensureLoginsSchema } from "./store.js";
+import { ensureHostSchema, ensureLoginsSchema } from "./store.js";
+import { hostWrite, servedHost } from "./hostbind.js";
 import { addedBy } from "./logins.js";
 
 const FINISHES_PER_HOUR = 10; // finish tries per sign-up (counted before the work, atomically: src/limits.js)
@@ -139,12 +140,17 @@ export async function finishCore(env, row, request, now = Date.now(), cf = reque
 
   const early = activeMint(env) ? 0 : 1;
   const token = randomToken(32), sessionId = await sha256(token);
+  // while the host binding counts (src/hostbind.js), the new session records the host it is made on, in the same transaction (a 5th
+  // statement after the four: it changes nothing unless statement 2 made the session); otherwise the batch is exactly the four
+  const served = servedHost(env, request);
+  if (served.bound) await ensureHostSchema(env.DB, "sessions");
+  const host = hostWrite(env.DB, "sessions", sessionId, served);
   // A username can collide with the (case-insensitive) unique index when someone takes it a moment before: not the person's
   // problem. The whole batch rolled back, so pick another name and go on. An identity collision is theirs (social_taken).
   for (let attempt = 0; ; attempt++) {
     const values = [iso(now), row.id, TERMS_VERSION, row.provider, row.provider_id, await autoUsername(env.DB), early, sessionId, iso(now + SESSION_SECONDS * 1000)];
     let r;
-    try { r = await env.DB.batch(FINISH.map((sql) => bindFor(env.DB, sql, values))); }
+    try { r = await env.DB.batch([...FINISH.map((sql) => bindFor(env.DB, sql, values)), ...(host ? [host] : [])]); }
     catch (e) {
       if (!/UNIQUE/i.test(String((e && e.message) || e))) throw e;
       const why = await whyNotFinished(env, row, now);

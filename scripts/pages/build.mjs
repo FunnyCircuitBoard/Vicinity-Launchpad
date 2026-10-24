@@ -17,16 +17,19 @@
 // A source may hold a fill, <!--@name-->, which the build replaces with markup made from the site's own data (FILLS below); an
 // unknown name stops the build. Today: <!--@official-addresses--> on /official, the address list of src/official.js officialAddresses()
 // with the settings of wrangler.jsonc (what the Worker runs with), so no address is typed into a page.
-// It also writes src/pages-built.js: what these pages were built with (MAIN_TOKEN_V5 and BRAND from wrangler.jsonc). The Worker counts
-// MAIN_TOKEN_V5 only when the deployed pages were built with it (src/v5policy.js mainTokenV5): the pages are static files it never sees.
+// It also writes src/pages-built.js: what these pages were built with (MAIN_TOKEN_V5 and BRAND from wrangler.jsonc) and whether
+// wrangler.jsonc sends them through the Worker (its assets block's run_worker_first is true). The Worker counts MAIN_TOKEN_V5 only when the
+// deployed pages were built with it (src/v5policy.js mainTokenV5): the pages are static files it never sees. It counts HOST_REDIRECT only
+// when the pages reach it (src/v5policy.js hostRedirect), and the build stops when wrangler.jsonc sets HOST_REDIRECT=on without that.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SOCIAL_PROFILES, officialAddresses, socialProfiles } from "../../src/official.js";
 import { brandLabels, brandOf } from "../../src/brand.js";
 import { esc, escBrand, rewriteSocialLinks, socialList } from "../../src/footer-social.js";
-import { mainTokenV5On } from "../../src/flags.js";
+import { hostRedirectOn, mainTokenV5On } from "../../src/flags.js";
 import { deploymentAccepted } from "../../src/maintoken.js";
 import { policyConfig } from "../../src/v5policy.js";
+import { siteConfig } from "../../src/site-config.js";
 import { isSolanaAddress } from "../../src/solana.js";
 import { settingsFrom } from "../mainnet-preflight.mjs";
 
@@ -228,19 +231,44 @@ export function pageSocials(vars = deployedVars()) {
   return socialProfiles(vars, true);
 }
 
+/** The assets block of wrangler.jsonc (whole-line comments and trailing commas stripped, as settingsFrom reads the vars). */
+export const deployedAssets = () => JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8")
+  .replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")).assets || {};
+/**
+ * Whether every page reaches the Worker: wrangler.jsonc's assets block has run_worker_first true, or a list that holds "/*" and no negative
+ * ("!") pattern (the same routing). Today it lists only /api/*, /coin-meta/* and /official-coins.csv, so the pages are served straight from
+ * the static assets (no Worker request) and this is false. HOST_REDIRECT
+ * (stage S03) answers pages on the old hosts with a 308 from the Worker, so HOST_REDIRECT=on in wrangler.jsonc stops the build unless the
+ * pages reach the Worker and the Worker would accept the switch (the same rule as MAIN_TOKEN_V5 above: never deploy a switch that does not
+ * count). A HOST_REDIRECT set only in the Cloudflare dashboard is refused at run time instead (src/v5policy.js hostRedirectRefusals).
+ */
+export function pageRouting(vars = deployedVars(), assets = deployedAssets()) {
+  const first = assets ? assets.run_worker_first : undefined;
+  const pagesReachWorker = first === true || (Array.isArray(first) && first.includes("/*") && !first.some((p) => String(p).startsWith("!")));
+  if (hostRedirectOn(vars)) {
+    const refused = [...(pagesReachWorker ? [] : ["HOST_REDIRECT_PAGES_BYPASS_WORKER"]), ...(siteConfig(vars).configured ? [] : ["HOST_REDIRECT_SITE_REFUSED"]),
+      ...policyConfig(vars).errors.map((e) => e.code)];
+    if (refused.length) throw new Error(`HOST_REDIRECT=on in wrangler.jsonc with a configuration the Worker refuses (${[...new Set(refused)].join(", ")}): the old-host redirect needs "run_worker_first": true in the assets block, SITE_ORIGIN=https://citycoin.dev in SITE_ORIGINS and DEPLOYMENT_ENV`);
+  }
+  return { pagesReachWorker };
+}
+
 export const PAGES_BUILT_FILE = fileURLToPath(new URL("../../src/pages-built.js", import.meta.url));
 /**
  * The text of src/pages-built.js for these settings: whether the pages carry MAIN_TOKEN_V5 (only once pageSocials accepts it, so never
- * before the brand rollout) and the label set they were built with. The Worker counts the switch only while this says the pages have it
- * and BRAND is the same label set, so a switch or a BRAND set only in the Cloudflare dashboard never changes the site.
+ * before the brand rollout), the label set they were built with, and whether they reach the Worker (pageRouting). The Worker counts
+ * MAIN_TOKEN_V5 only while this says the pages have it and BRAND is the same label set, and HOST_REDIRECT only while the pages reach it,
+ * so a switch or a BRAND set only in the Cloudflare dashboard never changes the site.
  */
-export function pagesBuiltSource(vars = deployedVars()) {
+export function pagesBuiltSource(vars = deployedVars(), assets = deployedAssets()) {
   pageSocials(vars); // refuses MAIN_TOKEN_V5 before the brand rollout
-  const built = { mainTokenV5: mainTokenV5On(vars), brand: pageBrand(vars).value };
+  const { pagesReachWorker } = pageRouting(vars, assets); // refuses HOST_REDIRECT=on while the pages bypass the Worker
+  const built = { mainTokenV5: mainTokenV5On(vars), brand: pageBrand(vars).value, pagesReachWorker };
   return [
     "// Written by scripts/pages/build.mjs from the settings of wrangler.jsonc; do not edit (test/build-parity.test.js checks it).",
-    "// What the deployed pages in public/ were built with. src/v5policy.js mainTokenV5 counts MAIN_TOKEN_V5 only when it is true here.",
-    `export const PAGES_BUILT = Object.freeze({ mainTokenV5: ${built.mainTokenV5}, brand: ${JSON.stringify(built.brand)} });`,
+    "// What the deployed pages in public/ were built with, and whether wrangler.jsonc sends them through the Worker (run_worker_first true).",
+    "// src/v5policy.js counts MAIN_TOKEN_V5 only when mainTokenV5 is true here, and HOST_REDIRECT only when pagesReachWorker is true.",
+    `export const PAGES_BUILT = Object.freeze({ mainTokenV5: ${built.mainTokenV5}, brand: ${JSON.stringify(built.brand)}, pagesReachWorker: ${built.pagesReachWorker} });`,
     "",
   ].join("\n");
 }
@@ -269,6 +297,7 @@ export const buildPages = ({ brand, socials } = {}) => build(false, brand ?? pag
 export const buildStandalonePages = ({ brand, socials } = {}) => build(true, brand ?? pageBrand(), socials ?? pageSocials());
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  pageRouting(); // stops before any page is written when wrangler.jsonc sets HOST_REDIRECT=on without the pages reaching the Worker
   for (const [f, html] of [...buildPages(), ...buildStandalonePages()]) { writeFileSync(OUT + f, html); console.log("page ready:", f); }
   writeFileSync(PAGES_BUILT_FILE, pagesBuiltSource());
   console.log("ready: src/pages-built.js");

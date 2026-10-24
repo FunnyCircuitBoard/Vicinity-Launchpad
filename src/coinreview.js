@@ -507,7 +507,7 @@ async function counted(env, kind, userId, now) {
  */
 async function founderPost(request, env, now, fetchImpl, kind, { max = 2048 } = {}) {
   if (!env.DB) return { error: fail("unavailable", 503) };
-  if (!sameSite(request)) return { error: fail("wrong_origin", 403) };
+  if (!sameSite(request, env)) return { error: fail("wrong_origin", 403) };
   const a = await access(request, env, now, { write: true, fresh: true });
   if (a.error) return a;
   const body = await readJson(request, max);

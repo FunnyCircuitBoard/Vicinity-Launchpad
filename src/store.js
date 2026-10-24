@@ -1241,3 +1241,46 @@ export function ensureNotifySchema(db) {
   }
   return notifyReady.get(db);
 }
+
+/**
+ * Session and challenge host binding (Citycoin.dev master v5, stage S04; src/hostbind.js). Like the others, deliberately NOT in MIGRATIONS:
+ * it runs only while the binding counts (SITE_ORIGINS lists a host other than vicinity.city, or a site setting is refused), the first time
+ * a row of that table is read or written then. With SITE_ORIGIN and SITE_ORIGINS unset no statement here ever touches the database.
+ * Additive and safe to repeat: plain nullable columns, each ALTER on its own ("duplicate column" ignored: safe from two servers at once),
+ * then the record. No row is rewritten: an existing row keeps host NULL, which reads as vicinity.city (the host every row was made on until
+ * now), so every member signed in today stays signed in on vicinity.city. One record per table, run by the paths that use that table only:
+ * a failure of one ALTER (say the hand-offs') never stops a session from being read, made or ended.
+ *   sessions.host   the host a session was made on (an allowlist entry, never the request's text); getSession refuses it anywhere else
+ *   pairs.host      the host a "sign in with my phone" pairing was made on: approved, read and finished there only
+ *   handoffs.host   the host a hand-off code was made on (the wallet link's carry code, the location hand-offs): used there only
+ * signups.host is its own record (below): the signups table exists only once the new sign-up made it (src/store.js SIGNUP_MIGRATION).
+ * A path that reads a pairing or a hand-off with SELECT * before its column exists sees host undefined, which reads as NULL (vicinity.city):
+ * no row can have a host before the column does.
+ */
+export const HOST_MIGRATIONS = Object.freeze({
+  sessions: Object.freeze({ id: "2026-10-24-host-binding-sessions", columns: ["ALTER TABLE sessions ADD COLUMN host TEXT"] }),
+  pairs: Object.freeze({ id: "2026-10-24-host-binding-pairs", columns: ["ALTER TABLE pairs ADD COLUMN host TEXT"] }),
+  handoffs: Object.freeze({ id: "2026-10-24-host-binding-handoffs", columns: ["ALTER TABLE handoffs ADD COLUMN host TEXT"] }),
+});
+/**   signups.host    the host a sign-up was started on (its vsu cookie): continued and finished there only */
+export const HOST_SIGNUP_MIGRATION = { id: "2026-10-24-host-binding-signups", columns: ["ALTER TABLE signups ADD COLUMN host TEXT"] };
+
+const hostReady = { sessions: new WeakMap(), pairs: new WeakMap(), handoffs: new WeakMap() };
+const hostSignupReady = new WeakMap();
+/** Add `table`.host once ("sessions", "pairs" or "handoffs"; see HOST_MIGRATIONS). Rejects on failure and forgets that it tried, so the next
+ *  request retries. */
+export function ensureHostSchema(db, table) {
+  const ready = hostReady[table], m = HOST_MIGRATIONS[table];
+  if (!ready || !m) return Promise.reject(new Error("host binding: unknown table"));
+  if (!ready.has(db)) {
+    ready.set(db, ensureSchema(db).then(() => columnsMigrate(db, m)).catch((e) => { ready.delete(db); throw e; }));
+  }
+  return ready.get(db);
+}
+/** Add signups.host once (HOST_SIGNUP_MIGRATION), after the sign-up tables exist (it makes them first, like every sign-up route does). */
+export function ensureHostSignupSchema(db) {
+  if (!hostSignupReady.has(db)) {
+    hostSignupReady.set(db, ensureSignupSchema(db).then(() => columnsMigrate(db, HOST_SIGNUP_MIGRATION)).catch((e) => { hostSignupReady.delete(db); throw e; }));
+  }
+  return hostSignupReady.get(db);
+}

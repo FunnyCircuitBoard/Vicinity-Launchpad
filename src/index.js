@@ -65,6 +65,13 @@
  *   · /api/towns/decide · /api/seats/objections/decide · /api/snapshots/cancel
  *
  * Everything else is served from /public by Cloudflare's static asset handler.
+ * Hosts (stage S03, src/hostroute.js; only while HOST_REDIRECT counts, otherwise today's 301s from the old names and from http):
+ *   GET/HEAD of a page on a host other than SITE_ORIGIN 308 there (safe query keys only) · /coin-meta/*, /brand/vicinity-512.png,
+ *   /official-coins.csv and read-only /api/* served in place · any other method, /api/message, sign-in, hand-offs, callbacks and
+ *   webhooks 421 {"error":"wrong_host"} (no Location) · unknown hosts 421
+ * Sessions and challenges (stage S04, src/hostbind.js; only once SITE_ORIGINS lists a host other than vicinity.city, otherwise exactly as
+ *   before): a host outside the allowlist 421 wrong_host · a session, pairing, hand-off or sign-up made on one host is unknown on another
+ *   (rows made before: vicinity.city) · hand-off, QR, pairing and Google return links, and the host a wallet signs, from the allowlist
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
@@ -117,9 +124,11 @@ import { handleFees } from "./fees.js";
 import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus.js";
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
-import { DEFAULT_SITE, isForwardHost, siteConfig } from "./site-config.js";
+import { DEFAULT_SITE, isForwardHost, localDevAllowed, siteConfig } from "./site-config.js";
 import { checkDeploymentConfig } from "./maintoken.js";
-import { checkPolicyConfig, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
+import { checkPolicyConfig, hostRedirect, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
+import { hostAnswer, isLocal, wrongHost } from "./hostroute.js";
+import { servedHost } from "./hostbind.js";
 import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
@@ -167,7 +176,8 @@ async function cached(key, seconds, produce, { edge = 0 } = {}) {
 }
 
 export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
-  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null); // one-time: a replayed body is 409, not another RPC call
+  // one-time: a replayed body is 409, not another RPC call; the message must name the host it is checked on (src/hostbind.js)
+  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null, servedHost(env, request).host);
   if (r.error) return r.error;
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
@@ -253,6 +263,10 @@ const v5Options = (env, fetchImpl) => {
 const V2_EXACT = new Set(["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]);
 
 export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null) {
+  // stage S04 (src/hostbind.js): while the host binding counts, a host outside the allowlist is refused before any route (the Worker entry
+  // below refuses it first; this covers a direct call). With SITE_ORIGINS unset only the cutover's own hosts are (citycoin.dev and its www,
+  // src/site-config.js CUTOVER_HOSTS: not attached today, and never served unbound).
+  if (servedHost(env, request).refused) return wrongHost(siteConfig(env));
   const url = new URL(request.url);
   const method = request.method;
   const only = (m) => (method === m ? null : json({ error: "method_not_allowed" }, 405));
@@ -283,7 +297,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   // pass anything on, and nothing would be counted), so without one they answer 503 like every other route that needs it.
   if (path.startsWith("/api/wallet/send/")) {
     if (!walletSendOn(env)) return json({ error: "not_found" }, 404);
-    const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
+    const post = (fn) => only("POST") || (sameSite(request, env) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
       case "/api/wallet/send/build": return post(() => needsDb() || handleSendBuild(request, env, fetchImpl));
       case "/api/wallet/send/relay": return post(() => needsDb() || handleSend(request, env, fetchImpl));
@@ -336,7 +350,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   if (path.startsWith("/api/swap/")) {
     if (!swapOn(env) && !(launchpadTradingOn(env) && ["/api/swap/send", "/api/swap/status", "/api/swap/balances", "/api/swap/config"].includes(path))
       && !(lpSetup(env).on && ["/api/swap/send", "/api/swap/status"].includes(path))) return json({ ok: false, error: "not_enabled" }, 404);
-    const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
+    const post = (fn) => only("POST") || (sameSite(request, env) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
       case "/api/swap/config": return only("GET") || cached("swap-config-" + (tokenMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
       case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()) + mainCacheTag(env), 300, () => handleSwapTokens(request, env, fetchImpl));
@@ -352,7 +366,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     if (!launchpadTradingOn(env)) return json({ ok: false, error: "not_enabled" }, 404);
     const blocked = only("POST") || needsDb();
     if (blocked) return blocked;
-    if (!sameSite(request)) return json({ ok: false, error: "bad_origin" }, 403);
+    if (!sameSite(request, env)) return json({ ok: false, error: "bad_origin" }, 403);
     if (path === "/api/launchpad/trade/quote") return handleTradeQuote(request, env, fetchImpl);
     if (path === "/api/launchpad/trade/tx") return handleTradeTx(request, env, fetchImpl);
     return json({ error: "not_found" }, 404);
@@ -521,7 +535,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
         statement = statementFor("link", { handle: a.handle, pin });
       } else return json({ error: "bad_request" }, 400);
       const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
-      return json({ message: buildMessage({ host: url.host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
+      // the host the text names: the allowlist entry this request is served as (src/hostbind.js; today, the request's own host), the one
+      // host src/signed.js accepts it on
+      const host = servedHost(env, request).host;
+      if (!host) return wrongHost(siteConfig(env));
+      return json({ message: buildMessage({ host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
     }
 
     // founder seats (and the map)
@@ -703,21 +721,28 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
   }
 }
 
+/** An asset the Worker fetched itself, with the security headers. The asset's own Content-Security-Policy (public/_headers', when the asset
+ *  binding applies it: it adds font-src) is kept, so a page answers with the same policy whether or not it came through the Worker. */
 export function withSecurityHeaders(response) {
   const res = new Response(response.body, response);
-  for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== "Cache-Control") res.headers.set(k, v);
+  const own = response.headers.has("Content-Security-Policy");
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== "Cache-Control" && !(own && k === "Content-Security-Policy")) res.headers.set(k, v);
   return res;
 }
 
-/** The old names (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name
- *  SITE_ORIGINS serves in place) forward to today's canonical host, vicinity.city, keeping the path. The target is a constant, never the
- *  request and not SITE_ORIGIN: a permanent cross-domain redirect to a configured origin belongs to the HOST_REDIRECT switch and its own
- *  checks (stage S03), so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this computer,
- *  for `wrangler dev`). */
-const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
-// `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
-const isLocal = (request, url) =>
-  LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
+/** Which host answers (Citycoin.dev master v5, stage S03).
+ *  HOST_REDIRECT off (unset, any other value, or refused by src/v5policy.js hostRedirect): exactly as before. The old names
+ *  (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name SITE_ORIGINS serves
+ *  in place) forward to today's canonical host, vicinity.city, keeping the path, for every method. The target is a constant, never the
+ *  request and not SITE_ORIGIN, so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this
+ *  computer, for `wrangler dev`, which presents local visits as http://vicinity.city from a local address: src/hostroute.js isLocal).
+ *  HOST_REDIRECT counting: src/hostroute.js hostAnswer decides first (308 to SITE_ORIGIN for ordinary public GET and HEAD on every other
+ *  accepted host, 421 wrong_host for every other method, wallet challenge, sign-in, hand-off, callback or webhook, the immutable legacy
+ *  files, the read-only API and sign-out served in place, a sign-in trip sent to the new host's sign-in page, unknown hosts refused).
+ *  Before both (stage S04, src/hostbind.js): while the host binding counts, a host outside the allowlist answers 421 before any route and
+ *  before the 301s, and the 301 for plain http names the allowlist entry. It needs every page to reach the Worker (wrangler.jsonc
+ *  run_worker_first true, recorded by the page build); today run_worker_first lists only /api/*, /coin-meta/* and /official-coins.csv,
+ *  so the switch stays off. */
 
 // The configuration checks run once at the first request of an isolate, inside the handler's try and in a try of their own, so not even a
 // future fault in one of them can change an answer. They change no answer by themselves:
@@ -735,20 +760,34 @@ export default {
         try { checkDeploymentConfig(env); checkPolicyConfig(env); } catch { /* a check is never worth a failed request */ }
       }
       const url = new URL(request.url);
-      const insecure = url.protocol === "http:" && !isLocal(request, url);
-      const site = siteConfig(env), forward = isForwardHost(site, url.hostname);
-      if (forward || insecure) {
-        if (forward) url.hostname = DEFAULT_SITE.host;
-        url.protocol = "https:"; url.port = "";
-        return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
+      const site = siteConfig(env);
+      // stage S04 (src/hostbind.js): once SITE_ORIGINS lists a second host, a host outside the allowlist (SITE_ORIGINS and the legacy hosts;
+      // outside production, a local development host is served) is refused before any route and before the 301s below, so no address is
+      // ever built from its Host header. With SITE_ORIGINS unset: only the cutover's own hosts (citycoin.dev and its www, not attached today).
+      const served = servedHost(env, request);
+      if (served.refused) return wrongHost(site);
+      if (hostRedirect(env)) {
+        const dev = localDevAllowed(env);
+        const answer = hostAnswer(request, url, site, dev && isLocal(request, url), dev);
+        if (answer) return answer;
+      } else {
+        const insecure = url.protocol === "http:" && !isLocal(request, url);
+        const forward = isForwardHost(site, url.hostname);
+        if (forward || insecure) {
+          if (forward) url.hostname = DEFAULT_SITE.host;
+          else if (served.bound && served.key) url.hostname = served.key; // the allowlist entry (the same name), never the request's text
+          url.protocol = "https:"; url.port = "";
+          return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
+        }
       }
       // the official city-coin CSV lives outside /api (a plain file address, made for Jupiter's token tags) but is answered like /api/*
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
       // an asset the Worker fetches itself. In production no page comes this way (wrangler.jsonc run_worker_first lists only the paths
-      // above, and not_found_handling serves the 404 page from the assets without the Worker); with MAIN_TOKEN_V5 counting, an HTML answer
-      // gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
+      // above, and not_found_handling serves the 404 page from the assets without the Worker; the later configuration for HOST_REDIRECT
+      // sets run_worker_first true, and then the canonical host's pages and the immutable logo come here); with MAIN_TOKEN_V5 counting,
+      // an HTML answer gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
       return withSecurityHeaders(await officialLinksInPage(await env.ASSETS.fetch(request), env));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);

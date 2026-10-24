@@ -98,7 +98,7 @@ off while any error exists.
 | `LEGACY_LAUNCH` | on, off | "off": the website builds no legacy approval, batch or launch (§27, §37 step 9) | none |
 | `CC_TRADING` | off, on | buys and sells on the custom curve and pool (§27, §28) | `program_id`, `cluster`, enabled quote configs; an enabled `main_token` quote also needs `MAIN_TOKEN_MINT` and chain facts keyed by it (`MAIN_TOKEN_MINT_MISSING`, `QUOTE_FACTS_MISSING`) |
 | `CC_HOURLY` | off, shadow, on | hourly processing; "shadow" computes and publishes evidence, sends nothing (§30, §31) | shadow: `program_id`, `cluster`; on: also `treasury`, `keeper`, `hourly_verifier_a`, `hourly_verifier_b` |
-| `HOST_REDIRECT` | off, on | 308 redirects from old public GET/HEAD pages (§04) | `SITE_ORIGIN` equal to `https://citycoin.dev` (`HOST_REDIRECT_TARGET_NOT_CANONICAL`) |
+| `HOST_REDIRECT` | off, on | 308 redirects from old public GET/HEAD pages (§04). Built in stage S03 (`src/hostroute.js`; route contract in `domain-cutover.md` section 1.1) | `SITE_ORIGIN` equal to `https://citycoin.dev` (`HOST_REDIRECT_TARGET_NOT_CANONICAL`, `MISSING_SITE_ORIGIN`). At run time also every page reaching the Worker (`run_worker_first: true`; refusal `HOST_REDIRECT_PAGES_BYPASS_WORKER`) and an accepted site configuration (`HOST_REDIRECT_SITE_REFUSED`) |
 | `PUBLIC_V5` | off, on | `/api/status`, `/api/policy/master`, the `master` key and the public pages (§16, §35) | none |
 | `MAIN_TOKEN_V5` | off, on | amendment 01: every main-token consumer (token page, holder list, balance sampling, purchase links, Buy panel default, official list) reads the verified `MAIN_TOKEN_MINT`; `$VICINITY` is shown as legacy; the footer and link checker use the configured official links; the legacy seats and elections make no new decision | `MAIN_TOKEN_MINT` (`MAIN_TOKEN_MINT_MISSING`) and `LEGACY_SEATS=frozen` (`MAIN_TOKEN_ON_WITH_LEGACY_SEATS`: the legacy seats measure `$VICINITY`); at run time also pages built with the switch (below) |
 
@@ -129,6 +129,10 @@ the Worker's settings describe, at the first request of an isolate (src/index.js
 | `inputs.cluster`, `program_id`, the nine role keys, `enabled_quote_configs`, `quote_mint_facts` | none yet | `null` or empty. A switch that needs one is refused with its `MISSING_*` (or `NO_ENABLED_QUOTE_CONFIG`) error until the stage that builds that switch adds its setting here. No setting name is invented ahead of that stage. |
 | `fixture` | none | always `false` (local fixtures never run in a Worker) |
 
+- **`SITE_ORIGINS` and the host binding (stage S04).** The same two settings also decide the session and challenge host binding of section
+  3.1 (`src/hostbind.js`), which has no switch of its own: it counts once `SITE_ORIGINS`, as `src/site-config.js` accepts it, lists a host
+  other than `vicinity.city`, or once a set value is refused (fail closed). It does not wait for the v5 check: a safety binding must not
+  turn off because another setting is wrong.
 - **Reporting.** Each named error is logged once per isolate as `policy config refused <code> <path>`, never a value. While
   `MAIN_TOKEN_V5` is on, the three amendment-01 keys are already reported by `src/maintoken.js` (`deployment config refused ...`,
   stage S02A), so they are not logged twice. The check never throws: a failure of the check itself is `CONFIG_CHECK_FAILED` and counts
@@ -287,8 +291,17 @@ Rules:
   AND used_at IS NULL AND expires_at > ? AND purpose = ? AND wallet = ? AND host = ?`, then `INSERT INTO sessions ... SELECT ...
   WHERE EXISTS (SELECT 1 FROM auth_challenges WHERE id = ? AND used_by = ?)`. A failed or expired challenge creates nothing.
   This replaces the fail-open digest check for v5 purposes.
-- **Host binding (§05, D04).** `getSession` refuses a row whose `host` differs from the request host (NULL counts as
-  `vicinity.city`). Copied cookies fail on the other host.
+- **Host binding (§05, D04). Built in stage S04** (`src/hostbind.js`, local branch `cc/s03`, not merged; `domain-cutover.md` section 1.2).
+  It counts once `SITE_ORIGINS` lists a host other than `vicinity.city` (or a set site setting is refused: fails closed); there is no
+  separate switch, and with the settings unset nothing is read or written. The request's host is looked up in the allowlist (the hosts of
+  `SITE_ORIGINS` plus the legacy hosts) and the allowlist's own entry is used, never the request's text; a host outside it answers
+  `421 {"error":"wrong_host","origin":<canonical origin>}` before any route and before the http and old-name 301s. `sessions.host`,
+  `pairs.host`, `handoffs.host` and `signups.host` (nullable, added by four lazy migrations, one per table: `2026-10-24-host-binding-sessions`,
+  `-pairs`, `-handoffs`, `-signups`; this section's `ALTER TABLE sessions ADD COLUMN host`) record the entry in the same transaction as the
+  row; `getSession`, the pairing, carry-code, location hand-off and sign-up lookups refuse a row of another host, and sign-out or sign-in
+  with a copied cookie deletes only that host's row. NULL counts as `vicinity.city`. Copied cookies and replayed hand-off codes fail on the
+  other host. The challenge text names the entry, and a signed text is accepted only on the host it names (src/signed.js; already true
+  today). While the setting does not list citycoin.dev, citycoin.dev and www.citycoin.dev answer 421 (never served unbound).
 - **Location once (§19).** Raw coordinates are never stored. `loc_verified_at`, `loc_policy` and `loc_method` record the
   privacy-safe evidence. `POST /api/home` writes only when `users.home_city IS NULL` (never located), once.
 - **Backfill** (count-checked on a database copy first, D08):
@@ -929,14 +942,20 @@ lease (slow, crashed, or on the other host) cannot write. Per-item claims (`clai
 
 - **Auth levels.**
   - `public`: no session.
-  - `session`: a wallet-bound session cookie. Under `WALLET_ONLY` the cookie is host-only `__Host-` prefixed and the session row
-    carries `host` (section 3.1). Today's cookie is `vs` (src/session.js:6).
+  - `session`: a wallet-bound session cookie. Under `WALLET_ONLY` the cookie is host-only `__Host-` prefixed. Since stage S04 the
+    session row carries `host` once `SITE_ORIGINS` lists a second host, and is refused on any other host (section 3.1). Today's cookie is
+    `vs` (src/session.js:6), host-only (no `Domain`), `Secure`, `HttpOnly`, `SameSite=Lax`, unchanged by S04.
   - `fresh`: a session whose wallet was proven within the policy window (today 30 minutes: src/policy.js:90, src/auth.js:240-244).
   - `founder`: `session` + the session wallet equals `founder_records.wallet` for the city in the path.
   - `moderator`, `admin`, `owner`: today's console roles; owner comes only from `ADMIN_WALLETS` (src/admin.js:42-57) and every
     console write needs a fresh proof (src/admin.js:783-784).
-- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS`. A mutation on a non-canonical
-  host answers `421 {ok:false, error:"wrong_host", origin}` with no `Location` (§04, D05).
+- **Writes** need `Origin` host = request host (src/http.js `sameSite`) and a host in `SITE_ORIGINS` (stage S04: while the host binding
+  counts, a host outside the allowlist is refused with `421 wrong_host` before any route, the `Origin` must be exactly the allowlist entry's
+  origin, scheme and host, and hand-off, QR and Google return links are built on the allowlist entry's origin, never on the request's
+  `Host`). While `HOST_REDIRECT` counts, a mutation (any method but GET and HEAD) on a non-canonical host answers
+  `421 {"error":"wrong_host","origin":<SITE_ORIGIN>}` with no `Location` (§04, D05; the origin comes from the configuration, never the
+  request), except `POST /api/auth/logout`, served in place on every accepted host over https; a GET of `/api/auth/<provider>/start` or
+  `/callback` there answers 302 to `SITE_ORIGIN/connect?error=login_expired` with the query dropped.
 - **Errors** keep today's envelope `{ ok: false, error: "<code>" }` with an HTTP status, plus a plain `message` (§34 "understandable
   error/recovery messages"). Common: `400 bad_request`, `401 sign_in`, `403 forbidden`, `404 not_found` (also every route whose
   switch is off), `405 method_not_allowed`, `409` state conflicts, `410` retired or expired, `421 wrong_host`, `429 slow_down`,

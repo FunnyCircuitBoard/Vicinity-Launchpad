@@ -101,7 +101,7 @@ const typed = (v, max) => (v == null ? "" : typeof v === "string" ? cleanText(v.
 const slowDown = (seconds) => json({ ok: false, error: "slow_down", retryAfter: seconds }, 429, { "Retry-After": String(seconds) });
 
 export async function handleFeedback(request, env, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "unavailable" }, 503);
   const body = await readJson(request, BODY_MAX);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);

@@ -138,3 +138,16 @@ export const mainTokenV5On = (env) => String((env && env.MAIN_TOKEN_V5) ?? "").t
  * path (the same 404 as any other).
  */
 export const publicV5On = (env) => String((env && env.PUBLIC_V5) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * HOST_REDIRECT=on (Citycoin.dev master v5, stage S03; master section 04 BR-02; src/hostroute.js) moves the public site to the canonical
+ * origin SITE_ORIGIN: on every other accepted host (and over plain http) an ordinary public GET or HEAD answers 308 to the same path on
+ * SITE_ORIGIN with only the safe query keys, the immutable legacy files (/coin-meta/*, /brand/vicinity-512.png, /official-coins.csv) and the
+ * read-only API are served in place, and every other method, wallet challenge, sign-in, hand-off, callback or webhook answers
+ * 421 {"error":"wrong_host"} with no Location. It counts only while every precondition holds (src/v5policy.js hostRedirect: the v5
+ * configuration check accepts the deployment, which needs DEPLOYMENT_ENV and SITE_ORIGIN = https://citycoin.dev; and the deployed
+ * wrangler.jsonc sends every page through the Worker, run_worker_first true, which the page build records in src/pages-built.js), so read
+ * it through hostRedirect(env), never alone. Exactly "on" (trimmed, any letter case), and then only with those preconditions; anything
+ * else, unset included, is the site exactly as before: the old names answer 301 to vicinity.city and http answers 301 to https, any method.
+ */
+export const hostRedirectOn = (env) => String((env && env.HOST_REDIRECT) ?? "").trim().toLowerCase() === "on";
