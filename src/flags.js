@@ -125,3 +125,13 @@ export const coinV2BatchOn = (env) => coinV2ReadyOn(env) && String((env && env.C
  * token, the footer shows today's X account, and no new key, route, table or column exists.
  */
 export const mainTokenV5On = (env) => String((env && env.MAIN_TOKEN_V5) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * PUBLIC_V5=on (Citycoin.dev master v5, stage S07; schema-and-api.md sections 2.2 and 4.9) publishes the v5 policy: GET /api/policy
+ * gains the key `master` and GET /api/policy/master exists (src/v5policy.js). It counts only while the v5 configuration check
+ * (validatePolicy on this Worker's settings) accepts the deployment: a refused configuration keeps it off ("keeps every dependent
+ * feature off while any error exists"), so read it through src/v5policy.js publicV5(env), never alone. Exactly "on" (trimmed, any letter
+ * case); anything else, unset included, is the site exactly as before: /api/policy answers as today and /api/policy/master is an unknown
+ * path (the same 404 as any other).
+ */
+export const publicV5On = (env) => String((env && env.PUBLIC_V5) ?? "").trim().toLowerCase() === "on";

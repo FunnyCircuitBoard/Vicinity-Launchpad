@@ -19,6 +19,7 @@ import { registryStep } from "./coinreview.js";
 import { sweepLaunchedCoins } from "./lpcoins.js";
 import { DAY, HOUR, iso } from "./policy.js";
 import { checkDeploymentConfig } from "./maintoken.js";
+import { checkPolicyConfig } from "./v5policy.js";
 
 /** How long one run may hold the lease: the cron fires every 10 minutes, a run takes seconds. A crashed run's lease simply expires. */
 export const JOB_LEASE_MS = 8 * 60_000;
@@ -32,8 +33,10 @@ const releaseJobLease = (db) => db.prepare("UPDATE settings SET value = '' WHERE
 export async function runJobs(env, now = Date.now(), fetchImpl = fetch, rand = Math.random) {
   // the amendment-01 configuration check at each job start (src/maintoken.js): nothing with MAIN_TOKEN_V5 off; with it on a named problem
   // is logged once per isolate and the main-token steps fall back by themselves (no configured mint: "not_launched"). The run's answer is
-  // unchanged either way.
+  // unchanged either way. Then the v5 policy check (src/v5policy.js, stage S07): validatePolicy on this Worker's settings, each named error
+  // logged once per isolate; with every v5 switch and setting unset it reports nothing. Neither check throws.
   checkDeploymentConfig(env);
+  checkPolicyConfig(env);
   if (!env.DB) return { skipped: "no database" };
   await ensureSchema(env.DB);
   // two overlapping firings (a slow run, a retry, a manual run next to the cron) must not sample or advance seats twice

@@ -4,6 +4,8 @@
  *
  * Public:
  *   GET  /api/health · /api/official · /api/check?q= · /api/policy (the rules, their version, and job health)
+ *   GET  /api/policy/master                                  the v5 policy, only while PUBLIC_V5=on and the configuration is accepted
+ *                                                            (src/v5policy.js; /api/policy then also carries `master`); else 404 not_found
  *   GET  /api/token · /api/holders · /api/rank?address=      live token facts, holders, one wallet's rank
  *   GET  /api/message?address&action=verify|login            the exact text a wallet signs
  *   POST /api/verify                                         check a signed message (nothing stored)
@@ -103,7 +105,7 @@ import { CHART_TTL, handleCoin, handleCoinChart } from "./coin.js";
 import { CHART_TFS } from "./pricehistory.js";
 import { publicLimit } from "./guards.js";
 import { launchpadTradingOn, swapOn } from "./cluster.js";
-import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx } from "./swap.js";
+import { handleSwapConfig, handleSwapQuote, handleSwapTokens, handleSwapTx, mainTokenRoute } from "./swap.js";
 import { handleBalances, handleSend, handleStatus } from "./relay.js";
 import { handleTradeQuote, handleTradeTx } from "./lptrade.js";
 import { sameSite } from "./http.js";
@@ -117,6 +119,7 @@ import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
 import { isForwardHost, siteConfig } from "./site-config.js";
 import { checkDeploymentConfig } from "./maintoken.js";
+import { checkPolicyConfig, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
 import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
@@ -239,6 +242,12 @@ async function rankResponse(env, mint, address, fetchImpl) {
     return json({ launched: true, error: "chain_unavailable" }, 503);
   }
 }
+
+/** The v5 public policy's options: the clock, and the main token's purchase-link state from the existing quote path (src/swap.js). */
+const v5Options = (env, fetchImpl) => {
+  const now = Date.now();
+  return { now, routeFor: (mint) => mainTokenRoute(env, mint, fetchImpl, now) };
+};
 
 // Routes that exist only in the new sign-up (SIGNUP_FLOW=v2), besides everything under /api/signup/.
 const V2_EXACT = new Set(["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]);
@@ -426,9 +435,19 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return only("GET") || json({ ok: true, service: "vicinity-map", milestone: 2 });
     case "/api/official":
       return only("GET") || json(officialFor(env));
-    case "/api/policy":
-      return only("GET") || json({ policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(tokenMint(env)),
-        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } });
+    case "/api/policy": {
+      const blocked = only("GET");
+      if (blocked) return blocked;
+      const out = { policy: POLICY, snapshotCutoff: snapshotCutoff(env), launched: Boolean(tokenMint(env)),
+        balanceHistory: env.DB ? await ledgerStatus(env, Date.now()) : { running: false } };
+      // the v5 policy (PUBLIC_V5=on with the configuration accepted, src/v5policy.js); otherwise exactly today's answer
+      if (publicV5(env)) out.master = await publicMaster(env, v5Options(env, fetchImpl));
+      return json(out);
+    }
+    case "/api/policy/master":
+      // PUBLIC_V5=on with the configuration accepted (src/v5policy.js); otherwise exactly what any unknown path answers (any method)
+      if (!publicV5(env)) return json({ error: "not_found" }, 404);
+      return only("GET") || json(await masterPolicyAnswer(env, v5Options(env, fetchImpl)));
     case "/api/check": {
       const blocked = only("GET");
       if (blocked) return blocked;
@@ -697,13 +716,16 @@ const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
 const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
-// The amendment-01 configuration check (src/maintoken.js) runs once at the first request of an isolate: with MAIN_TOKEN_V5 off it
-// reports nothing; with it on, each named problem is logged once (its code and the key's name, never a value). It never throws.
+// The configuration checks run once at the first request of an isolate. They never throw and change no answer by themselves:
+// - amendment 01 (src/maintoken.js): with MAIN_TOKEN_V5 off it reports nothing; with it on, each named problem is logged once (its code
+//   and the key's name, never a value);
+// - the v5 policy (src/v5policy.js, stage S07): validatePolicy on this Worker's settings; each named error is logged once (code and path,
+//   never a value). With every v5 switch and setting unset it reports nothing.
 let configChecked = false;
 
 export default {
   async fetch(request, env, ctx) {
-    if (!configChecked) { configChecked = true; checkDeploymentConfig(env); }
+    if (!configChecked) { configChecked = true; checkDeploymentConfig(env); checkPolicyConfig(env); }
     try {
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);

@@ -1,9 +1,12 @@
 /**
  * The Citycoin.dev master policy (MASTER CHANGE ORDER V5, 23 Oct 2026) as one deeply frozen object, plus pure helpers.
  *
- * DESIGN, NOT LIVE, except the amendment-01 helpers: since stage S02A exactly one module imports this file, src/maintoken.js, and only
- * for mainTokenConfig, officialLinks and validateDeploymentConfig (test/masterpolicy.test.js checks both). With MAIN_TOKEN_V5 unset and
- * none of MAIN_TOKEN_MINT, OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL set they change nothing on the live site. The same document is
+ * DESIGN, NOT LIVE, except what two adapters read (test/masterpolicy.test.js checks both lists):
+ *   - src/maintoken.js (stage S02A): mainTokenConfig, officialLinks and validateDeploymentConfig. With MAIN_TOKEN_V5 unset and none of
+ *     MAIN_TOKEN_MINT, OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL set they change nothing on the live site.
+ *   - src/v5policy.js (stage S07): validatePolicy on the Worker's settings at the first request of an isolate and at each job start (named
+ *     errors logged once), and the public policy behind PUBLIC_V5 (GET /api/policy `master`, GET /api/policy/master). With every v5
+ *     switch and setting unset it logs nothing and changes no answer. The same document is
  * docs/citycoin-master/policy.json, and the test keeps the two identical. Approval of a policy is not evidence of deployment (master section 16, Configuration acceptance):
  * live status comes from deployment and chain state only.
  *
@@ -39,7 +42,7 @@ const DOCUMENT = {
   "status": {
     "policy": "approved_target",
     "deployment": "not_deployed",
-    "statement": "DESIGN. These are the approved target values of MASTER CHANGE ORDER V5 (23 Oct 2026). Approval of this policy is not evidence that anything is built, deployed, audited or active: live status comes only from deployment and chain state (master section 16, Configuration acceptance). No module of the live site reads this file or src/masterpolicy.js yet. Owner amendment 01 (24 Oct 2026) replaces the fixed main-token mint with a centrally configured main token: an owner-supplied mint (MAIN_TOKEN_MINT) that is verified on chain before use and stays null until then. The old $VICINITY mint is a legacy token, history only.",
+    "statement": "DESIGN. These are the approved target values of MASTER CHANGE ORDER V5 (23 Oct 2026). Approval of this policy is not evidence that anything is built, deployed, audited or active: live status comes only from deployment and chain state (master section 16, Configuration acceptance). No v5 value is in force on the live site. In this repository's Worker code, src/maintoken.js reads the amendment-01 helpers (stage S02A) and src/v5policy.js validates the Worker's settings against this policy and, only while the PUBLIC_V5 switch is on and the configuration is accepted, publishes it (stage S07). Owner amendment 01 (24 Oct 2026) replaces the fixed main-token mint with a centrally configured main token: an owner-supplied mint (MAIN_TOKEN_MINT) that is verified on chain before use and stays null until then. The old $VICINITY mint is a legacy token, history only.",
     "baseline": "live site main 4aa408e; draft program vicinity_curve ec148c2 (not deployed anywhere public)",
     "prepared": "2026-10-24"
   },

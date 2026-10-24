@@ -357,3 +357,17 @@ Deliberately not done in S02A, and why:
 - **A mint column for `balance_samples`**: not added, so the D1 schema stays today's. The sampler's cadence still reads the table's
   last row; under the switch its shrink guard compares with the new token's own last sample instead.
 
+
+**Stage S07 (same local branch, not merged, nothing deployed): the amendment in the public policy.** Behind the `PUBLIC_V5` switch,
+and only while the v5 configuration check accepts the deployment (schema-and-api.md sections 2.2 and 4.9; src/v5policy.js), the
+`master` key of `GET /api/policy` and `GET /api/policy/master` carry `main_token`, `legacy_tokens` and `official_links`:
+
+- `main_token.mint` is the configured, shape-checked `MAIN_TOKEN_MINT` only while `MAIN_TOKEN_V5` is on, the moment the site's own
+  consumers read it (section 4.3: the switch goes on only after the verification record exists); otherwise `null`. A value set ahead of
+  the switch is checked but not announced. `verified` stays `null` until the verification record of section 9 is machine-readable,
+  and `purchase_links` reads `"hidden"` until the existing quote path finds a route for the configured mint.
+- `legacy_tokens` is the policy's block: `$VICINITY`, its legacy mint, history only, no automatic swap or migration.
+- `official_links.x_url` and `telegram_url` follow the footer's rule (configured, checked, and only while `MAIN_TOKEN_V5` is on), `null`
+  otherwise; `official_links.legacy.x_url` is always the old account.
+- The configuration check names a malformed or legacy value even with every switch off (a set value is always shape-checked), and any
+  such error keeps `PUBLIC_V5` off. While `MAIN_TOKEN_V5` is on, these three keys are reported by src/maintoken.js only, once.

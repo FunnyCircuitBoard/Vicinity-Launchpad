@@ -3,7 +3,8 @@
 // inputs with named errors, and its pure helpers (six-hour selection clock, 250 bps fee split, activity points) must be exact.
 // Owner amendment 01 (24 Oct 2026): the main token is a centrally configured, owner-supplied and verified mint (MAIN_TOKEN_MINT,
 // null until supplied), the official X and Telegram links are configured the same way, and $VICINITY is a legacy token.
-// Stage S02A: only the amendment-01 adapter src/maintoken.js imports src/masterpolicy.js, and the last test keeps it that way.
+// Stage S02A: the amendment-01 adapter src/maintoken.js imports src/masterpolicy.js; stage S07 adds the run-time policy adapter
+// src/v5policy.js. No other module does, and the last test keeps it that way.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -732,7 +733,7 @@ test("activity: malformed input is refused rather than guessed", () => {
 
 /* ------------------------------------------------------------------ no live change */
 
-test("only the amendment-01 adapter src/maintoken.js imports src/masterpolicy.js (stage S02A); no page, script or other module does", () => {
+test("only the adapters src/maintoken.js (stage S02A) and src/v5policy.js (stage S07) import src/masterpolicy.js; no page, script or other module does", () => {
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(new URL(dir, root))) {
@@ -745,10 +746,15 @@ test("only the amendment-01 adapter src/maintoken.js imports src/masterpolicy.js
   for (const dir of ["src/", "public/", "scripts/"]) walk(dir);
   assert.ok(files.includes("src/index.js") && files.includes("src/masterpolicy.js"));
   const importers = files.filter((f) => f !== "src/masterpolicy.js" && /masterpolicy/.test(readFileSync(new URL(f, root), "utf8")));
-  assert.deepEqual(importers, ["src/maintoken.js"]);
-  // and it takes only the amendment-01 pieces: the main-token configuration, the official links and the configuration check
-  const line = readFileSync(new URL("src/maintoken.js", root), "utf8").match(/^import \{([^}]*)\} from "\.\/masterpolicy\.js";$/m);
-  assert.ok(line, "src/maintoken.js imports src/masterpolicy.js with one named import");
-  assert.deepEqual(line[1].split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).sort(), ["MASTER_POLICY", "mainTokenConfig", "officialLinks", "validateDeploymentConfig"]);
+  assert.deepEqual(importers, ["src/maintoken.js", "src/v5policy.js"]);
+  const named = (f) => {
+    const line = readFileSync(new URL(f, root), "utf8").match(/^import \{([^}]*)\} from "\.\/masterpolicy\.js";$/m);
+    assert.ok(line, `${f} imports src/masterpolicy.js with one named import`);
+    return line[1].split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).sort();
+  };
+  // src/maintoken.js takes only the amendment-01 pieces: the main-token configuration, the official links and their configuration check
+  assert.deepEqual(named("src/maintoken.js"), ["MASTER_POLICY", "mainTokenConfig", "officialLinks", "validateDeploymentConfig"]);
+  // src/v5policy.js takes the document, the switch list, the whole configuration check and the selection clock (for the public schedule)
+  assert.deepEqual(named("src/v5policy.js"), ["FLAG_VALUES", "MASTER_POLICY", "nextSelectionBoundary", "validatePolicy"]);
   assert.doesNotMatch(readFileSync(new URL("wrangler.jsonc", root), "utf8"), /masterpolicy/);
 });

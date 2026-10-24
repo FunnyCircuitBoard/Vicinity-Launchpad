@@ -3,8 +3,10 @@
 > **DESIGN. NOT BUILT.** Nothing in this file exists in the live site at main `4aa408e` or in the draft program at `ec148c2`.
 > No table, column, trigger, route, switch or program instruction described below has been created, migrated, deployed,
 > audited or approved by an owner review event. The only pieces that exist as code are the policy document
-> (`docs/citycoin-master/policy.json`), its frozen mirror `src/masterpolicy.js` (imported by no live module) and
-> `test/masterpolicy.test.js`.
+> (`docs/citycoin-master/policy.json`), its frozen mirror `src/masterpolicy.js` and `test/masterpolicy.test.js`, and, on the local
+> branch `cc/s02` (not merged, not deployed), two adapters that read it: `src/maintoken.js` (stage S02A, amendment 01) and
+> `src/v5policy.js` (stage S07: `validatePolicy` on the Worker's settings, and the `PUBLIC_V5` routes of section 4.9). Section 2.2
+> says how the Worker reads its switches and inputs. Every table, other route and every other switch below is still design.
 
 Master change order v5 (23 Oct 2026), sections 16, 20 to 31 and 43, with the identity, metadata and launch sections they depend
 on (18, 19, 24 to 26, 36, 37). Prepared 24 Oct 2026, and updated the same day for owner amendment 01 (section 2.4): the main token
@@ -66,11 +68,14 @@ is a new, owner-supplied mint read from the configuration key `MAIN_TOKEN_MINT` 
 - `src/masterpolicy.js` exports the same document deeply frozen (`MASTER_POLICY`), `validatePolicy`, and the pure helpers
   `selectionEpoch`, `selectionBoundary`, `nextSelectionBoundary`, `tradeFeeSplit` and `activityTotals`, plus, for amendment 01,
   `mainTokenConfig`, `officialLinks`, `validateDeploymentConfig` and `MAIN_TOKEN_FEATURES` (section 2.4). The test keeps the two
-  files identical and checks that no live module imports the helper module.
-- DESIGN: when the first v5 switch is built, `GET /api/policy` keeps its current answer (src/index.js:426-428) and adds a
-  `master` key (the public policy document, section 4.9). The SDK and jobs import the same JSON.
-- DESIGN: `policy_digest` = sha256 of the canonical JSON (sorted keys, no spaces) of the `policy` object. It is published on
-  `/api/policy/master` and recorded in the release manifest, so a reader can tell whether two deployments run the same policy.
+  files identical and checks that only the two adapters `src/maintoken.js` (S02A) and `src/v5policy.js` (S07) import the helper
+  module, each with a pinned list of names.
+- Built in S07 (local branch `cc/s02`), behind `PUBLIC_V5`: `GET /api/policy` keeps its current answer and adds a `master` key
+  (section 4.9). With the switch off, or on while the configuration is refused, the answer is today's byte for byte. The SDK and
+  jobs importing the same JSON is still design.
+- Built in S07: `policy_digest` = sha256 (lower-case hex) of the canonical JSON (sorted keys, no spaces) of the `policy` object as the
+  document holds it (the three configured values `null`), so it names the policy, not the configuration. It is published on
+  `/api/policy/master` and in the `master` key; recording it in the release manifest is still design.
 
 ### 2.2 Switches and configuration acceptance (§16 "Configuration acceptance")
 
@@ -110,6 +115,30 @@ a feature is deployed or released: the release gates of §37 are evidence, recor
 Secret names (never values) the validation checks for presence: `SELECTION_ARCHIVE_URL_A`, `SELECTION_ARCHIVE_URL_B`. The hourly
 verifiers and the selection verifier run in separately credentialed services; the website holds none of their credentials (§31,
 §36).
+
+**How the Worker reads it (stage S07, local branch `cc/s02`; `src/v5policy.js`).** `validatePolicy` runs on the deployment block that
+the Worker's settings describe, at the first request of an isolate (src/index.js) and at the start of each job run (src/jobs.js).
+
+| Deployment field | Worker setting | Read as |
+|---|---|---|
+| `environment` | `DEPLOYMENT_ENV` (new; a delegated name, implementation-report.md section 10) | unset or blank = `unset`; otherwise trimmed, lower case (`test`, `preview`, `production`; anything else is `ENVIRONMENT_INVALID`). A deployment that changes any switch must set it (`ENVIRONMENT_UNSET`). |
+| `flags.<name>` | the switch of the same name | unset or blank = the default; otherwise trimmed, lower case; a value outside the allowed list is `FLAG_VALUE_INVALID` |
+| `inputs.SITE_ORIGIN`, `inputs.SITE_ORIGINS` | same names | as `src/site-config.js` reads them (normalized origins; a list or one string separated by commas or spaces; when one of the pair is set, a blank other one is today's value), so the check names every refusal site-config makes, by the same name |
+| `inputs.LEGACY_LINK_UNTIL`, `MAIN_TOKEN_MINT`, `OFFICIAL_X_URL`, `OFFICIAL_TELEGRAM_URL` | same names | trimmed text |
+| `inputs.secrets_present.SELECTION_ARCHIVE_URL_A`, `_B` | the secrets of the same names | presence only; the value is never read into the check, its memo or a log line |
+| `inputs.cluster`, `program_id`, the nine role keys, `enabled_quote_configs`, `quote_mint_facts` | none yet | `null` or empty. A switch that needs one is refused with its `MISSING_*` (or `NO_ENABLED_QUOTE_CONFIG`) error until the stage that builds that switch adds its setting here. No setting name is invented ahead of that stage. |
+| `fixture` | none | always `false` (local fixtures never run in a Worker) |
+
+- **Reporting.** Each named error is logged once per isolate as `policy config refused <code> <path>`, never a value. While
+  `MAIN_TOKEN_V5` is on, the three amendment-01 keys are already reported by `src/maintoken.js` (`deployment config refused ...`,
+  stage S02A), so they are not logged twice. The check never throws: a failure of the check itself is `CONFIG_CHECK_FAILED` and counts
+  as refused.
+- **Today's settings.** With every v5 switch and setting unset the deployment is the policy's own default block, which validates (a
+  test checks it), so the check answers that without walking the policy again and logs nothing.
+- **What a refusal turns off.** In S07 the rule "keeps every dependent feature off while any error exists" applies to the switch S07
+  builds: `PUBLIC_V5` counts only while the whole configuration is accepted (`publicV5(env)`), otherwise both policy routes answer as
+  if it were off. `MAIN_TOKEN_V5` keeps its S02A behavior (each consumer falls back to "not launched" on an unusable mint, and the page
+  build refuses the switch before S48). Each later switch is gated the same way in the stage that builds it.
 
 ### 2.3 Names chosen where the reconciliation files differed
 
@@ -1021,6 +1050,29 @@ The receipt itemizes "Citycoin.dev platform launch fee: 0" separately from netwo
 
 Labels come from deployment and chain state, never from copy (§35). Nothing on these routes returns secrets, hand-off codes,
 coordinates or applicant evidence.
+
+**Built in S07 (local branch `cc/s02`): the first two rows.** Both exist only while `PUBLIC_V5` is on and the configuration is
+accepted (section 2.2); otherwise `/api/policy` is today's answer and `/api/policy/master` is the same `404 {"error":"not_found"}` as
+any unknown path, for every method. With the switch on, `/api/policy/master` answers GET only (`405 method_not_allowed` otherwise).
+
+- The `master` key: `policy_version`, `owner_delegation_date`, `policy_digest`, `environment`, `server_time`, `status` (`policy:
+  "approved_target"` and a sentence saying approval is not evidence of anything active), `active_pairs` (`[]`: no custom program is
+  configured), `approved_pairs` (the SOL, USDC and main-token quote configs, each `approved_target`; the main-token quote mint stays
+  `null`), `selection_schedule` (the six-hour clock, `next_boundary` from the server clock, `approved_target`), `fee_status` (the 250
+  bps split, zero platform launch, send and receive fees, `live_legacy_fees: "/api/fees"`, `approved_target`), `hourly_job_status`
+  (`mode: "off"`: no hourly processing is built), `main_token`, `legacy_tokens` (the policy's block), `official_links` and
+  `public_authority_addresses` (the program and the nine role keys, each `null` while no Worker setting carries it).
+- `main_token`: `{ mint, config_key: "MAIN_TOKEN_MINT", verified, purchase_links, status }`. `mint` is the configured, shape-checked
+  `MAIN_TOKEN_MINT` only while `MAIN_TOKEN_V5` is on (the moment the site's consumers read it; amendment 01 turns the switch on only
+  after the verification record exists), otherwise `null`; `status` is then `active`, otherwise `approved_target`. `verified` stays
+  `null` in S07: the verification record (amendment section 9) is not machine-readable by the Worker yet. `purchase_links` is
+  `"hidden"` until the existing quote path (src/swap.js `mainTokenRoute`) finds a route for that mint, then `"shown"`.
+- `official_links`: `{ x_url, telegram_url, legacy: { x_url } }`, the configured, checked links under the same rule as the page
+  footers (only while `MAIN_TOKEN_V5` is on), `null` otherwise; the old X account is always `legacy`.
+- `/api/policy/master`: `{ policyVersion, ownerDelegationDate, policyDigest, serverTime, status, master, policy, masterSections }`, with
+  `policy` the policy values and `main_token.mint`, `official_links.x_url` and `telegram_url` filled as published, and `masterSections`
+  the master sections of the version, the date and the policy values. Never the deployment block, a switch value, an input or a
+  secret's presence. `/api/status` and the public pages are still design (stage S52).
 
 ## 5. Idempotency keys
 
