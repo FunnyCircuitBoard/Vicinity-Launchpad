@@ -63,7 +63,8 @@ test("the copy says only what is true: boundaries where they exist, city coins a
 test("the footer: a security line kept (not a risk line), no Privacy link, and SOCIAL_PROFILES' names escaped into the page", () => {
   const build = read("scripts/pages/build.mjs");
   assert.match(build, /const esc = \(s\) => String\(s\)\.replace\(\/&\/g, "&amp;"\)\.replace\(\/<\/g, "&lt;"\)\.replace\(\/>\/g, "&gt;"\)\.replace\(\/"\/g, "&quot;"\);/);
-  assert.match(build, /aria-label="Vicinity on \$\{esc\(p\.network\)\} \(\$\{esc\(p\.handle\)\}\), opens in a new tab"/);
+  // the label's words come from src/brand.js ("Vicinity on <network> (<handle>), opens in a new tab" while BRAND is unset; test/build-parity.test.js)
+  assert.match(build, /aria-label="\$\{L\.socialLink\(esc\(p\.network\), esc\(p\.handle\)\)\}"/);
   assert.match(build, /<span class="social-link__name">\$\{esc\(p\.network\)\}<\/span>/);
   assert.match(build, /if \(!\/\^https:\\\/\\\/\[\^\\s"'<>\]\+\$\/\.test\(url\)\)/, "a quote of either kind ends an address");
   assert.doesNotMatch(build, /rules#privacy/);

@@ -26,7 +26,7 @@ Written 24 October 2026 against main `4aa408e`, and updated the same day for own
   - **developer-only**: comments, internal identifiers and developer docs. This sixth class exists because 666 tokens fit none of the five. Renaming them is optional and changes nothing a user sees.
 - **Compatibility-required items.** These were taken out of the label and URL classes by explicit rules, listed in section 3.3: the legacy brand image, legacy `/coin-meta` URLs, the old routes and redirect sources, the old domains on the official list, the old wallet statements during the legacy window, and the frozen legacy coin-JSON brand.
 - **Error margin.** The rules were spot-checked file by file for `src/` and by sampling elsewhere. A few tokens at class boundaries may be misclassified (for example a local variable named `vicinity`). The per-file totals and the file list are exact.
-- **Committing the classifier.** The classifier is a scratch script outside the repository. Committing it as `scripts/brand/residual.mjs`, so that CI fails on an unclassified label once `BRAND=citycoin`, is proposed work unit B1 and has not been done.
+- **Committing the classifier.** The counts in this file come from a scratch script outside the repository. Stage S02 commits a classifier with the same rules as `scripts/brand/residual.mjs` (report only: it prints counts per class and area and always exits 0; `--list` and `--json` give the detail). Its counts differ a little from the ones below because it scans the tree as committed, including the phase 1 files under `docs/citycoin-master/` that `4aa408e` does not have. It becomes a CI gate on unclassified labels once `BRAND=citycoin` (stage S48).
 
 ## 2. Totals
 
@@ -273,10 +273,10 @@ Owner amendment 01 (24 October 2026) supersedes the "existing main-token mint pr
 
 | Test | Asserts | Master ID |
 |---|---|---|
-| New: test/brand-residual.test.js (with `scripts/brand/residual.mjs`) | With `BRAND=citycoin`, no label-class "Vicinity" remains outside the allowlist of sections 3.3-3.6. The report lists every remaining token with its class. | D01 |
-| New: build parity test | With `BRAND` and `SITE_ORIGIN` unset, the built pages are byte-identical to today's | D01 (no premature change) |
+| test/brand-residual.test.js (with `scripts/brand/residual.mjs`; report mode since S02) | S02: the report exits 0, its class counts add up, and the rules place the examples of section 3 in their classes. S48: with `BRAND=citycoin`, no label-class "Vicinity" remains outside the allowlist of sections 3.3-3.6. The report lists every remaining token with its class. | D01 |
+| test/build-parity.test.js (S02) | With `BRAND` unset, the built pages are byte-identical to the committed `public/` files, and every product name the layout writes comes from `src/brand.js` (a fake label set moves exactly those positions) | D01 (no premature change) |
 | test/masterpolicy.test.js (amendment 01 tests, exist) | The legacy mint and the old X link appear in the policy only as legacy facts; `MAIN_TOKEN_MINT`, `OFFICIAL_X_URL` and `OFFICIAL_TELEGRAM_URL` are validated with named errors | D09 |
-| New: test/persist-guard.test.js | Every P-row value is unchanged: program IDs, the live `METADATA_URI_PREFIX`, `vicinity` API and D1 values, hash domains, storage keys, the `election` key, the rewards city tag. The hash of `public/brand/vicinity-512.png` is unchanged. | D09 |
+| test/persist-guard.test.js (S02) | Every P-row value is unchanged: program IDs, the live `METADATA_URI_PREFIX`, `vicinity` API and D1 values, hash domains, storage keys, the `election` key, the rewards city tag. The hash of `public/brand/vicinity-512.png` is unchanged. | D09 |
 | New: legacy metadata byte test | A stored `meta_json` and art served under `/coin-meta` hash the same under every `BRAND` value | D03 |
 | New: test/host-redirect.test.js | 308 for GET and HEAD pages with the path kept and hand-off parameters dropped; 421 with no Location for other methods; excluded paths served in place on the old host; no open redirect; no loop | D03, D05 |
 | D07 checks | Canonical, `og:url`, `og:image`, Twitter card, sitemap, manifest, icons and start URL use `SITE_ORIGIN` and `BRAND`; preview is `noindex` | D07 |

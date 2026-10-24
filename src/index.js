@@ -115,6 +115,7 @@ import { handleFees } from "./fees.js";
 import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus.js";
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
+import { isForwardHost, siteConfig } from "./site-config.js";
 
 export { json, activeMint, cached as _cached };
 
@@ -686,10 +687,9 @@ export function withSecurityHeaders(response) {
   return res;
 }
 
-/** vicinity.city is the address; the old one and the www versions forward there, keeping the path.
+/** The canonical host (src/site-config.js: SITE_ORIGIN, unset = vicinity.city) is the address; the old names (www.vicinity.city,
+ *  vicinitycity.net, www.vicinitycity.net) forward there, keeping the path. The target comes from configuration, never from the request.
  *  Plain http:// visits are sent to https:// (except on this computer, for `wrangler dev`). */
-const CANONICAL_HOST = "vicinity.city";
-const FORWARD_HOSTS = new Set(["www.vicinity.city", "vicinitycity.net", "www.vicinitycity.net"]);
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
 // `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
 const isLocal = (request, url) =>
@@ -700,8 +700,9 @@ export default {
     try {
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);
-      if (FORWARD_HOSTS.has(url.hostname) || insecure) {
-        if (FORWARD_HOSTS.has(url.hostname)) url.hostname = CANONICAL_HOST;
+      const site = siteConfig(env), forward = isForwardHost(site, url.hostname);
+      if (forward || insecure) {
+        if (forward) url.hostname = site.host;
         url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }

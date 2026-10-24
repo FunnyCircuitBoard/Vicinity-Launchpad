@@ -42,6 +42,7 @@ import { checkJupiterBuild, claimedLookupTables, composeJupiter, jupiterBlockhas
 import { issueTicket, simulate, simulationError } from "./relay.js";
 import { stageOf } from "./lptrade.js";
 import { chainSymbolsOf, displayTicker } from "./tickers.js";
+import { USER_AGENT } from "./site-config.js";
 
 export const USDC = PAIRS.USDC.mint, USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", SOL = ADDRESSES.wsol;
 export const MAX_SLIPPAGE_BPS = 5000, DEFAULT_SLIPPAGE_BPS = 100;
@@ -109,7 +110,7 @@ async function jupiterGet(env, url, fetchImpl, now, { keyed = true, pause = null
   const jc = jupiterConfig(env);
   const t0 = Date.now();
   let res;
-  try { res = await fetchImpl(url, { headers: { accept: "application/json", "user-agent": "vicinity.city/1.0 (+https://vicinity.city)", ...(keyed ? jc.headers : {}) }, signal: AbortSignal.timeout(JUP_TIMEOUT_MS) }); }
+  try { res = await fetchImpl(url, { headers: { accept: "application/json", "user-agent": USER_AGENT, ...(keyed ? jc.headers : {}) }, signal: AbortSignal.timeout(JUP_TIMEOUT_MS) }); }
   catch (e) { f.until = later(now, t0) + NEGATIVE_MS; f.code = "jupiter_unavailable"; throw new JupiterError("jupiter_unavailable", 503, 5); }
   if (res.status === 429) { const t = later(now, t0), ra = Math.min(60_000, Math.max(NEGATIVE_MS, retryAfterMs(res.headers.get("retry-after"), t))); f.until = t + ra; f.code = "jupiter_busy"; throw new JupiterError("jupiter_busy", 503, Math.ceil(ra / 1000)); }
   let body = null;
