@@ -19,9 +19,9 @@ export function base64ToBytes(b64) {
 /**
  * Read a signed-message request and check it fully: format, this site, not expired,
  * and a real signature from the address. Returns { parsed, body } or { error: Response }.
- * With `db`, the message also works only once (see checkSigned).
+ * With `db`, the message also works only once (see checkSigned). `host`: see checkSigned.
  */
-export async function readSigned(request, now, actions, errKey, maxBody = MAX_BODY, db = null) {
+export async function readSigned(request, now, actions, errKey, maxBody = MAX_BODY, db = null, host = undefined) {
   const bad = (error, status = 400) => ({ error: json({ [errKey]: false, error }, status) });
   const len = Number(request.headers.get("content-length") || 0);
   if (len > maxBody) return bad("too_large", 413);
@@ -33,23 +33,29 @@ export async function readSigned(request, now, actions, errKey, maxBody = MAX_BO
   } catch {
     return bad("bad_json");
   }
-  return checkSigned(body, request, now, actions, bad, db);
+  return checkSigned(body, request, now, actions, bad, db, host);
 }
 
 /**
  * Check a signed message. With `db`, a message that passed once is refused the next time ("replayed", 409): a
  * captured { address, message, signature } cannot open a second session or re-prove a wallet during the 10
  * minutes it would otherwise stay valid. Without `db` the check is exactly as before.
+ *
+ * The host binding (master section 05 BR-03: an old-domain signed challenge never authorizes a session on another host): the
+ * message must name exactly the host it is checked on, else "wrong_site". `host` is that host as the caller serves the request
+ * (src/hostbind.js servedHost(env, request).host: an allowlist entry while the host binding counts, null for a refused host, which
+ * matches nothing); left out, it is the request URL's own host, as before (and that is also what servedHost gives while the binding
+ * does not count). So a message signed for vicinity.city is refused on citycoin.dev, and the other way round, whatever the settings.
  */
-export async function checkSigned(body, request, now, actions, bad, db = null) {
+export async function checkSigned(body, request, now, actions, bad, db = null, host = undefined) {
   const { address, message, signature } = body || {};
   if (!isSolanaAddress(address)) return bad("bad_address");
 
   const parsed = parseMessage(message);
   if (!parsed || !actions.includes(parsed.action)) return bad("bad_message");
 
-  const host = new URL(request.url).host;
-  if (parsed.host !== host) return bad("wrong_site");
+  const expected = host === undefined ? new URL(request.url).host : host;
+  if (!expected || parsed.host !== expected) return bad("wrong_site");
   if (parsed.address !== address) return bad("address_mismatch");
 
   const issued = Date.parse(parsed.issuedAt);

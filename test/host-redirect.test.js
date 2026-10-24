@@ -42,10 +42,19 @@ const ASSETS = { fetch: async (req) => {
   return new Response(read("public/404.html"), { status: 404, headers: { "content-type": TYPES[".html"] } });
 } };
 const world = (extra = {}) => W.newWorld({ ...VARS, GOOGLE_CLIENT_ID: "gid", ASSETS, ...extra });
-/** A member signed in today (wallet + Google, a home community), made the way the test world makes one (the old sign-up path). */
+/** A member signed in today (wallet + Google, a home community), made the way the test world makes one (the old sign-up path), before
+ *  the site settings changed: the world's own host (vicinity.test) is not on any allowlist, and since stage S04 a SITE_ORIGINS that lists a
+ *  second host binds new sessions to their host (src/hostbind.js), so the member is made with the settings unset, as every session row that
+ *  exists today was (host NULL, which reads as vicinity.city). */
 async function member(env) {
-  const flow = env.SIGNUP_FLOW; delete env.SIGNUP_FLOW;
-  try { return await W.person(env, { home: W.IN_UTICA, holds: 1_000_000 }); } finally { env.SIGNUP_FLOW = flow; }
+  const flow = env.SIGNUP_FLOW, site = [env.SITE_ORIGIN, env.SITE_ORIGINS];
+  delete env.SIGNUP_FLOW; delete env.SITE_ORIGIN; delete env.SITE_ORIGINS;
+  try { return await W.person(env, { home: W.IN_UTICA, holds: 1_000_000 }); }
+  finally {
+    env.SIGNUP_FLOW = flow;
+    if (site[0] !== undefined) env.SITE_ORIGIN = site[0];
+    if (site[1] !== undefined) env.SITE_ORIGINS = site[1];
+  }
 }
 const ctx = { waitUntil() {}, passThroughOnException() {} };
 
@@ -189,6 +198,11 @@ test("switch unset: every host, scheme, method and path class answers as today (
   }
 });
 
+// The reference of a refused switch is the same deployment with HOST_REDIRECT taken out: since stage S04 the site settings themselves count
+// (a SITE_ORIGINS that lists a second host, or a refused one, binds sessions and refuses hosts outside the allowlist: src/hostbind.js and
+// test/host-binding.test.js), so a refused HOST_REDIRECT must add nothing to them. A variant with no site settings is compared with the
+// world with nothing set, as before.
+const withoutSwitch = (v) => { const { HOST_REDIRECT, ...rest } = v; void HOST_REDIRECT; return rest; };
 test("switch set but refused (each reason): every answer, header and D1 row is exactly the switch-off one", async () => {
   const variants = [
     { ...ON },                                                         // as committed: the pages bypass the Worker
@@ -202,7 +216,7 @@ test("switch set but refused (each reason): every answer, header and D1 row is e
   for (const v of variants) {
     if (v !== variants[0]) pagesReachWorker(); // every refusal but the first is a refusal of the configuration, not of the page routing
     try {
-      const off = world(), on = world(v);
+      const off = world(withoutSwitch(v)), on = world(v);
       for (const url of urls) for (const method of ["GET", "HEAD", "POST", "DELETE"]) {
         assert.deepEqual(await call(on, url, method), await call(off, url, method), `${JSON.stringify(v)} ${method} ${url}`);
       }

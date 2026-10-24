@@ -48,9 +48,10 @@
  */
 import { clearCookie, cookie, getCookie, json, randomToken, readJson, sameSite, sha256 } from "./http.js";
 import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
+import { hostWrite, onThisHost, servedHost } from "./hostbind.js";
 import { dropSession, getSession, isFresh } from "./auth.js";
 import { checkSigned } from "./signed.js";
-import { ensureOnboardSchema } from "./store.js";
+import { ensureHostSchema, ensureOnboardSchema } from "./store.js";
 import { RELAY_ASNS, VPN_NETWORK_RE, isRelayNetwork } from "./network.js";
 import { check, clientKey, limitKey } from "./limits.js";
 import { TERMS_VERSION } from "./signup-core.js";
@@ -214,7 +215,8 @@ const findCarry = async (env, code, now) => {
  */
 async function usableCarry(env, request, code, now, cf, mode, nonces) {
   const row = await findCarry(env, code, now);
-  if (!row) return { error: json({ ok: false, error: "carry_expired" }, 410) };
+  // (while the host binding counts, a code made on another host is unknown here, before anything is read or marked: src/hostbind.js)
+  if (!row || !onThisHost(servedHost(env, request), row.host)) return { error: json({ ok: false, error: "carry_expired" }, 410) };
   const relay = row.net === "relay";
   // CARRY_RELAY=off is the emergency stop: a relay code handed out before the switch is dead from the next request too, opened or not
   // (its look, its statement and its claim); Safari's status says it ran out, and a new tap pairs (handleCarryStart)
@@ -254,8 +256,11 @@ export async function linkAccountFor(request, env, now = Date.now(), cf = reques
   if (q.get("pair")) {
     const code = q.get("pair");
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(code)) return { error: "pair_expired", status: 410 };
-    const p = await env.DB.prepare("SELECT user_id FROM pairs WHERE id = ? AND purpose = 'link' AND wallet IS NULL AND expires_at > ?").bind(await sha256(code), iso(now)).first();
-    const owner = p && p.user_id ? await env.DB.prepare("SELECT id, handle, wallet FROM users WHERE id = ?").bind(p.user_id).first() : null;
+    const served = servedHost(env, request); // (while the host binding counts, a pairing made on another host is unknown here: src/hostbind.js)
+    if (served.bound) await ensureHostSchema(env.DB);
+    const p = await env.DB.prepare(served.bound ? "SELECT user_id, host FROM pairs WHERE id = ? AND purpose = 'link' AND wallet IS NULL AND expires_at > ?"
+      : "SELECT user_id FROM pairs WHERE id = ? AND purpose = 'link' AND wallet IS NULL AND expires_at > ?").bind(await sha256(code), iso(now)).first();
+    const owner = p && p.user_id && onThisHost(served, p.host) ? await env.DB.prepare("SELECT id, handle, wallet FROM users WHERE id = ?").bind(p.user_id).first() : null;
     if (!owner) return { error: "pair_expired", status: 410 };
     return { handle: accountName(owner) };
   }
@@ -277,7 +282,7 @@ async function handleLink(request, env, x) {
     await perHour(env, "wli", clientKey(request), LIMITS.link.ip),
   ]);
   if (over) return over;
-  const r = await checkSigned(body, request, x.now, ["link"], badSigned, env.DB); // a signed message works once
+  const r = await checkSigned(body, request, x.now, ["link"], badSigned, env.DB, servedHost(env, request).host); // a signed message works once, on the host it names
   if (r.error) return r.error;
   // the statement names THIS account, and the plain one (the check-number variant belongs to the pairing)
   if (r.parsed.pin || r.parsed.handle !== accountName(s.user)) return json({ ok: false, error: "bad_message" }, 400);
@@ -308,14 +313,18 @@ async function handleCarryStart(request, env, x) {
     ...(relay ? [] : [await perHour(env, "wci", clientKey(request), LIMITS.carry.ip)]), // a relay exit is shared by strangers: per person only
   ]);
   if (over) return over;
-  const code = randomToken(24), until = x.now + MINUTES * 60_000, id = await sha256(code);
+  const code = randomToken(24), until = x.now + MINUTES * 60_000, id = await sha256(code), served = servedHost(env, request);
+  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     // one live code per person: a new tap replaces the one before (a code already used stays: it tells Safari what happened)
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'carry' AND ((user_id = ? AND (result IS NULL OR result IN ('opened', 'contested'))) OR expires_at < ?)").bind(s.user.id, iso(x.now)),
     env.DB.prepare("INSERT INTO handoffs (id, kind, user_id, purpose, net, country, created_at, expires_at) VALUES (?, 'carry', ?, 'link', ?, ?, ?, ?)")
       .bind(id, s.user.id, relay ? "relay" : await carryNet(env, request), country, iso(x.now), iso(until)),
+    ...(host ? [host] : []), // (while the host binding counts: the code is good on this host only)
   ]);
-  return json({ ok: true, code, pin: await carryPin(code), ref: carryRef(id), url: `${new URL(request.url).origin}/connect?link=${code}`, expiresAt: iso(until),
+  // the link the wallet app opens: the allowlist entry's origin (src/hostbind.js), never the request's own host text
+  return json({ ok: true, code, pin: await carryPin(code), ref: carryRef(id), url: `${served.origin}/connect?link=${code}`, expiresAt: iso(until),
     ...(relay ? { relay: true, openBy: iso(x.now + RELAY_OPEN_MS) } : {}) });
 }
 
@@ -380,11 +389,14 @@ async function handleCarryClaim(request, env, x) {
   const u = await usableCarry(env, request, body.code, x.now, x.cf, "use", presented(request, body.opener));
   if (u.error) return u.error;
   if (session && session.user && session.user.id !== u.owner.id) return json({ ok: false, error: "already_signed_in" }, 409);
-  const r = await checkSigned(body, request, x.now, ["link"], badSigned, env.DB);
+  const served = servedHost(env, request);
+  const r = await checkSigned(body, request, x.now, ["link"], badSigned, env.DB, served.host); // (only on the host the text names)
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.handle !== accountName(u.owner)) return json({ ok: false, error: "bad_message" }, 400);
   const wallet = r.parsed.address, app = appOf(body.app), at = iso(x.now);
   const token = randomToken(32), sid = await sha256(token);
+  if (served.bound) await ensureHostSchema(env.DB); // sessions.host (src/hostbind.js)
+  const host = hostWrite(env.DB, "sessions", sid, served);
   let res;
   try {
     res = await env.DB.batch([
@@ -401,6 +413,8 @@ async function handleCarryClaim(request, env, x) {
       env.DB.prepare(`INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at, made_by)
           SELECT ?1, ?2, ?3, NULL, ?4, ?5, ?4, 'wallet' WHERE EXISTS (SELECT 1 FROM users WHERE id = ?3 AND wallet = ?2)`)
         .bind(sid, wallet, u.owner.id, at, iso(x.now + SESSION_SECONDS * 1000)),
+      // 5. (while the host binding counts) that session records the host it is made on: changes nothing unless 4 made it
+      ...(host ? [host] : []),
     ]);
   } catch (e) {
     if (!/UNIQUE/i.test(String((e && e.message) || e))) throw e;

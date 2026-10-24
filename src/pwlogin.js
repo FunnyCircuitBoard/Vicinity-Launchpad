@@ -48,7 +48,8 @@ import { check, clientKey, limitKey, refund } from "./limits.js";
 import { PASSWORD_MAX, checkPassword, hashPassword, verifyPassword } from "./password.js";
 import { HOUR, iso } from "./policy.js";
 import { asText, endSignup } from "./signup-core.js";
-import { ensureLimitsSchema, ensureOnboardSchema } from "./store.js";
+import { ensureHostSchema, ensureLimitsSchema, ensureOnboardSchema } from "./store.js";
+import { hostWrite, servedHost } from "./hostbind.js";
 import { linkLocked, lockedAnswer } from "./walletlink.js";
 import { dropLoginsStatement } from "./logins.js";
 
@@ -109,14 +110,16 @@ const LOGIN_KINDS = { address: "pwa", pair: "pwp" }, RESET_KINDS = { address: "r
 /** A password as typed by someone who could have chosen it: at most PASSWORD_MAX characters once normalized. Never throws. */
 const plausible = (password) => typeof password === "string" && password.length <= RAW_MAX && Array.from(password.normalize("NFKC")).length <= PASSWORD_MAX;
 
-/** The signed-in cookie for a person, as a Set-Cookie value, made in the SAME batch as other changes. */
-async function newSessionStatement(env, user, now) {
-  const token = randomToken(32);
-  return {
-    cookie: cookie(SESSION_COOKIE, token, SESSION_SECONDS),
-    statement: env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, NULL, ?, ?, NULL)")
-      .bind(await sha256(token), user.wallet, user.id, iso(now), iso(now + SESSION_SECONDS * 1000)),
-  };
+/**
+ * The signed-in cookie for a person, as a Set-Cookie value, made in the SAME batch as other changes. `statements` is the INSERT and, while
+ * the host binding counts (src/hostbind.js), the statement that records the host it is made on (the caller has run ensureHostSchema).
+ */
+async function newSessionStatement(env, user, now, served) {
+  const token = randomToken(32), id = await sha256(token);
+  const insert = env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, NULL, ?, ?, NULL)")
+    .bind(id, user.wallet, user.id, iso(now), iso(now + SESSION_SECONDS * 1000));
+  const host = hostWrite(env.DB, "sessions", id, served);
+  return { cookie: cookie(SESSION_COOKIE, token, SESSION_SECONDS), statements: host ? [insert, host] : [insert] };
 }
 
 const EMAIL_USER = "SELECT id, wallet, password_hash FROM users WHERE provider = 'email' AND provider_id = ?";
@@ -146,7 +149,7 @@ export async function handleEmailLogin(request, env, x) {
     } catch (e) { console.error("password upgrade failed", String((e && e.message) || e)); }
   }
   await dropCurrent(env, request);
-  const session = await createSession(env, { wallet: user.wallet, userId: user.id, provenAt: null }, SESSION_SECONDS, now);
+  const session = await createSession(env, { wallet: user.wallet, userId: user.id, provenAt: null, served: servedHost(env, request) }, SESSION_SECONDS, now);
   return json({ ok: true, next: "/dashboard" }, 200, { "Set-Cookie": [session, ...(await endSignup(env, request))] });
 }
 
@@ -200,7 +203,9 @@ export async function handleReset(request, env, x) {
 
   const hash = await hashPassword(env, body.password);
   await ensureOnboardSchema(env.DB); // users.password_at
-  const session = await newSessionStatement(env, user, now);
+  const served = servedHost(env, request);
+  if (served.bound) await ensureHostSchema(env.DB); // sessions.host (src/hostbind.js)
+  const session = await newSessionStatement(env, user, now, served);
   const loginAddress = await limitKey(env, "pwa", email);
   const logins = await dropLoginsStatement(env.DB, user.id); // (makes user_logins first: a batch naming a missing table fails whole)
   // One transaction: the new password, every old session gone, every Google sign-in added to the account gone (someone who had the
@@ -211,9 +216,10 @@ export async function handleReset(request, env, x) {
     env.DB.prepare("UPDATE users SET password_hash = ?, password_at = ? WHERE id = ?").bind(hash, iso(now), user.id),
     env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
     logins,
-    session.statement,
+    session.statements[0],
     env.DB.prepare(`DELETE FROM auth_limits WHERE key = ?1 OR key = ?2 OR substr(key, 1, length(?3)) = ?3 OR substr(key, 1, length(?4)) = ?4`)
       .bind(loginAddress, counters.address, `pwp:${loginAddress.slice(4)}:`, `rsp:${counters.address.slice(4)}:`),
+    ...session.statements.slice(1), // (while the host binding counts: the new session's host, in the same transaction)
   ]);
   await dropCurrent(env, request); // a wallet that was proven here while signing up, or a session of someone else in this browser
   const googleRemoved = done[2].meta.changes > 0; // the page says so: "add it again from your Profile"

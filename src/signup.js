@@ -32,6 +32,8 @@ import { HOUR, POLICY, iso } from "./policy.js";
 import { v2On } from "./flags.js";
 import { TERMS_VERSION, asText, endSignup, findHandoff, getSignup, guardV2, netOf, nextStep, startSignup, touchSignup } from "./signup-core.js";
 import { finishCore, sameLocationNetwork } from "./signup-finish.js";
+import { ensureHostSchema } from "./store.js";
+import { hostWrite, servedHost } from "./hostbind.js";
 import { handleEmailLogin, handleReset, handleResetStart, handleSetPassword } from "./pwlogin.js";
 
 export { sameLocationNetwork }; // (tested and used from here before the finish moved to src/signup-finish.js)
@@ -111,7 +113,7 @@ async function handleStart(request, env, x) {
   const over = await limited(env, x.now, [await perHour(env, "sus", clientKey(request), LIMITS.start.ip)])
     || await limited(env, x.now, [{ key: "sus:site", windowMs: HOUR, max: siteStarts(env) }]);
   if (over) return over;
-  const made = await startSignup(env, x.now);
+  const made = await startSignup(env, x.now, servedHost(env, request)); // (bound to this host while the host binding counts: src/hostbind.js)
   return json({ ok: true, state: signupState({}) }, 200, { "Set-Cookie": made.cookie });
 }
 
@@ -188,19 +190,23 @@ async function handleHandoffStart(request, env, x) {
     await perHour(env, "handi", clientKey(request), LIMITS.handoff.ip),
   ]);
   if (over) return over;
-  const code = randomToken(18);
+  const code = randomToken(18), id = await sha256(code), served = servedHost(env, request);
+  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'locate' AND (signup_id = ? OR expires_at < ?)").bind(c.row.id, iso(x.now)),
     env.DB.prepare("INSERT INTO handoffs (id, kind, user_id, signup_id, purpose, net, created_at, expires_at) VALUES (?, 'locate', NULL, ?, 'signup', ?, ?, ?)")
-      .bind(await sha256(code), c.row.id, netOf(x.cf), iso(x.now), iso(x.now + MINUTES * 60_000)),
+      .bind(id, c.row.id, netOf(x.cf), iso(x.now), iso(x.now + MINUTES * 60_000)),
+    ...(host ? [host] : []), // (while the host binding counts: the code is good on this host only)
   ]);
-  return c.reply({ ok: true, code, url: `${new URL(request.url).origin}/locate?code=${code}`, expiresAt: iso(x.now + MINUTES * 60_000) });
+  // the link the phone opens: the allowlist entry's origin (src/hostbind.js), never the request's own host text
+  return c.reply({ ok: true, code, url: `${served.origin}/locate?code=${code}`, expiresAt: iso(x.now + MINUTES * 60_000) });
 }
 
 /** What the link is for (the phone's browser, no cookie): the same answer today's /api/locate/handoff/info gives, for sign-up links only. */
 async function handleHandoffInfo(request, env, x) {
   const body = await readJson(request);
-  const row = body && await findHandoff(env, body.code, x.now);
+  const row = body && await findHandoff(env, body.code, x.now, servedHost(env, request));
   if (!row || !row.signup_id) return json({ ok: false, error: "expired" }, 410);
   return json({ ok: true, purpose: row.purpose, done: Boolean(row.result), expiresAt: row.expires_at });
 }
@@ -233,7 +239,7 @@ export async function handleSignupHandoffComplete(request, env, row, body, now =
 
 async function handleHandoffCompleteAlias(request, env, x) {
   const body = await readJson(request);
-  const row = body && await findHandoff(env, body.code, x.now);
+  const row = body && await findHandoff(env, body.code, x.now, servedHost(env, request));
   if (!row || !row.signup_id) return json({ ok: false, error: "expired" }, 410);
   return handleSignupHandoffComplete(request, env, row, body, x.now, x.cf);
 }
@@ -243,7 +249,7 @@ async function handleHandoffClaim(request, env, x) {
   const c = await needSignup(request, env, x.now);
   if (c.error) return c.error;
   const body = await readJson(request);
-  const row = body && await findHandoff(env, body.code, x.now);
+  const row = body && await findHandoff(env, body.code, x.now, servedHost(env, request));
   if (!row || row.signup_id !== c.row.id) return json({ ok: false, status: "expired" }, 410);
   if (!row.result) return c.reply({ ok: false, status: "waiting" });
   let res;
@@ -338,7 +344,7 @@ async function handleEmailVerify(request, env, x) {
   const v = await consumeEmailCode(env.DB, email, code, x.now);
   if (!v.ok) return json({ ok: false, error: v.error, ...(v.left != null ? { left: v.left } : {}) }, v.error === "too_many" ? 429 : 400);
 
-  const r = await linkIdentity(env, c.session, "email", { id: email, handle: null, name: "E-mail member" }, x.now, { onNew: () => markEmailVerified(env, c.row, email, x.now) });
+  const r = await linkIdentity(env, c.session, "email", { id: email, handle: null, name: "E-mail member" }, x.now, { onNew: () => markEmailVerified(env, c.row, email, x.now) }, servedHost(env, request));
   if (r.error) return json({ ok: false, error: r.error }, LINK_STATUS[r.error] || 400);
   if (r.recorded) {
     // the mailbox is proven and in the sign-up: the account is made now, in this very call, and this browser is signed in

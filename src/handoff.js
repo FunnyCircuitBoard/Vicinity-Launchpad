@@ -17,15 +17,18 @@ import { getSession } from "./auth.js";
 import { PURPOSES, checkLocation, countRecent, makeAttestation, noteEvent } from "./attest.js";
 import { HOUR, POLICY, iso } from "./policy.js";
 import { handleSignupHandoffComplete } from "./signup.js";
+import { ensureHostSchema } from "./store.js";
+import { hostWrite, onThisHost, servedHost } from "./hostbind.js";
 
 const MINUTES = 10;
 /** Where the person's connection is, coarsely: country and network operator. null off Cloudflare (local tests). */
 const netOf = (cf) => (cf ? `${cf.country || ""}|${cf.asn || ""}` : null);
 
-async function find(env, code, now) {
+/** A live location hand-off by its code; while the host binding counts (src/hostbind.js), only on the host it was made on (NULL: vicinity.city). */
+async function find(env, code, now, served) {
   if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(code)) return null;
   const row = await env.DB.prepare("SELECT * FROM handoffs WHERE id = ? AND kind = 'locate'").bind(await sha256(code)).first();
-  return row && Date.parse(row.expires_at) > now ? row : null;
+  return row && Date.parse(row.expires_at) > now && onThisHost(served, row.host) ? row : null;
 }
 
 /** POST /api/locate/handoff { purpose } → { code, url, expiresAt } (signed in). */
@@ -37,20 +40,24 @@ export async function handleHandoffStart(request, env, now = Date.now(), cf = re
   if (!body || !PURPOSES.includes(body.purpose)) return json({ ok: false, error: "bad_request" }, 400);
   if (await countRecent(env, s.user.id, "handoff", now - HOUR) >= 10) return json({ ok: false, error: "slow_down" }, 429);
   await noteEvent(env, s.user.id, "handoff", now);
-  const code = randomToken(18);
+  const code = randomToken(18), id = await sha256(code), served = servedHost(env, request);
+  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'locate' AND (user_id = ? OR expires_at < ?)").bind(s.user.id, iso(now)),
     env.DB.prepare("INSERT INTO handoffs (id, kind, user_id, purpose, net, created_at, expires_at) VALUES (?, 'locate', ?, ?, ?, ?, ?)")
-      .bind(await sha256(code), s.user.id, body.purpose, netOf(cf), iso(now), iso(now + MINUTES * 60_000)),
+      .bind(id, s.user.id, body.purpose, netOf(cf), iso(now), iso(now + MINUTES * 60_000)),
+    ...(host ? [host] : []), // (while the host binding counts: the code is good on this host only)
   ]);
-  return json({ ok: true, code, url: `${new URL(request.url).origin}/locate?code=${code}`, expiresAt: iso(now + MINUTES * 60_000) });
+  // the link the phone opens: the allowlist entry's origin (src/hostbind.js), never the request's own host text
+  return json({ ok: true, code, url: `${served.origin}/locate?code=${code}`, expiresAt: iso(now + MINUTES * 60_000) });
 }
 
 /** POST /api/locate/handoff/info { code } → what the link is for (the page in the phone's browser; no sign-in). */
 export async function handleHandoffInfo(request, env, now = Date.now()) {
   if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
   const body = await readJson(request);
-  const row = body && await find(env, body.code, now);
+  const row = body && await find(env, body.code, now, servedHost(env, request));
   if (!row) return json({ ok: false, error: "expired" }, 410);
   return json({ ok: true, purpose: row.purpose, done: Boolean(row.result), expiresAt: row.expires_at });
 }
@@ -59,7 +66,7 @@ export async function handleHandoffInfo(request, env, now = Date.now()) {
 export async function handleHandoffComplete(request, env, now = Date.now(), cf = request.cf) {
   if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
   const body = await readJson(request);
-  const row = body && await find(env, body.code, now);
+  const row = body && await find(env, body.code, now, servedHost(env, request));
   if (!row) return json({ ok: false, error: "expired" }, 410);
   if (row.signup_id) return handleSignupHandoffComplete(request, env, row, body, now, cf); // a link made by the v2 sign-up (no account yet)
   if (row.result) return json({ ok: false, error: "already_done" }, 409);
@@ -84,7 +91,7 @@ export async function handleHandoffClaim(request, env, now = Date.now()) {
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);
-  const row = body && await find(env, body.code, now);
+  const row = body && await find(env, body.code, now, servedHost(env, request));
   if (!row || row.user_id !== s.user.id) return json({ ok: false, status: "expired" }, 410);
   if (!row.result) return json({ ok: false, status: "waiting" });
   const gone = await env.DB.prepare("DELETE FROM handoffs WHERE id = ? AND result IS NOT NULL").bind(row.id).run();

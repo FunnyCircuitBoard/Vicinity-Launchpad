@@ -32,11 +32,12 @@
  * resolved against the origin, and the result is checked to have the intended origin before it is sent.
  */
 import { SECURITY_HEADERS, json } from "./http.js";
-import { LEGACY_HOSTS } from "./site-config.js";
+import { LOCAL_HOST, acceptedHost } from "./site-config.js";
 import { OFFICIAL_CSV_PATH } from "./officialcoins.js";
 
-/** Hosts of this computer (`wrangler dev`). The same rule src/index.js has always used for its http exception. */
-export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
+/** Hosts of this computer (`wrangler dev`), and the accepted host's allowlist entry: kept in src/site-config.js since stage S04 (the session
+ *  and challenge binding, src/hostbind.js, uses the same two), re-exported here unchanged. */
+export { LOCAL_HOST, acceptedHost };
 /** A visit from this computer: a local host name, or `wrangler dev` presenting a route's host (http://vicinity.city) from a local address. */
 export const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
@@ -48,7 +49,7 @@ export const IMMUTABLE_PATHS = Object.freeze(["/brand/vicinity-512.png", OFFICIA
 export const isImmutable = (path) => IMMUTABLE_PATHS.includes(path) || IMMUTABLE_PREFIXES.some((p) => path.startsWith(p));
 
 /** Routes bound to the origin that issued them, refused on any other host even for GET: the wallet challenge (the text a wallet signs names
- *  the host, src/signed.js), sign-in (the Google start builds its return address from the host; the callback carries the provider's
+ *  the host, src/signed.js), sign-in (the Google start's return address names the host, src/hostbind.js; the callback carries the provider's
  *  one-time code), phone pairing, the sign-up and its location hand-off, the wallet link and its carry code, the location check, and any
  *  callback or webhook path (none is inbound today; a later one is refused here by its name until it is migrated explicitly). */
 export const ORIGIN_BOUND = Object.freeze([
@@ -91,13 +92,6 @@ export function safeQuery(search) {
     if (SAFE.has(key)) kept.push(part);
   }
   return kept.length ? `?${kept.join("&")}` : "";
-}
-
-/** The accepted host's own allowlist entry (SITE_ORIGINS or a legacy host; exact, lower case, never a suffix match), or null. */
-export function acceptedHost(site, hostname) {
-  const h = String(hostname || "").toLowerCase();
-  const entry = site.hosts.find((x) => x === h) || LEGACY_HOSTS.find((x) => x === h);
-  return entry || null;
 }
 
 /** 421 Misdirected Request: this answer belongs to another origin. JSON, no Location, never cached. */

@@ -69,6 +69,9 @@
  *   GET/HEAD of a page on a host other than SITE_ORIGIN 308 there (safe query keys only) · /coin-meta/*, /brand/vicinity-512.png,
  *   /official-coins.csv and read-only /api/* served in place · any other method, /api/message, sign-in, hand-offs, callbacks and
  *   webhooks 421 {"error":"wrong_host"} (no Location) · unknown hosts 421
+ * Sessions and challenges (stage S04, src/hostbind.js; only once SITE_ORIGINS lists a host other than vicinity.city, otherwise exactly as
+ *   before): a host outside the allowlist 421 wrong_host · a session, pairing, hand-off or sign-up made on one host is unknown on another
+ *   (rows made before: vicinity.city) · hand-off, QR, pairing and Google return links, and the host a wallet signs, from the allowlist
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
@@ -124,7 +127,8 @@ import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, off
 import { DEFAULT_SITE, isForwardHost, siteConfig } from "./site-config.js";
 import { checkDeploymentConfig } from "./maintoken.js";
 import { checkPolicyConfig, hostRedirect, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
-import { hostAnswer, isLocal } from "./hostroute.js";
+import { hostAnswer, isLocal, wrongHost } from "./hostroute.js";
+import { servedHost } from "./hostbind.js";
 import { officialLinksInPage } from "./footer-social.js";
 
 export { json, activeMint, cached as _cached };
@@ -172,7 +176,8 @@ async function cached(key, seconds, produce, { edge = 0 } = {}) {
 }
 
 export async function handleVerify(request, env = {}, now = Date.now(), fetchImpl = fetch) {
-  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null); // one-time: a replayed body is 409, not another RPC call
+  // one-time: a replayed body is 409, not another RPC call; the message must name the host it is checked on (src/hostbind.js)
+  const r = await readSigned(request, now, ["verify"], "verified", undefined, env.DB || null, servedHost(env, request).host);
   if (r.error) return r.error;
   const address = r.parsed.address;
   console.log("wallet verified", address.slice(0, 4) + "…" + address.slice(-4));
@@ -258,6 +263,9 @@ const v5Options = (env, fetchImpl) => {
 const V2_EXACT = new Set(["/api/auth/email/login", "/api/auth/password/reset/start", "/api/auth/password/reset", "/api/me/password"]);
 
 export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null) {
+  // stage S04 (src/hostbind.js): while the host binding counts, a host outside the allowlist is refused before any route (the Worker entry
+  // below refuses it first; this covers a direct call). With SITE_ORIGINS unset nothing is ever refused here.
+  if (servedHost(env, request).refused) return wrongHost();
   const url = new URL(request.url);
   const method = request.method;
   const only = (m) => (method === m ? null : json({ error: "method_not_allowed" }, 405));
@@ -526,7 +534,11 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
         statement = statementFor("link", { handle: a.handle, pin });
       } else return json({ error: "bad_request" }, 400);
       const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
-      return json({ message: buildMessage({ host: url.host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
+      // the host the text names: the allowlist entry this request is served as (src/hostbind.js; today, the request's own host), the one
+      // host src/signed.js accepts it on
+      const host = servedHost(env, request).host;
+      if (!host) return wrongHost();
+      return json({ message: buildMessage({ host, address, nonce, issuedAt: new Date().toISOString(), statement }) });
     }
 
     // founder seats (and the map)
@@ -755,6 +767,9 @@ export default {
           return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
         }
       }
+      // stage S04 (src/hostbind.js): once SITE_ORIGINS lists a second host, a host outside the allowlist (SITE_ORIGINS and the legacy hosts;
+      // a local development host is served) is refused before any route, never served unbound. With SITE_ORIGINS unset: never.
+      if (servedHost(env, request).refused) return wrongHost();
       // the official city-coin CSV lives outside /api (a plain file address, made for Jupiter's token tags) but is answered like /api/*
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings

@@ -129,6 +129,10 @@ the Worker's settings describe, at the first request of an isolate (src/index.js
 | `inputs.cluster`, `program_id`, the nine role keys, `enabled_quote_configs`, `quote_mint_facts` | none yet | `null` or empty. A switch that needs one is refused with its `MISSING_*` (or `NO_ENABLED_QUOTE_CONFIG`) error until the stage that builds that switch adds its setting here. No setting name is invented ahead of that stage. |
 | `fixture` | none | always `false` (local fixtures never run in a Worker) |
 
+- **`SITE_ORIGINS` and the host binding (stage S04).** The same two settings also decide the session and challenge host binding of section
+  3.1 (`src/hostbind.js`), which has no switch of its own: it counts once `SITE_ORIGINS`, as `src/site-config.js` accepts it, lists a host
+  other than `vicinity.city`, or once a set value is refused (fail closed). It does not wait for the v5 check: a safety binding must not
+  turn off because another setting is wrong.
 - **Reporting.** Each named error is logged once per isolate as `policy config refused <code> <path>`, never a value. While
   `MAIN_TOKEN_V5` is on, the three amendment-01 keys are already reported by `src/maintoken.js` (`deployment config refused ...`,
   stage S02A), so they are not logged twice. The check never throws: a failure of the check itself is `CONFIG_CHECK_FAILED` and counts
@@ -287,8 +291,15 @@ Rules:
   AND used_at IS NULL AND expires_at > ? AND purpose = ? AND wallet = ? AND host = ?`, then `INSERT INTO sessions ... SELECT ...
   WHERE EXISTS (SELECT 1 FROM auth_challenges WHERE id = ? AND used_by = ?)`. A failed or expired challenge creates nothing.
   This replaces the fail-open digest check for v5 purposes.
-- **Host binding (§05, D04).** `getSession` refuses a row whose `host` differs from the request host (NULL counts as
-  `vicinity.city`). Copied cookies fail on the other host.
+- **Host binding (§05, D04). Built in stage S04** (`src/hostbind.js`, local branch `cc/s03`, not merged; `domain-cutover.md` section 1.2).
+  It counts once `SITE_ORIGINS` lists a host other than `vicinity.city` (or a set site setting is refused: fails closed); there is no
+  separate switch, and with the settings unset nothing is read or written. The request's host is looked up in the allowlist (the hosts of
+  `SITE_ORIGINS` plus the legacy hosts) and the allowlist's own entry is used, never the request's text; a host outside it answers
+  `421 {"error":"wrong_host"}` before any route. `sessions.host`, `pairs.host`, `handoffs.host` and `signups.host` (nullable, added by the
+  lazy migrations `2026-10-24-host-binding` and `2026-10-24-host-binding-signups`; this section's `ALTER TABLE sessions ADD COLUMN host`)
+  record the entry in the same transaction as the row; `getSession`, the pairing, carry-code, location hand-off and sign-up lookups refuse a
+  row of another host. NULL counts as `vicinity.city`. Copied cookies and replayed hand-off codes fail on the other host. The challenge text
+  names the entry, and a signed text is accepted only on the host it names (src/signed.js; already true today).
 - **Location once (§19).** Raw coordinates are never stored. `loc_verified_at`, `loc_policy` and `loc_method` record the
   privacy-safe evidence. `POST /api/home` writes only when `users.home_city IS NULL` (never located), once.
 - **Backfill** (count-checked on a database copy first, D08):
@@ -929,13 +940,16 @@ lease (slow, crashed, or on the other host) cannot write. Per-item claims (`clai
 
 - **Auth levels.**
   - `public`: no session.
-  - `session`: a wallet-bound session cookie. Under `WALLET_ONLY` the cookie is host-only `__Host-` prefixed and the session row
-    carries `host` (section 3.1). Today's cookie is `vs` (src/session.js:6).
+  - `session`: a wallet-bound session cookie. Under `WALLET_ONLY` the cookie is host-only `__Host-` prefixed. Since stage S04 the
+    session row carries `host` once `SITE_ORIGINS` lists a second host, and is refused on any other host (section 3.1). Today's cookie is
+    `vs` (src/session.js:6), host-only (no `Domain`), `Secure`, `HttpOnly`, `SameSite=Lax`, unchanged by S04.
   - `fresh`: a session whose wallet was proven within the policy window (today 30 minutes: src/policy.js:90, src/auth.js:240-244).
   - `founder`: `session` + the session wallet equals `founder_records.wallet` for the city in the path.
   - `moderator`, `admin`, `owner`: today's console roles; owner comes only from `ADMIN_WALLETS` (src/admin.js:42-57) and every
     console write needs a fresh proof (src/admin.js:783-784).
-- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS`. While `HOST_REDIRECT` counts, a
+- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS` (stage S04: while the host binding counts, a
+  host outside the allowlist is refused with `421 wrong_host` before any route, and hand-off, QR and Google return links are built on the
+  allowlist entry's origin, never on the request's `Host`). While `HOST_REDIRECT` counts, a
   mutation (any method but GET and HEAD) on a non-canonical host answers `421 {"error":"wrong_host"}` with no `Location` (§04, D05;
   stage S03 built the body without `ok` or `origin`: a reload of the page follows the 308 to the canonical origin).
 - **Errors** keep today's envelope `{ ok: false, error: "<code>" }` with an HTTP status, plus a plain `message` (§34 "understandable

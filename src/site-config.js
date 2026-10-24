@@ -13,7 +13,8 @@
  *
  * Nothing here reads a request: no Host header, no request URL. A trusted address (a redirect target, a link in a mail, our User-Agent)
  * is built from this configuration only. The redirect itself (308, 421 and the HOST_REDIRECT switch) is stage S03 (src/hostroute.js, read
- * only while src/v5policy.js hostRedirect counts); session and hand-off host binding is stage S04.
+ * only while src/v5policy.js hostRedirect counts); session, hand-off and challenge host binding is stage S04 (src/hostbind.js, which looks
+ * a request's host up in this allowlist with acceptedHost and uses the entry, never the request's text).
  */
 
 export const DEFAULT_SITE_ORIGIN = "https://vicinity.city";
@@ -90,6 +91,17 @@ export function siteConfig(env) {
   const value = problems.length ? build(DEFAULT_SITE_ORIGIN, DEFAULT_SITE_ORIGINS, problems) : build(origin, origins, null);
   memo = { key, value };
   return value;
+}
+
+/** Hosts of this computer (`wrangler dev`): never a Cloudflare route. The same rule src/index.js has always used for its http exception. */
+export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
+
+/** The accepted host's own allowlist entry (SITE_ORIGINS or a legacy host; exact, lower case, never a suffix match), or null. The value
+ *  returned is the configuration's string, never the request's (stage S03 src/hostroute.js and stage S04 src/hostbind.js both use it). */
+export function acceptedHost(site, hostname) {
+  const h = String(hostname || "").toLowerCase();
+  const entry = site.hosts.find((x) => x === h) || LEGACY_HOSTS.find((x) => x === h);
+  return entry || null;
 }
 
 /** Is `hostname` one this Worker serves in place (SITE_ORIGINS)? Exact, lower-case match; never a suffix match. */

@@ -36,13 +36,17 @@
  *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in
  *   GMAIL_USER, GMAIL_APP_PASSWORD            e-mail codes, sent straight from Gmail (simplest);
  *                                             or RESEND_API_KEY (Resend); EMAIL_FROM sets the sender
- * Redirect address to register with Google: https://vicinity.city/api/auth/google/callback
+ * Redirect address to register with Google: https://vicinity.city/api/auth/google/callback (and, once SITE_ORIGINS lists citycoin.dev and
+ * Google sign-in must work there, https://citycoin.dev/api/auth/google/callback: the address is built on the allowlist entry of the host
+ * the person is on, src/hostbind.js, never on the request's own text).
+ * Host binding (stage S04, src/hostbind.js): once SITE_ORIGINS lists a second host, a session, a pairing and a sign-up are bound to the
+ * host they were made on and are unknown on any other; with SITE_ORIGINS unset everything here is exactly as before.
  */
 import { b64url, clearCookie, cookie, getCookie, json, randomToken, readJson, redirect, sameSite, sha256 } from "./http.js";
 import { checkSigned } from "./signed.js";
 import { isSolanaAddress } from "./solana.js";
 import { emailConfigured, sendMail, verificationEmail } from "./mail.js";
-import { ensureOnboardSchema, ensureSchema, ensureSignupSchema } from "./store.js";
+import { ensureHostSchema, ensureOnboardSchema, ensureSchema, ensureSignupSchema } from "./store.js";
 import { findTransfer } from "./chain.js";
 import { activeMint } from "./official.js";
 import { DAY, POLICY } from "./policy.js";
@@ -55,6 +59,7 @@ import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
 import { accountName, linkLocked, linkNotice, linkWallet, lockedAnswer, maskName } from "./walletlink.js";
 import { addGoogle, findAccount, googleAdded, googleNotice } from "./logins.js";
 import { checkCurrentPassword } from "./pwlogin.js";
+import { hostWrite, onThisHost, servedHost } from "./hostbind.js";
 
 export { SESSION_COOKIE, SESSION_SECONDS };
 const OAUTH_COOKIE = "vo";
@@ -105,13 +110,22 @@ export const providers = (env) => ({
 
 /* ---------------- sessions ---------------- */
 
-/** `madeBy` "wallet" (v2 only, after ensureOnboardSchema: sessions.made_by): a wallet signed in in this very browser, so it is renewed while used. */
-export async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null, madeBy = null }, seconds, now) {
+/**
+ * `madeBy` "wallet" (v2 only, after ensureOnboardSchema: sessions.made_by): a wallet signed in in this very browser, so it is renewed while used.
+ * `served` (src/hostbind.js servedHost of the request): while the host binding counts, the session records the host it is made on, in the
+ * same transaction as its row; otherwise (and without `served`) the statement is exactly today's.
+ */
+export async function createSession(env, { wallet = null, userId = null, proof = null, provenAt = null, madeBy = null, served = null }, seconds, now) {
   const token = randomToken(32);
-  const values = [await sha256(token), wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt];
-  await (madeBy
+  const id = await sha256(token);
+  const values = [id, wallet, userId, proof, iso(now), iso(now + seconds * 1000), provenAt];
+  const insert = madeBy
     ? env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at, made_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(...values, madeBy)
-    : env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...values)).run();
+    : env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...values);
+  if (served && served.bound) {
+    await ensureHostSchema(env.DB);
+    await env.DB.batch([insert, hostWrite(env.DB, "sessions", id, served)]);
+  } else await insert.run();
   if (Math.random() < 0.02) { // tidy up now and then
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(iso(now)),
@@ -121,14 +135,28 @@ export async function createSession(env, { wallet = null, userId = null, proof =
   return cookie(SESSION_COOKIE, token, seconds);
 }
 
-/** The signed-in session for this request: { id, wallet, user_id, proof, user } or null. */
+/**
+ * The signed-in session for this request: { id, wallet, user_id, proof, user } or null. While the host binding counts (src/hostbind.js), a
+ * session made on another host is not this request's (a cookie copied to another host is signed out there); a session made before the
+ * binding (host NULL) belongs to vicinity.city. Otherwise the session is found by its token alone, as always.
+ */
 export async function getSession(env, request, now = Date.now()) {
   if (!env.DB) return null;
   const token = getCookie(request, SESSION_COOKIE);
   if (!token || token.length > 100) return null;
+  const served = servedHost(env, request);
+  if (served.refused) return null;
   await ensureSchema(env.DB);
-  const s = await env.DB.prepare("SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
-  if (!s || Date.parse(s.expires_at) <= now) return null;
+  if (served.bound) await ensureHostSchema(env.DB);
+  const row = await env.DB.prepare(served.bound ? "SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at, host FROM sessions WHERE id = ?"
+    : "SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
+  if (!row || Date.parse(row.expires_at) <= now) return null;
+  let s = row;
+  if (served.bound) {
+    const { host, ...rest } = row;
+    if (!onThisHost(served, host)) return null;
+    s = rest;
+  }
   const user = s.user_id ? await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(s.user_id).first() : null;
   if (s.user_id && !user) return null;
   return { ...s, user };
@@ -165,11 +193,11 @@ export async function dropCurrent(env, request) {
  * The wallet is proven. A linked wallet signs straight in; a new one has 30 minutes to link Google or an e-mail
  * (next: "social") or, in the v2 sign-up, to finish it (next: "signup").
  */
-async function signInWallet(env, wallet, now) {
+async function signInWallet(env, wallet, now, served) {
   const user = await env.DB.prepare("SELECT id FROM users WHERE wallet = ?").bind(wallet).first();
   const provenAt = iso(now);
-  if (user) return { cookie: await createSession(env, { wallet, userId: user.id, provenAt }, SESSION_SECONDS, now), next: "/dashboard" };
-  return { cookie: await createSession(env, { wallet, provenAt }, PENDING_SECONDS, now), next: v2On(env) ? "signup" : "social" };
+  if (user) return { cookie: await createSession(env, { wallet, userId: user.id, provenAt, served }, SESSION_SECONDS, now), next: "/dashboard" };
+  return { cookie: await createSession(env, { wallet, provenAt, served }, PENDING_SECONDS, now), next: v2On(env) ? "signup" : "social" };
 }
 
 /**
@@ -202,9 +230,10 @@ async function walletCookies(env, request, c, next) {
  * With the switch off: today's behaviour (a pending 30-minute session and next "social" for a new wallet).
  */
 export async function walletProven(env, request, wallet, now, session, { link = false, via = "page", here = false } = {}) {
+  const served = servedHost(env, request);
   if (!v2On(env)) {
     await dropCurrent(env, request);
-    const { cookie: c, next } = await signInWallet(env, wallet, now);
+    const { cookie: c, next } = await signInWallet(env, wallet, now, served);
     return { status: 200, body: { ok: true, wallet, next }, cookies: c };
   }
   const s = session === undefined ? await getSession(env, request, now) : session;
@@ -222,7 +251,7 @@ export async function walletProven(env, request, wallet, now, session, { link = 
   if (here) await ensureOnboardSchema(env.DB); // sessions.made_by
   // `here`: the wallet signed in THIS browser, and that browser is a wallet app's own on a phone (renewed while used: renewSession); not
   // a computer's extension, a pairing or a transfer finished elsewhere
-  const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now), madeBy: here ? "wallet" : null }, SESSION_SECONDS, now);
+  const c = await createSession(env, { wallet, userId: user.id, provenAt: iso(now), madeBy: here ? "wallet" : null, served }, SESSION_SECONDS, now);
   return { status: 200, body: { ok: true, wallet, next: "/dashboard" }, cookies: await walletCookies(env, request, c, "/dashboard") };
 }
 const answer = (out) => json(out.body, out.status, out.cookies ? { "Set-Cookie": out.cookies } : {});
@@ -255,7 +284,7 @@ export async function handleReprove(request, env, now = Date.now()) {
   if (!s.user.wallet) return json({ ok: false, error: "no_wallet" }, 403); // nothing to re-prove: link a wallet from the dashboard first
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB);
+  const r = await checkSigned(body, request, now, ["login"], badSigned, env.DB, servedHost(env, request).host);
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.address !== s.user.wallet) return json({ ok: false, error: "wrong_wallet" }, 403);
   await env.DB.prepare("UPDATE sessions SET proven_at = ? WHERE id = ?").bind(iso(now), s.id).run();
@@ -282,7 +311,9 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
   if (blocked) return blocked;
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
-  const r = await checkSigned(body, request, now, v2On(env) ? ["login", "link"] : ["login"], badSigned, env.DB); // a signed message works once
+  const served = servedHost(env, request);
+  // a signed message works once, and only on the host it names (an allowlist entry while the host binding counts: src/hostbind.js)
+  const r = await checkSigned(body, request, now, v2On(env) ? ["login", "link"] : ["login"], badSigned, env.DB, served.host);
   if (r.error) return r.error;
   const wallet = r.parsed.address;
 
@@ -290,7 +321,8 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
     // a phone approving for another device (the computer, or Safari, that showed the code)
     if (typeof body.pair !== "string" || body.pair.length > 64) return json({ ok: false, error: "bad_pair" }, 400);
     const pair = await env.DB.prepare("SELECT * FROM pairs WHERE id = ?").bind(await sha256(body.pair)).first();
-    if (!pair || pair.wallet || Date.parse(pair.expires_at) <= now) return json({ ok: false, error: "pair_expired" }, 410);
+    // (a pairing made on another host, while the host binding counts, is unknown here: src/hostbind.js)
+    if (!pair || pair.wallet || Date.parse(pair.expires_at) <= now || !onThisHost(served, pair.host)) return json({ ok: false, error: "pair_expired" }, 410);
     if (r.parsed.pin !== pair.pin) return json({ ok: false, error: "pin_mismatch" }, 400);
     if (pair.purpose === "link") {
       // a link pairing is approved with the link statement that names the account it is for: a login signature cannot approve it
@@ -335,22 +367,24 @@ export async function handlePairStart(request, env, now = Date.now()) {
   } else if (body.purpose != null && body.purpose !== "login") return json({ ok: false, error: "bad_request" }, 400);
   const code = randomToken(18);
   const pin = String(10 + (crypto.getRandomValues(new Uint8Array(1))[0] % 90));
-  if (purpose === "link") {
-    await env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at, purpose, user_id) VALUES (?, ?, ?, ?, 'link', ?)")
-      .bind(await sha256(code), pin, iso(now), iso(now + PAIR_SECONDS * 1000), userId).run();
-  } else {
-    await env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at) VALUES (?, ?, ?, ?)")
-      .bind(await sha256(code), pin, iso(now), iso(now + PAIR_SECONDS * 1000)).run();
-  }
+  const id = await sha256(code), served = servedHost(env, request);
+  const insert = purpose === "link"
+    ? env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at, purpose, user_id) VALUES (?, ?, ?, ?, 'link', ?)").bind(id, pin, iso(now), iso(now + PAIR_SECONDS * 1000), userId)
+    : env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(id, pin, iso(now), iso(now + PAIR_SECONDS * 1000));
+  if (served.bound) { // the pairing is bound to this host (src/hostbind.js), in the same transaction as its row
+    await ensureHostSchema(env.DB);
+    await env.DB.batch([insert, hostWrite(env.DB, "pairs", id, served)]);
+  } else await insert.run();
   if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)).run();
-  const origin = new URL(request.url).origin;
-  return json({ ok: true, code, pin, purpose, url: `${origin}/connect?pair=${code}`, expiresAt: iso(now + PAIR_SECONDS * 1000) });
+  // the QR code's address: the allowlist entry's origin (src/hostbind.js), never the request's own host text
+  return json({ ok: true, code, pin, purpose, url: `${served.origin}/connect?pair=${code}`, expiresAt: iso(now + PAIR_SECONDS * 1000) });
 }
 
-async function findPair(env, code, now) {
+async function findPair(env, code, now, served) {
   if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(code)) return null;
   const p = await env.DB.prepare("SELECT * FROM pairs WHERE id = ?").bind(await sha256(code)).first(); // (purpose, user_id exist only after the onboarding migration: a login pairing either way)
-  return p && Date.parse(p.expires_at) > now ? p : null;
+  // (while the host binding counts, a pairing made on another host is unknown here: src/hostbind.js; pairs.host NULL reads as vicinity.city)
+  return p && Date.parse(p.expires_at) > now && onThisHost(served, p.host) ? p : null;
 }
 
 /**
@@ -361,7 +395,7 @@ async function findPair(env, code, now) {
 export async function handlePairStatus(request, env, now = Date.now()) {
   if (!env.DB) return json({ status: "expired" });
   await ensureSchema(env.DB);
-  const p = await findPair(env, new URL(request.url).searchParams.get("code"), now);
+  const p = await findPair(env, new URL(request.url).searchParams.get("code"), now, servedHost(env, request));
   if (!p) return json({ status: "expired" });
   const out = { status: p.wallet ? "ready" : "waiting", pin: p.pin, purpose: p.purpose === "link" ? "link" : "login" };
   if (p.purpose === "link" && p.user_id) {
@@ -382,7 +416,7 @@ export async function handlePairFinish(request, env, now = Date.now(), ctx = nul
   const blocked = await guard(request, env);
   if (blocked) return blocked;
   const body = await readJson(request);
-  const p = await findPair(env, body && body.code, now);
+  const p = await findPair(env, body && body.code, now, servedHost(env, request));
   if (!p) return json({ ok: false, status: "expired" }, 410);
   let session;
   if (v2On(env)) {
@@ -424,7 +458,7 @@ export async function handleTransferStart(request, env, now = Date.now()) {
     return json({ ...out, reprove: Boolean(current.user.wallet), link: !current.user.wallet });
   }
   await dropCurrent(env, request);
-  const c = await createSession(env, { proof }, PENDING_SECONDS, now);
+  const c = await createSession(env, { proof, served: servedHost(env, request) }, PENDING_SECONDS, now);
   return json(out, 200, { "Set-Cookie": c });
 }
 
@@ -492,7 +526,8 @@ export async function handleOAuthStart(request, env, provider) {
 async function oauthStart(request, env, provider, marker = "", state = randomToken(16)) {
   const verifier = randomToken(48);
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-  const redirectUri = `${new URL(request.url).origin}/api/auth/${provider}/callback`;
+  // the return address: the allowlist entry's origin (src/hostbind.js), never the request's own host text
+  const redirectUri = `${servedHost(env, request).origin}/api/auth/${provider}/callback`;
   return { url: PROVIDERS[provider].authorize(env, { redirectUri, state, challenge }), cookie: cookie(OAUTH_COOKIE, `${provider}.${state}.${verifier}${marker}`, OAUTH_SECONDS) };
 }
 
@@ -593,14 +628,15 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
   if (cp !== provider || !state || state !== url.searchParams.get("state") || !code || !verifier) return fail("login_expired");
 
   let who;
-  try { who = await p.identity(env, { code, redirectUri: `${url.origin}/api/auth/${provider}/callback`, verifier }, fetchImpl); }
+  const served = servedHost(env, request); // the same return address the start sent to Google (src/hostbind.js)
+  try { who = await p.identity(env, { code, redirectUri: `${served.origin}/api/auth/${provider}/callback`, verifier }, fetchImpl); }
   catch (e) { console.error("login failed", provider, String(e)); return fail(e && e.message === "oauth_unavailable" ? "login_unavailable" : "login_failed"); }
 
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
   if (adding) return provider === "google" ? finishGoogleAdd(env, session, state, when, grant, who, now, clear, ctx, fetchImpl) : fail("login_expired");
   const v2 = v2On(env) ? { onNew: marker === "s" ? () => recordIdentity(env, request, provider, who, now) : () => ({ error: "no_account" }) } : null;
-  const r = await linkIdentity(env, session, provider, who, now, v2);
+  const r = await linkIdentity(env, session, provider, who, now, v2, served);
   // no account for this Google login: the page must speak of the Google account (not of a wallet) and say how to add Google to theirs
   if (r.error === "no_account") return redirect(`/connect?error=no_account&login=${provider}`, [clear]);
   if (r.error) return fail(r.error);
@@ -628,14 +664,14 @@ export async function handleOAuthCallback(request, env, provider, fetchImpl = fe
  * member added while v2 was on still finds their account (src/logins.js findAccount only reads, whatever the switch says), so switching
  * back to v1 locks nobody out; taking it off then waits until v2 is on again (docs/DEPLOY.md, "Switch back").
  */
-export async function linkIdentity(env, session, provider, who, now, v2 = null) {
+export async function linkIdentity(env, session, provider, who, now, v2 = null, served = null) {
   // the account this login belongs to: its main login, or (Google only) a Google sign-in a member added from their Profile
   const linked = await findAccount(env.DB, provider, who.id);
   // Signing in with Google / e-mail alone doesn't prove the wallet: sensitive actions ask for it again.
   const start = async (userId, wallet, to, isNew) => {
     if (session) await dropSession(env, session.id);
     const provenAt = session && session.wallet === wallet ? session.proven_at : null;
-    return { to, isNew, cookie: await createSession(env, { wallet, userId, provenAt }, SESSION_SECONDS, now) };
+    return { to, isNew, cookie: await createSession(env, { wallet, userId, provenAt, served }, SESSION_SECONDS, now) };
   };
 
   if (session && session.user) return { to: "/dashboard", isNew: false, cookie: null };
@@ -878,7 +914,7 @@ export async function handleEmailVerify(request, env, fetchImpl = fetch, now = D
   await ensureSchema(env.DB);
   const session = await getSession(env, request, now);
   const v2 = v2On(env) ? { onNew: () => ({ error: "no_account" }) } : null;
-  const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now, v2);
+  const r = await linkIdentity(env, session, "email", { id: email, handle: null, name: "E-mail member" }, now, v2, servedHost(env, request));
   // (no_account says it was an e-mail login: the page speaks of the e-mail, not of a wallet)
   if (r.error) return json({ ok: false, error: r.error, ...(r.error === "no_account" ? { login: "email" } : {}) }, 400);
   const headers = r.cookie ? { "Set-Cookie": r.cookie } : {};
