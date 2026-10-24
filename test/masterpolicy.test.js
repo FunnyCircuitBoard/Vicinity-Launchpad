@@ -492,11 +492,15 @@ test("amendment 01: validateDeploymentConfig names every refusal, and allows uns
 
 test("amendment 01: validatePolicy applies the same rules to the deployment inputs and the switches that need the main token", () => {
   const v = (flags, inputs = {}, environment = "test") => validatePolicy(withDeployment(MASTER_POLICY, { environment, flags, inputs }));
-  let r = v({ MAIN_TOKEN_V5: "on" });
+  let r = v({ MAIN_TOKEN_V5: "on", LEGACY_SEATS: "frozen" });
   assert.deepEqual(codes(r), ["MAIN_TOKEN_MINT_MISSING"]);
   assert.equal(r.errors[0].path, "deployment.inputs.MAIN_TOKEN_MINT");
   assert.match(r.errors[0].message, /MAIN_TOKEN_V5=on/);
-  assert.deepEqual(v({ MAIN_TOKEN_V5: "on" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT }), { ok: true, errors: [] });
+  assert.deepEqual(v({ MAIN_TOKEN_V5: "on", LEGACY_SEATS: "frozen" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT }), { ok: true, errors: [] });
+  // the legacy seats measure $VICINITY: the main token changes only once they are frozen (review finding SWON-1)
+  r = v({ MAIN_TOKEN_V5: "on" }, { MAIN_TOKEN_MINT: TEST_FIXTURE_MAIN_MINT });
+  assert.deepEqual(codes(r), ["MAIN_TOKEN_ON_WITH_LEGACY_SEATS"]);
+  assert.equal(r.errors[0].path, "deployment.flags.LEGACY_SEATS");
   assert.ok(has(v({ MANAGER_APPS: "on" }), "MAIN_TOKEN_MINT_MISSING"));
   assert.ok(has(v({ SELECTION_V5: "shadow" }), "MAIN_TOKEN_MINT_MISSING"));
   // with every switch off, unset values are fine, and set values are still shape-checked

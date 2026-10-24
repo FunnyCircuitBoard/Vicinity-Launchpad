@@ -20,6 +20,10 @@
  *   publicV5(env)            PUBLIC_V5 is on AND the configuration is accepted (schema-and-api.md 2.2: validation "keeps every dependent
  *                            feature off while any error exists"). Off: GET /api/policy answers as before and /api/policy/master is an
  *                            unknown path.
+ *   mainTokenV5(env)         MAIN_TOKEN_V5 as the Worker applies it: on only while every precondition holds (mainTokenRefusals below:
+ *                            the deployed pages were built with the switch, the label set they were built with is this Worker's, and both
+ *                            configuration checks accept the deployment). Otherwise the whole Worker answers exactly as with the switch
+ *                            off. Every main-token consumer reads the switch through this, never through src/flags.js mainTokenV5On.
  *   publicMaster(env, opts)  the `master` key of GET /api/policy: version, approved and active pairs, the selection schedule, the fee
  *                            policy, the main_token block (mint null until configured, verified and in use), legacy_tokens, official_links
  *                            (null when unset) and the public authority addresses. Every part says its own status.
@@ -32,8 +36,10 @@
  */
 import { FLAG_VALUES, MASTER_POLICY, nextSelectionBoundary, validatePolicy } from "./masterpolicy.js";
 import { mainTokenV5On, publicV5On } from "./flags.js";
-import { mainMint, officialLinks } from "./maintoken.js";
-import { DEFAULT_SITE_ORIGIN, DEFAULT_SITE_ORIGINS, normalizeOrigin } from "./site-config.js";
+import { deploymentAccepted, mainMint, officialLinks } from "./maintoken.js";
+import { DEFAULT_SITE_ORIGIN, DEFAULT_SITE_ORIGINS, normalizeOrigin, siteConfig } from "./site-config.js";
+import { brandOf } from "./brand.js";
+import { PAGES_BUILT } from "./pages-built.js";
 
 const P = MASTER_POLICY.policy;
 const DEFAULT_DEPLOYMENT = MASTER_POLICY.deployment;
@@ -87,16 +93,28 @@ const ACCEPTED_DEFAULT = Object.freeze({ ok: true, errors: Object.freeze([]), en
 const CHECK_FAILED = Object.freeze({ ok: false, errors: Object.freeze([Object.freeze({ code: "CONFIG_CHECK_FAILED", path: "deployment" })]), environment: "unset" });
 let memo = { key: null, value: null };
 
-/** { ok, errors, environment }: the v5 configuration check for this environment (see the top of this file). */
+const SITE_PATHS = Object.freeze({ SITE_ORIGIN_INVALID: "deployment.inputs.SITE_ORIGIN", SITE_ORIGIN_NOT_ALLOWED: "deployment.inputs.SITE_ORIGIN",
+  SITE_ORIGINS_INVALID: "deployment.inputs.SITE_ORIGINS" });
+
+/**
+ * { ok, errors, environment }: the v5 configuration check for this environment (see the top of this file). The site origins count by the
+ * stricter of the two readers: what src/site-config.js refuses (it takes bare https origins only, and the redirect and host code then fall
+ * back to today's values) is refused here by the same name, even where validatePolicy alone would accept it (an http://localhost origin in
+ * the test and preview environments), so an accepted configuration is one the Worker really runs with.
+ */
 export function policyConfig(env) {
   try {
     const deployment = deploymentFromEnv(env);
     const key = JSON.stringify(deployment); // public values and presence booleans only: never a secret
     if (key === DEFAULT_KEY) return ACCEPTED_DEFAULT;
-    if (memo.key === key) return memo.value;
+    const site = siteConfig(env).problems;
+    const memoKey = `${key}|${site.join(",")}`;
+    if (memo.key === memoKey) return memo.value;
     const r = validatePolicy({ ...MASTER_POLICY, deployment });
-    const value = Object.freeze({ ok: r.ok, errors: Object.freeze(r.errors.map((x) => Object.freeze({ code: x.code, path: x.path }))), environment: deployment.environment });
-    memo = { key, value };
+    const errors = r.errors.map((x) => ({ code: x.code, path: x.path }));
+    for (const code of site) if (!errors.some((x) => x.code === code)) errors.push({ code, path: SITE_PATHS[code] || "deployment.inputs.SITE_ORIGIN" });
+    const value = Object.freeze({ ok: errors.length === 0, errors: Object.freeze(errors.map((x) => Object.freeze(x))), environment: deployment.environment });
+    memo = { key: memoKey, value };
     return value;
   } catch {
     return CHECK_FAILED;
@@ -111,25 +129,70 @@ export const _resetPolicyCheck = () => { reported = new Set(); memo = { key: nul
 
 /**
  * { ok, codes }: the configuration check at the first request of an isolate and at each job start. Each named error is logged once per
- * isolate (its code and path, never a value). It never throws, and it changes no answer by itself: what it refuses stays off.
+ * isolate (its code and path, never a value). While MAIN_TOKEN_V5 is set on, each reason that holds it off is logged once too
+ * ("main token switch refused <code>"), so a switch that does nothing says why. It never throws, and it changes no answer by itself: what
+ * it refuses stays off.
  */
 export function checkPolicyConfig(env, { log = (...args) => console.error(...args) } = {}) {
   const r = policyConfig(env);
   let tokenOn = false;
   try { tokenOn = mainTokenV5On(env); } catch { /* the switch reads as off */ }
+  const say = (key, ...line) => {
+    if (reported.has(key)) return;
+    reported.add(key);
+    try { log(...line); } catch { /* a log line is never worth a failed request */ }
+  };
   for (const e of r.errors) {
     if (tokenOn && MAIN_TOKEN_PATHS.has(e.path)) continue; // reported by src/maintoken.js checkDeploymentConfig
-    const key = `${e.code}|${e.path}`;
-    if (reported.has(key)) continue;
-    reported.add(key);
-    try { log("policy config refused", e.code, e.path); } catch { /* a log line is never worth a failed request */ }
+    say(`${e.code}|${e.path}`, "policy config refused", e.code, e.path);
   }
+  if (tokenOn) for (const code of mainTokenRefusals(env)) say(`gate|${code}`, "main token switch refused", code);
   return { ok: r.ok, codes: r.errors.map((e) => e.code) };
 }
 
 /** PUBLIC_V5 is on and the configuration is accepted: the only way to read the switch. Never throws (anything odd reads as off). */
 export function publicV5(env) {
   try { return publicV5On(env) && policyConfig(env).ok; } catch { return false; }
+}
+
+/* ---------------------------------------------------------------- MAIN_TOKEN_V5 as the Worker applies it */
+
+let pagesBuilt = PAGES_BUILT;
+/** Tests only: stand in for a page build made with the switch ({ mainTokenV5: true, brand }), or null for the committed src/pages-built.js. */
+export const _pagesBuiltForTests = (p) => { pagesBuilt = p ? Object.freeze({ ...PAGES_BUILT, ...p }) : PAGES_BUILT; };
+
+/**
+ * Why MAIN_TOKEN_V5 does not count in this environment: [] when every precondition holds, else the reasons (codes only, never a value).
+ *   MAIN_TOKEN_V5_PAGES_NOT_BUILT   the deployed pages and the client scripts were not built for the switch (src/pages-built.js, written
+ *                                   by the page build from wrangler.jsonc). The pages are static files the Worker never sees (wrangler.jsonc
+ *                                   run_worker_first lists only /api/*, /coin-meta/* and /official-coins.csv, and not_found_handling serves
+ *                                   the 404 page from the assets too), so their footers, their /official groups and the client scripts'
+ *                                   $VICINITY labels can follow the switch only through the build, and the build refuses the switch until
+ *                                   the label migration (stage S48). A switch set only in the Cloudflare dashboard therefore does nothing.
+ *   MAIN_TOKEN_V5_BRAND_MISMATCH    BRAND is unknown or is not the label set the pages were built with (the build accepts the switch only
+ *                                   with a known label set other than today's, so the main token never appears under today's labels).
+ *   MAIN_TOKEN_V5_CONFIG_REFUSED    src/maintoken.js refuses MAIN_TOKEN_MINT, OFFICIAL_X_URL or OFFICIAL_TELEGRAM_URL (unset, malformed,
+ *                                   legacy): the switch never runs without a usable main token (amendment 01 section 5).
+ *   MAIN_TOKEN_V5_POLICY_REFUSED    the v5 configuration check refuses the deployment (an unnamed environment, legacy seats not frozen, any
+ *                                   other named error): "keeps every dependent feature off while any error exists" (schema-and-api.md 2.2).
+ */
+export function mainTokenRefusals(env) {
+  try {
+    const out = [];
+    if (pagesBuilt.mainTokenV5 !== true) out.push("MAIN_TOKEN_V5_PAGES_NOT_BUILT");
+    const b = brandOf(env);
+    if (b.problem || b.value !== pagesBuilt.brand) out.push("MAIN_TOKEN_V5_BRAND_MISMATCH");
+    if (!deploymentAccepted(env)) out.push("MAIN_TOKEN_V5_CONFIG_REFUSED");
+    if (!policyConfig(env).ok) out.push("MAIN_TOKEN_V5_POLICY_REFUSED");
+    return out;
+  } catch {
+    return ["MAIN_TOKEN_V5_CHECK_FAILED"];
+  }
+}
+
+/** MAIN_TOKEN_V5 is set on AND nothing refuses it (above). Never throws: anything odd reads as off, which is today's site. */
+export function mainTokenV5(env) {
+  try { return mainTokenV5On(env) && mainTokenRefusals(env).length === 0; } catch { return false; }
 }
 
 /* ---------------------------------------------------------------- the public policy */
@@ -158,12 +221,12 @@ const STATEMENT = "Approved target values of the Citycoin.dev master change orde
 
 /**
  * The main token as published: the configured MAIN_TOKEN_MINT (shape-checked by the policy, never a legacy mint) only while MAIN_TOKEN_V5
- * is on, the moment the site's own main-token consumers read it (amendment 01: the switch goes on only after the verification record
- * exists, section 4.3). Otherwise null: not configured, not shown. The official links follow the same rule as the page footers
- * (src/official.js socialProfiles): configured and accepted, and only while the switch is on.
+ * counts (mainTokenV5 above), the moment the site's own main-token consumers read it (amendment 01: the switch goes on only after the
+ * verification record exists, section 4.3). Otherwise null: not configured, not shown. The official links follow the same rule as the
+ * page footers (src/official.js socialProfiles): configured and accepted, and only while the switch counts.
  */
 function configuredValues(env) {
-  if (!mainTokenV5On(env)) return { mint: null, xUrl: null, telegramUrl: null };
+  if (!mainTokenV5(env)) return { mint: null, xUrl: null, telegramUrl: null };
   const links = officialLinks(env);
   return { mint: mainMint(env), xUrl: links.xUrl, telegramUrl: links.telegramUrl };
 }
@@ -200,9 +263,11 @@ export async function publicMaster(env, { now = Date.now(), routeFor = null } = 
       live_legacy_fees: "/api/fees", status: "approved_target" },
     // no hourly processing exists in this deployment (CC_HOURLY is not built)
     hourly_job_status: { mode: "off", status: "approved_target" },
-    main_token: { mint: v.mint, config_key: P.main_token.config_key, verified: null, purchase_links: purchase, status: v.mint ? "active" : "approved_target" },
-    legacy_tokens: clone(P.legacy_tokens),
-    official_links: { x_url: v.xUrl, telegram_url: v.telegramUrl, legacy: { x_url: P.official_links.legacy.x_url } },
+    // a configured mint is shape-checked, not verified: "configured_unverified" until the verification record is machine-readable
+    main_token: { mint: v.mint, config_key: P.main_token.config_key, verified: null, purchase_links: purchase, status: v.mint ? "configured_unverified" : "approved_target" },
+    // $VICINITY is legacy (and the old X account a legacy link) only once the main token is in use; until then that is the approved target
+    legacy_tokens: clone(P.legacy_tokens).map((t) => ({ ...t, status: v.mint ? "active" : "approved_target" })),
+    official_links: { x_url: v.xUrl, telegram_url: v.telegramUrl, legacy: { x_url: P.official_links.legacy.x_url, status: v.mint ? "active" : "approved_target" } },
     // the configured public keys of each role (none has a Worker setting yet, so each is null until its stage adds one)
     public_authority_addresses: AUTHORITY_ROLES.map((role) => ({ role, address: typeof inputs[role] === "string" ? inputs[role] : null })),
   };

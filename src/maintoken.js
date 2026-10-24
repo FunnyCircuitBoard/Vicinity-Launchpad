@@ -9,10 +9,12 @@
  *                            when unset or refused (the legacy X account is refused as an official link). Empty means not shown.
  *   mainTokenFeatures(env)   the features of the policy's MAIN_TOKEN_FEATURES that the switches turn on: none with MAIN_TOKEN_V5 off;
  *                            the token page and the purchase links with it on (amendment section 3, "How validatePolicy maps switches")
+ *   deploymentAccepted(env)  that check accepts the three keys for those features. src/v5policy.js mainTokenV5 counts the switch only
+ *                            while it does: with MAIN_TOKEN_MINT unset, malformed, all-zero or a legacy mint, or a refused link, the
+ *                            switch does nothing and the site is today's (never "not launched", never the legacy mint as the new token).
  *   checkDeploymentConfig(env)  the policy's validateDeploymentConfig for those features, run at the first request of an isolate and at
  *                            each job start. With MAIN_TOKEN_V5 off it logs nothing and changes nothing. With it on, each named error is
- *                            logged once per isolate, as its code and the key's name only (never a value). The features themselves
- *                            already fall back on their own: an unusable mint is null here, a refused link is null too.
+ *                            logged once per isolate, as its code and the key's name only (never a value). It never throws.
  *
  * Shape is not verification: a value only reaches the configuration after the verification record of the amendment's section 4.
  * The owner has supplied none of the three values; they stay unset, and nothing here holds a default for them.
@@ -46,6 +48,11 @@ export const officialLinks = (env) => configuredLinks(env);
 /** The main-token features the switches turn on (names of the policy's MAIN_TOKEN_FEATURES). */
 export const mainTokenFeatures = (env) => (mainTokenV5On(env) ? ["token_page", "purchase_links"] : []);
 
+/** The amendment-01 check accepts this environment's three keys for the features its switch asks for (see the top of this file). */
+export function deploymentAccepted(env) {
+  try { return validateDeploymentConfig(env, mainTokenFeatures(env)).ok === true; } catch { return false; }
+}
+
 const isSet = (v) => v !== undefined && v !== null && !(typeof v === "string" && v.trim() === "");
 /**
  * The admin view of amendment 01 (GET /api/admin/config): presence and error codes only, never a value. null (no key in the answer)
@@ -71,7 +78,9 @@ export function checkDeploymentConfig(env, { log = (...args) => console.error(..
   let r;
   try { r = validateDeploymentConfig(env, mainTokenFeatures(env)); }
   catch { r = { ok: false, errors: [{ code: "CONFIG_CHECK_FAILED", path: "env" }] }; }
-  if (!mainTokenV5On(env)) return { ok: true, codes: [] }; // off: today's site, nothing reported
+  let on = false;
+  try { on = mainTokenV5On(env); } catch { /* a setting that cannot be read is off */ }
+  if (!on) return { ok: true, codes: [] }; // off: today's site, nothing reported
   for (const e of r.errors) {
     const key = `${e.code}|${e.path}`;
     if (reported.has(key)) continue;

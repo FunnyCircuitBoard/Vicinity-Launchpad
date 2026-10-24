@@ -80,16 +80,21 @@ test("the User-Agent the Worker sends is today's, from src/site-config.js", () =
   assert.doesNotMatch(swap, /vicinity\.city\/1\.0/, "no second copy of the agent string");
 });
 
-test("the old-name redirect: unset settings answer exactly as before; the target comes from configuration, never from the request", async () => {
+test("the old-name redirect: unset settings answer exactly as before; the target is today's host, never the request or SITE_ORIGIN", async () => {
   const go = async (url, env = {}) => { const r = await worker.fetch(new Request(url), env); return [r.status, r.headers.get("location"), r.headers.get("cache-control")]; };
   for (const host of LEGACY_FORWARD_HOSTS) {
     assert.deepEqual(await go(`https://${host}/a/b?c=1`), [301, "https://vicinity.city/a/b?c=1", "public, max-age=3600"]);
     assert.deepEqual(await go(`https://${host}/a`, { SITE_ORIGIN: "nonsense" }), [301, "https://vicinity.city/a", "public, max-age=3600"], "a malformed setting changes nothing");
   }
   assert.equal((await go("https://evil.example/api/health"))[0], 200, "an unknown host is served in place as today, never a redirect target");
-  // a fixture configuration (clearly fake): the forward target follows SITE_ORIGIN, and a host listed in SITE_ORIGINS is served in place
+  // a fixture configuration (clearly fake): SITE_ORIGIN alone never makes the permanent redirect cross domains (that is HOST_REDIRECT's,
+  // stage S03, with its own policy check), so the old names keep forwarding to vicinity.city; a host listed in SITE_ORIGINS is served in place
   const env = { SITE_ORIGIN: "https://example.test", SITE_ORIGINS: "https://example.test https://www.vicinity.city" };
-  assert.deepEqual(await go("https://vicinitycity.net/x", env), [301, "https://example.test/x", "public, max-age=3600"]);
+  assert.deepEqual(await go("https://vicinitycity.net/x", env), [301, "https://vicinity.city/x", "public, max-age=3600"]);
+  assert.deepEqual(await go("http://www.vicinity.city/x?y=1", { SITE_ORIGIN: "https://example.test", SITE_ORIGINS: "https://example.test https://vicinity.city" }),
+    [301, "https://vicinity.city/x?y=1", "public, max-age=3600"], "the review's case: not a 301 to the configured origin");
+  assert.deepEqual(await go("https://vicinitycity.net/x", { SITE_ORIGIN: "https://example.test", SITE_ORIGINS: "https://example.test https://vicinity.city", HOST_REDIRECT: "on", DEPLOYMENT_ENV: "test" }),
+    [301, "https://vicinity.city/x", "public, max-age=3600"], "not even with HOST_REDIRECT set: the configured target is stage S03's");
   assert.equal((await go("https://www.vicinity.city/api/health", env))[0], 200);
 });
 

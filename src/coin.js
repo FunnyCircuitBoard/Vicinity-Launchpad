@@ -9,7 +9,7 @@
  */
 import { json } from "./http.js";
 import { activeMint, launchedAtOf, tokenMint } from "./official.js";
-import { mainTokenV5On } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { MAIN_TOKEN_LABEL } from "./maintoken.js";
 import { PAIRS, coinOf, coinView } from "./coins.js";
 import { getTokenFacts } from "./chain.js";
@@ -30,7 +30,7 @@ const MEMO_MS = 30_000, DEGRADED_MS = 5_000, FACTS_MS = 5 * 60_000;
 /** The coin behind an allow-listed mint, or null. Reads the database only (never the network). */
 export async function allowListed(env, mint) {
   if (!isSolanaAddress(mint)) return null;
-  if (mainTokenV5On(env)) {
+  if (mainTokenV5(env)) {
     // the configured main token (owner amendment 01): `kind: "vicinity"` stays the API's name for the site's main token (P08), but
     // nothing of $VICINITY is carried over: no ticker or name of its own until its on-chain metadata is recorded, no launch date (that
     // was $VICINITY's), SOL only as the quote its price is read against. The legacy mint is no longer allow-listed (the line below
@@ -39,7 +39,7 @@ export async function allowListed(env, mint) {
     if (main && mint === main) return { kind: "vicinity", mint, pairMint: SOL, pair: "SOL", ticker: null, name: MAIN_TOKEN_LABEL, launchedAt: null, city: null, color: "gold", logo: null, logoHash: null };
   }
   const vic = activeMint(env);
-  if (!mainTokenV5On(env) && vic && mint === vic) {
+  if (!mainTokenV5(env) && vic && mint === vic) {
     return { kind: "vicinity", mint, pairMint: SOL, pair: "SOL", ticker: "VICINITY", name: "Vicinity", launchedAt: launchedAtOf(mint), city: null, color: "gold", logo: null, logoHash: null };
   }
   await ensureSchema(env.DB);
@@ -118,7 +118,7 @@ async function build(env, coin, fetchImpl, now) {
   try { samples = await samplesSummary(env, coin, now); } catch (e) { console.error("coin samples unavailable", codeOf(e)); }
 
   // the configured main token (MAIN_TOKEN_V5 on): purchase links only once a route exists, its Solscan page alone until then
-  const mainCoin = !lpRow && coin.kind === "vicinity" && mainTokenV5On(env);
+  const mainCoin = !lpRow && coin.kind === "vicinity" && mainTokenV5(env);
   const links = lpRow ? lpLinks(coin.mint, lpCurve?.stage)
     : mainCoin ? (await mainTokenLinks(env, coin.mint, fetchImpl, now)) || { solscan: `https://solscan.io/token/${coin.mint}` }
       : tradeLinks(coin.mint, coin.pairMint, buyHereLink(env, coin.mint));

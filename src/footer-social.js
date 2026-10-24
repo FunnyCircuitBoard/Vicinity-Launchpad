@@ -1,7 +1,11 @@
 /**
  * The page footer's official social links, from one source (owner amendment 01, stage S02A; amendment section 6). The page build
- * (scripts/pages/build.mjs) writes them into every page from these functions, and the Worker rewrites the same block at response time
- * for the HTML it serves itself (officialLinksInPage below), so both always carry the same markup for the same configuration.
+ * (scripts/pages/build.mjs) writes them into every page from these functions; that is where visitors get them. In production the Worker
+ * serves no page at all: wrangler.jsonc run_worker_first lists only /api/*, /coin-meta/* and /official-coins.csv, and not_found_handling
+ * "404-page" serves the 404 page from the assets without calling the Worker (an explicit list also opts out of the navigation-request
+ * handling). So the footers follow MAIN_TOKEN_V5 only through the build, and the Worker counts the switch only when the deployed pages
+ * were built with it (src/pages-built.js, src/v5policy.js mainTokenV5). officialLinksInPage below is a safety net for HTML the Worker does
+ * fetch from the assets itself (none in production today), with the same markup for the same configuration.
  *
  *   socialList(profiles, L)       the footer's <ul class="site-footer__social"> block for a list of profiles (src/official.js
  *                                 socialProfiles), or nothing at all for an empty list (an unset link is not shown, and an empty list
@@ -10,13 +14,13 @@
  *   rewriteSocialLinks(html, profiles, L)   the same block put into a built page, plus the page's other links to the former X account
  *                                 (the dashboard's "Contact us on X"): pointed at the configured X account, or removed when none is
  *                                 configured. The former account is never shown as the official one.
- *   officialLinksInPage(res, env) the Worker's hook: with MAIN_TOKEN_V5 off the response is returned untouched (the same object); with
- *                                 it on an HTML response gets rewriteSocialLinks with the configured links.
+ *   officialLinksInPage(res, env) the Worker's hook: while MAIN_TOKEN_V5 does not count the response is returned untouched (the same
+ *                                 object); while it counts an HTML response gets rewriteSocialLinks with the configured links.
  *
  * Every value written into markup is escaped; the links themselves come from the policy's shape check (src/maintoken.js
  * officialLinks), and an address that is not a plain https:// link stops the page build (and is refused at response time).
  */
-import { mainTokenV5On } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { socialProfiles } from "./official.js";
 import { brandLabels, brandOf } from "./brand.js";
 import { LEGACY_X_URL } from "./maintoken.js";
@@ -82,12 +86,13 @@ export function rewriteSocialLinks(html, profiles, L) {
 const pageLabels = (env) => brandLabels(escBrand(brandOf(env)));
 
 /**
- * The Worker's response-time hook for an HTML page it serves (src/index.js, the static-asset fallback). MAIN_TOKEN_V5 off: `res` itself,
- * untouched. On: the page with the configured links (rewriteSocialLinks); its length and ETag change with its bytes, so they are dropped.
- * A page that cannot be rewritten loses its social links rather than showing the former account.
+ * The Worker's response-time hook for HTML it fetches from the assets itself (src/index.js, the static-asset fallback; no page in
+ * production, see the top of this file). MAIN_TOKEN_V5 not counting: `res` itself, untouched. Counting: the page with the configured links
+ * (rewriteSocialLinks); its length and ETag change with its bytes, so they are dropped. A page that cannot be rewritten loses its social
+ * links rather than showing the former account.
  */
 export async function officialLinksInPage(res, env) {
-  if (!mainTokenV5On(env) || !res || !/^text\/html\b/i.test(res.headers.get("content-type") || "")) return res;
+  if (!mainTokenV5(env) || !res || !/^text\/html\b/i.test(res.headers.get("content-type") || "")) return res;
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   headers.delete("etag");

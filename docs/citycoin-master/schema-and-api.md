@@ -100,7 +100,7 @@ off while any error exists.
 | `CC_HOURLY` | off, shadow, on | hourly processing; "shadow" computes and publishes evidence, sends nothing (§30, §31) | shadow: `program_id`, `cluster`; on: also `treasury`, `keeper`, `hourly_verifier_a`, `hourly_verifier_b` |
 | `HOST_REDIRECT` | off, on | 308 redirects from old public GET/HEAD pages (§04) | `SITE_ORIGIN` equal to `https://citycoin.dev` (`HOST_REDIRECT_TARGET_NOT_CANONICAL`) |
 | `PUBLIC_V5` | off, on | `/api/status`, `/api/policy/master`, the `master` key and the public pages (§16, §35) | none |
-| `MAIN_TOKEN_V5` | off, on | amendment 01: every main-token consumer (token page, holder list, balance sampling, purchase links, Buy panel default, official list) reads the verified `MAIN_TOKEN_MINT`; `$VICINITY` is shown as legacy; the footer and link checker use the configured official links | `MAIN_TOKEN_MINT` (`MAIN_TOKEN_MINT_MISSING`) |
+| `MAIN_TOKEN_V5` | off, on | amendment 01: every main-token consumer (token page, holder list, balance sampling, purchase links, Buy panel default, official list) reads the verified `MAIN_TOKEN_MINT`; `$VICINITY` is shown as legacy; the footer and link checker use the configured official links; the legacy seats and elections make no new decision | `MAIN_TOKEN_MINT` (`MAIN_TOKEN_MINT_MISSING`) and `LEGACY_SEATS=frozen` (`MAIN_TOKEN_ON_WITH_LEGACY_SEATS`: the legacy seats measure `$VICINITY`); at run time also pages built with the switch (below) |
 
 Further named errors from `validatePolicy`: `ENVIRONMENT_UNSET` (a changed switch without an environment), `FIXTURE_IN_PRODUCTION`
 (local fixtures are visibly test-only), `CLUSTER_NOT_MAINNET_IN_PRODUCTION`, `MAINNET_MONEY_FLAG_OUTSIDE_PRODUCTION`,
@@ -137,8 +137,14 @@ the Worker's settings describe, at the first request of an isolate (src/index.js
   test checks it), so the check answers that without walking the policy again and logs nothing.
 - **What a refusal turns off.** In S07 the rule "keeps every dependent feature off while any error exists" applies to the switch S07
   builds: `PUBLIC_V5` counts only while the whole configuration is accepted (`publicV5(env)`), otherwise both policy routes answer as
-  if it were off. `MAIN_TOKEN_V5` keeps its S02A behavior (each consumer falls back to "not launched" on an unusable mint, and the page
-  build refuses the switch before S48). Each later switch is gated the same way in the stage that builds it.
+  if it were off. `MAIN_TOKEN_V5` is gated the same way (`mainTokenV5(env)`, since the S02/S02A/S07 review): it counts only while both
+  checks accept the deployment, while the deployed pages were built with it (`src/pages-built.js`, which the page build writes from
+  `wrangler.jsonc` and which says `false` until the label migration S48: the Worker never sees a page, so pages and client scripts follow
+  the switch only through the build), and while `BRAND` is that build's label set. Otherwise the whole site answers as if it were off, and
+  each reason is logged once as `main token switch refused <code>`. Each later switch is gated the same way in the stage that builds it.
+- **Site origins.** An origin `src/site-config.js` refuses (it takes bare https origins only) is refused by the check too, by the same
+  name, even where `validatePolicy` alone would accept it (an `http://localhost` origin in test or preview), so an accepted configuration
+  is one the Worker really runs with.
 
 ### 2.3 Names chosen where the reconciliation files differed
 
@@ -179,7 +185,11 @@ Hourly holder distribution (section 3.7) is per city coin and does not read it.
 **Balance history.** Today's `balance_samples` table and `day:<d>` blobs (src/store.js:184-191; src/ledger.js:61-70) carry no mint
 and hold only `$VICINITY`. DESIGN: an additive `mint` column on `balance_samples` and mint-keyed blobs (`day:<mint>:<d>`), created
 the first time `MAIN_TOKEN_V5` leaves "off"; the existing rows are the legacy `$VICINITY` series, labeled historical. Two mints are
-never summed into one day. Selection snapshots (section 3.2) read the chain at the cutoff slot and never these samples.
+never summed into one day. Selection snapshots (section 3.2) read the chain at the cutoff slot and never these samples. As built (S02A
+and its review), without a schema change: the main token's series is `mday:<mint>:<d>` blobs that also hold their own sample records
+(time, slot, holder count, data hash); nothing of it goes into `balance_samples`, which stays `$VICINITY`'s alone, and the history's
+status, sampling cadence and staleness read the series of the token in use. The Founding Supporters snapshot always reads the `$VICINITY`
+series.
 
 **Public policy fields** (on `/api/policy/master` and the `master` key, section 4.9; null until verified):
 
@@ -1064,11 +1074,14 @@ any unknown path, for every method. With the switch on, `/api/policy/master` ans
   `public_authority_addresses` (the program and the nine role keys, each `null` while no Worker setting carries it).
 - `main_token`: `{ mint, config_key: "MAIN_TOKEN_MINT", verified, purchase_links, status }`. `mint` is the configured, shape-checked
   `MAIN_TOKEN_MINT` only while `MAIN_TOKEN_V5` is on (the moment the site's consumers read it; amendment 01 turns the switch on only
-  after the verification record exists), otherwise `null`; `status` is then `active`, otherwise `approved_target`. `verified` stays
+  after the verification record exists), otherwise `null`; `status` is then `configured_unverified` (a shape check is not a
+  verification), otherwise `approved_target`. `verified` stays
   `null` in S07: the verification record (amendment section 9) is not machine-readable by the Worker yet. `purchase_links` is
   `"hidden"` until the existing quote path (src/swap.js `mainTokenRoute`) finds a route for that mint, then `"shown"`.
-- `official_links`: `{ x_url, telegram_url, legacy: { x_url } }`, the configured, checked links under the same rule as the page
-  footers (only while `MAIN_TOKEN_V5` is on), `null` otherwise; the old X account is always `legacy`.
+- `official_links`: `{ x_url, telegram_url, legacy: { x_url, status } }`, the configured, checked links under the same rule as the page
+  footers (only while `MAIN_TOKEN_V5` counts), `null` otherwise; the old X account is always `legacy`. `legacy_tokens` entries and
+  `official_links.legacy` carry `status`: `approved_target` while `MAIN_TOKEN_V5` does not count (`$VICINITY` and the old account are
+  still in use), `active` once it does.
 - `/api/policy/master`: `{ policyVersion, ownerDelegationDate, policyDigest, serverTime, status, master, policy, masterSections }`, with
   `policy` the policy values and `main_token.mint`, `official_links.x_url` and `telegram_url` filled as published, and `masterSections`
   the master sections of the version, the date and the policy values. Never the deployment block, a switch value, an input or a

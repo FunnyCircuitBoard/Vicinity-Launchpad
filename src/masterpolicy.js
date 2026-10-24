@@ -1923,6 +1923,8 @@ function checkDeployment(d, add) {
   if (on("LEGACY_LINK") && !on("WALLET_ONLY")) add("LEGACY_LINK_WITHOUT_WALLET_ONLY", "deployment.flags.LEGACY_LINK", "the legacy link window exists only under wallet-only sign-in");
   if (on("SELECTION_V5") && !on("FOUNDER_RECORD_CHAIN")) add("SELECTION_ON_WITHOUT_CHAIN_RECORD", "deployment.flags.SELECTION_V5", "a permanent founder is recorded only after the on-chain FounderRecord exists");
   if (on("SELECTION_V5") && f.LEGACY_SEATS !== "frozen") add("SELECTION_ON_WITH_LEGACY_SEATS", "deployment.flags.LEGACY_SEATS", "the old seat, election and streak writers must be frozen first");
+  // amendment 01: the old seats measure $VICINITY, which stops being the main token; they are frozen before the main token changes
+  if (on("MAIN_TOKEN_V5") && f.LEGACY_SEATS !== "frozen") add("MAIN_TOKEN_ON_WITH_LEGACY_SEATS", "deployment.flags.LEGACY_SEATS", "the old seat, election and streak writers measure $VICINITY and must be frozen before the main token changes");
   if (on("MANAGER_APPS") && !on("SELECTION_V5")) add("MANAGER_APPS_WITHOUT_SELECTION", "deployment.flags.MANAGER_APPS", "manager applications need permanent founders");
   if (on("MANAGER_APPS") && !on("ACTIVITY_POINTS")) add("MANAGER_APPS_WITHOUT_POINTS", "deployment.flags.MANAGER_APPS", "manager applications need the activity ledger");
   if (on("LAUNCH_V5") && on("LEGACY_LAUNCH")) add("LAUNCH_V5_WITH_LEGACY_LAUNCH", "deployment.flags.LEGACY_LAUNCH", "new launches may run on one program only; turn legacy launches off");

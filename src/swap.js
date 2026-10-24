@@ -27,8 +27,8 @@ import { mintInfo, rpc } from "./chain.js";
 import { isSolanaAddress } from "./solana.js";
 import { Source, codeOf, retryAfterMs } from "./sources.js";
 import { activeMint, tokenMint } from "./official.js";
-import { mainTokenV5On } from "./flags.js";
-import { MAIN_TOKEN_LABEL } from "./maintoken.js";
+import { mainTokenV5 } from "./v5policy.js";
+import { MAIN_TOKEN_LABEL, isLegacyMint } from "./maintoken.js";
 import { PAIRS, launchedCoins } from "./coins.js";
 import { jupiterPriceFor } from "./marketlive.js";
 import { ensureSchema } from "./store.js";
@@ -214,11 +214,22 @@ const fail = (e) => {
   return json({ ok: false, error: /^rpc_/.test(codeOf(e)) ? "rpc_unavailable" : "swap_unavailable" }, 503, noStore);
 };
 
+/**
+ * A legacy token under MAIN_TOKEN_V5 ($VICINITY: the policy's legacy mints and the VICINITY_MINT setting): no swap is offered for it, in
+ * either direction (owner amendment 01 sections 2 and 7; holders keep their tokens and may still send their own, src/walletsend.js).
+ * With the switch off nothing is legacy and every pair Jupiter routes is offered, as before.
+ */
+const legacyUnderV5 = (env, mint) => mainTokenV5(env) && (isLegacyMint(mint) || (Boolean(activeMint(env)) && mint === activeMint(env)));
+const LEGACY_SWAP = "$VICINITY is a legacy token now: no swap or purchase is offered for it here. Your tokens stay yours, and you can still send them from your wallet.";
+
 /** Everything /quote and /tx share: the input, the decimals, the raw amount, the curve check. { error } or the prepared trade. */
 async function prepare(request, env, fetchImpl, now, { takerRequired }) {
   const body = await readJson(request, 4096);
   const input = readSwapInput(body, { takerRequired });
   if (input.error) return { error: json({ ok: false, error: input.error }, input.status, noStore) };
+  for (const mint of [input.outputMint, input.inputMint]) {
+    if (legacyUnderV5(env, mint)) return { error: json({ ok: false, error: "legacy_token", mint, message: LEGACY_SWAP }, 409, noStore) };
+  }
   // a city coin on its Meteora curve: the launchpad routes build that trade (Jupiter cannot route it yet). Asked BEFORE the
   // decimals below, which are read on mainnet: a devnet test coin (LAUNCHPAD_CLUSTER=devnet) is not a mainnet mint at all, and
   // /api/launchpad/trade/quote checks the amount against the coin's own decimals on the coin's own cluster
@@ -396,11 +407,11 @@ async function mainTokenEntry(env, mint, fetchImpl, now) {
 /* ---------------------------------------------------------------- config and token search */
 /** GET /api/swap/config (public; edge-cached 60 s by the route). Booleans only about secrets. */
 export async function handleSwapConfig(env, fetchImpl = fetch, now = Date.now()) {
-  const jc = jupiterConfig(env), lp = launchpadCluster(env), vic = mainTokenV5On(env) ? null : activeMint(env);
+  const jc = jupiterConfig(env), lp = launchpadCluster(env), vic = mainTokenV5(env) ? null : activeMint(env);
   const tokens = [{ mint: SOL, ...KNOWN[SOL] }, { mint: USDC, ...KNOWN[USDC] }, { mint: USDT, ...KNOWN[USDT] }];
   if (vic) tokens.push({ mint: vic, symbol: "VICINITY", name: "Vicinity", decimals: 6, kind: "vicinity", stage: "jupiter" });
   // MAIN_TOKEN_V5 on: the configured main token instead (only with a route), and no $VICINITY entry at all (no swap is offered for it)
-  if (mainTokenV5On(env) && tokenMint(env)) { const main = await mainTokenEntry(env, tokenMint(env), fetchImpl, now); if (main) tokens.push(main); }
+  if (mainTokenV5(env) && tokenMint(env)) { const main = await mainTokenEntry(env, tokenMint(env), fetchImpl, now); if (main) tokens.push(main); }
   if (env.DB) {
     try {
       await ensureSchema(env.DB);
@@ -445,5 +456,7 @@ export async function handleSwapTokens(request, env, fetchImpl = fetch, now = Da
   });
   const rows = r.values.get(q.toLowerCase());
   if (rows === undefined) return json({ ok: false, error: r.error === "jupiter_busy" ? "jupiter_busy" : "jupiter_unavailable" }, 503);
-  return json({ ok: true, q, tokens: rows, poweredBy: "Jupiter" }, 200, { "Cache-Control": "public, max-age=300" });
+  // MAIN_TOKEN_V5 counting: a legacy token is never offered (the shared search cache keeps Jupiter's own answer; only this view drops it)
+  const tokens = mainTokenV5(env) ? rows.filter((t) => !legacyUnderV5(env, t.mint)) : rows;
+  return json({ ok: true, q, tokens, poweredBy: "Jupiter" }, 200, { "Cache-Control": "public, max-age=300" });
 }

@@ -20,6 +20,7 @@ import { POLICY } from "../src/policy.js";
 import { tokenMint } from "../src/official.js";
 import { snapshotCutoff } from "../src/snapshot.js";
 import { settingsFrom } from "../scripts/mainnet-preflight.mjs";
+import { pagesAsCommitted, pagesBuiltWithSwitch } from "./helpers/mainswitch.js";
 
 const POLICY_JSON = JSON.parse(readFileSync(new URL("../docs/citycoin-master/policy.json", import.meta.url), "utf8"));
 const P = MASTER_POLICY.policy;
@@ -116,7 +117,8 @@ test("named errors: each refused setting is named, logged once per isolate as it
   const cases = [
     [{ PUBLIC_V5: "on" }, ["ENVIRONMENT_UNSET"]],
     [{ PUBLIC_V5: "yes", [ENVIRONMENT_SETTING]: "prod" }, ["ENVIRONMENT_INVALID", "FLAG_VALUE_INVALID"]],
-    [{ ...ON, MAIN_TOKEN_V5: "on" }, ["MAIN_TOKEN_MINT_MISSING"]],
+    [{ ...ON, MAIN_TOKEN_V5: "on" }, ["MAIN_TOKEN_MINT_MISSING", "MAIN_TOKEN_ON_WITH_LEGACY_SEATS"]],
+    [{ ...ON, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: FAKE_MINT }, ["MAIN_TOKEN_ON_WITH_LEGACY_SEATS"]],
     [{ ...ON, MAIN_TOKEN_MINT: LEGACY_MINT }, ["MAIN_TOKEN_IS_LEGACY_MINT"]],
     [{ ...ON, OFFICIAL_X_URL: LEGACY_X, OFFICIAL_TELEGRAM_URL: "https://t.me/+invite" }, ["LEGACY_SOCIAL_LINK_AS_OFFICIAL", "OFFICIAL_TELEGRAM_URL_INVALID"]],
     [{ ...ON, LEGACY_LINK: "on" }, ["LEGACY_LINK_WITHOUT_WALLET_ONLY", "MISSING_LEGACY_LINK_UNTIL"]],
@@ -156,7 +158,7 @@ test("while MAIN_TOKEN_V5 is on, the amendment-01 keys are reported by src/maint
   assert.deepEqual(off.codes, ["MAIN_TOKEN_IS_LEGACY_MINT"]);
   assert.deepEqual(policyLines(), ["policy config refused MAIN_TOKEN_IS_LEGACY_MINT deployment.inputs.MAIN_TOKEN_MINT"], "switch off: a set value is always shape-checked here");
   _resetPolicyCheck(); errors = [];
-  const on = checkPolicyConfig({ ...ON, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: LEGACY_MINT, LEGACY_LINK: "on" });
+  const on = checkPolicyConfig({ ...ON, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: LEGACY_MINT, LEGACY_LINK: "on", LEGACY_SEATS: "frozen" });
   assert.deepEqual([...on.codes].sort(), ["LEGACY_LINK_WITHOUT_WALLET_ONLY", "MAIN_TOKEN_IS_LEGACY_MINT", "MISSING_LEGACY_LINK_UNTIL"]);
   assert.deepEqual(policyLines().sort(), ["policy config refused LEGACY_LINK_WITHOUT_WALLET_ONLY deployment.flags.LEGACY_LINK",
     "policy config refused MISSING_LEGACY_LINK_UNTIL deployment.inputs.LEGACY_LINK_UNTIL"], "the token's line is src/maintoken.js's");
@@ -253,9 +255,10 @@ test("switch on: GET /api/policy is today's answer plus `master`, the public v5 
   assert.deepEqual(m.hourly_job_status, { mode: "off", status: "approved_target" });
   // amendment 01: no main token, no official link and no authority is configured, so each is null; $VICINITY is a legacy token
   assert.deepEqual(m.main_token, { mint: null, config_key: "MAIN_TOKEN_MINT", verified: null, purchase_links: "hidden", status: "approved_target" });
-  assert.deepEqual(m.legacy_tokens, POLICY_JSON.policy.legacy_tokens);
+  // while MAIN_TOKEN_V5 does not count, $VICINITY is still the token in use: "legacy" is the approved target, and each says so (SWON-7)
+  assert.deepEqual(m.legacy_tokens, POLICY_JSON.policy.legacy_tokens.map((t) => ({ ...t, status: "approved_target" })));
   assert.equal(m.legacy_tokens[0].mint, LEGACY_MINT);
-  assert.deepEqual(m.official_links, { x_url: null, telegram_url: null, legacy: { x_url: LEGACY_X } });
+  assert.deepEqual(m.official_links, { x_url: null, telegram_url: null, legacy: { x_url: LEGACY_X, status: "approved_target" } });
   assert.deepEqual(m.public_authority_addresses, AUTHORITY_ROLES.map((role) => ({ role, address: null })));
   for (const role of AUTHORITY_ROLES) assert.ok(Object.hasOwn(MASTER_POLICY.deployment.inputs, role), role);
   // never the deployment block: no switch value, input or secret presence
@@ -289,14 +292,20 @@ test("switch on: GET /api/policy/master is the policy values, their master secti
 });
 
 test("switch on with the main token configured: the mint and the links appear only while MAIN_TOKEN_V5 uses them; purchase links only with a route", async () => {
-  const V5 = { ...ON, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_X_URL: "https://twitter.com/ZqFakeTestX/", OFFICIAL_TELEGRAM_URL: FAKE_TG };
+  const V5 = { ...ON, MAIN_TOKEN_V5: "on", LEGACY_SEATS: "frozen", MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_X_URL: "https://twitter.com/ZqFakeTestX/", OFFICIAL_TELEGRAM_URL: FAKE_TG };
   assert.equal(publicV5(V5), true);
+  // the pages were not built with the switch (the committed src/pages-built.js): it does not count, so nothing of it is announced
+  const held = await publicMaster(V5);
+  assert.deepEqual([held.main_token.mint, held.official_links.x_url, held.legacy_tokens[0].status], [null, null, "approved_target"]);
+  pagesBuiltWithSwitch();
   const now = Date.parse("2026-10-24T18:00:00Z"); // at a boundary the next one is the following
   const hidden = await publicMaster(V5, { now });
   assert.equal(hidden.selection_schedule.next_boundary, "2026-10-25T00:00:00.000Z");
   assert.equal(nextSelectionBoundary(now / 1000) * 1000, Date.parse("2026-10-25T00:00:00Z"));
-  assert.deepEqual(hidden.main_token, { mint: FAKE_MINT, config_key: "MAIN_TOKEN_MINT", verified: null, purchase_links: "hidden", status: "active" });
-  assert.deepEqual(hidden.official_links, { x_url: FAKE_X, telegram_url: FAKE_TG, legacy: { x_url: LEGACY_X } }, "normalized; the old account stays legacy");
+  assert.deepEqual(hidden.main_token, { mint: FAKE_MINT, config_key: "MAIN_TOKEN_MINT", verified: null, purchase_links: "hidden", status: "configured_unverified" },
+    "a shape check is not a verification (SEC-8)");
+  assert.deepEqual(hidden.official_links, { x_url: FAKE_X, telegram_url: FAKE_TG, legacy: { x_url: LEGACY_X, status: "active" } }, "normalized; the old account stays legacy");
+  assert.deepEqual(hidden.legacy_tokens.map((t) => [t.mint, t.status]), [[LEGACY_MINT, "active"]], "now $VICINITY really is legacy");
   assert.equal((await publicMaster(V5, { now, routeFor: async (m) => m === FAKE_MINT })).main_token.purchase_links, "shown");
   assert.equal((await publicMaster(V5, { now, routeFor: async () => false })).main_token.purchase_links, "hidden");
   assert.equal((await publicMaster(V5, { now, routeFor: async () => { throw new Error("quote down"); } })).main_token.purchase_links, "hidden");
@@ -317,6 +326,7 @@ test("switch on with the main token configured: the mint and the links appear on
   assert.deepEqual([m.main_token.mint, m.main_token.purchase_links], [FAKE_MINT, "hidden"]);
   assert.ok(!JSON.stringify(m).includes(LEGACY_MINT) || m.legacy_tokens[0].mint === LEGACY_MINT);
   assert.ok(!JSON.stringify(m.main_token).includes(LEGACY_MINT), "the legacy mint is never the main token");
+  pagesAsCommitted();
 });
 
 test("canonical JSON: sorted keys at every depth, arrays in order, no spaces", () => {

@@ -153,10 +153,59 @@ test("Cloudflare resource names and the setting names stay (P03, P04, P06)", () 
 });
 
 /* ---------------------------------------------------------------- the adapters never feed a persistent identifier */
-test("no module that makes a persistent identifier reads the brand or site adapters", () => {
-  const producers = ["src/coinmeta.js", "src/coinart-store.js", "src/sol/layout.js", "src/sol/lpadmin-ix.js", "src/sol/pda.js", "src/solana.js", "src/seats.js",
-    "src/elections.js", "src/snapshot.js", "src/session.js", "src/admin.js", "src/auth.js", "src/notify.js", "public/site.js", "public/theme.js"];
-  for (const f of producers) assert.doesNotMatch(read(f), /(brand|site-config)\.js["']/, `${f} must not import src/brand.js or src/site-config.js`);
+// Every module that makes a value pinned above (directly, or as the API's stored and enum values: src/swap.js, src/coin.js, src/launchpad.js
+// and src/portfolio.js make `kind: "vicinity"`, the launchpad modules make the coin-meta URLs and the descriptions' "vicinity").
+const PRODUCERS = ["src/coinmeta.js", "src/coinart-store.js", "src/sol/layout.js", "src/sol/lpadmin-ix.js", "src/sol/pda.js", "src/solana.js", "src/seats.js",
+  "src/elections.js", "src/snapshot.js", "src/session.js", "src/admin.js", "src/auth.js", "src/notify.js", "src/swap.js", "src/coin.js", "src/launchpad.js",
+  "src/portfolio.js", "src/coinreview.js", "src/lpadmin.js", "src/lpcoins.js", "src/fees.js", "public/site.js", "public/theme.js"];
+const ADAPTERS = ["src/brand.js", "src/site-config.js", "src/footer-social.js"];
+// The only imports of an adapter that a producer may reach, each with exactly the names it takes and why none of them feeds an identifier.
+const ALLOWED_EDGES = {
+  "src/mail.js>src/brand.js": ["brandOf"],                         // the display name of outgoing mail (senderName), a label
+  "src/sources.js>src/site-config.js": ["USER_AGENT"],             // the User-Agent of outside calls, never stored or signed
+  "src/swap.js>src/site-config.js": ["USER_AGENT"],                // the same User-Agent
+  "src/v5policy.js>src/brand.js": ["brandOf"],                     // the MAIN_TOKEN_V5 check compares the label set's name; no label is read
+  "src/v5policy.js>src/site-config.js": ["DEFAULT_SITE_ORIGIN", "DEFAULT_SITE_ORIGINS", "normalizeOrigin", "siteConfig"], // the configuration check
+};
+/** The relative modules a file imports (static import and export-from, and import()): [{ to, names }] (names null for a namespace or a call). */
+function importsOf(file) {
+  const text = read(file), out = [];
+  const join = (rel) => new URL(rel, new URL(file, root)).pathname.slice(new URL(".", root).pathname.length);
+  for (const m of text.matchAll(/^\s*(?:import|export)\s+([^;]*?)\s+from\s+["'](\.{1,2}\/[^"']+)["']/gm)) {
+    const names = /^\{([\s\S]*)\}$/.test(m[1].trim()) ? m[1].trim().slice(1, -1).split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).filter(Boolean) : null;
+    out.push({ to: join(m[2]), names });
+  }
+  for (const m of text.matchAll(/import\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g)) out.push({ to: join(m[1]), names: null });
+  for (const m of text.matchAll(/^\s*import\s+["'](\.{1,2}\/[^"']+)["']/gm)) out.push({ to: join(m[1]), names: null });
+  return out.filter((e) => existsSync(new URL(e.to, root)));
+}
+
+test("no module that makes a persistent identifier reaches the brand or site adapters, except through pinned label-only imports (review SEC-10)", () => {
+  const seen = new Map(); // edge "a>b" -> names, for every edge into an adapter found from any producer
+  for (const start of PRODUCERS) {
+    const visited = new Set([start]), queue = [start];
+    while (queue.length) {
+      const f = queue.shift();
+      if (ADAPTERS.includes(f)) continue; // an adapter's own imports are not a producer's
+      for (const e of importsOf(f)) {
+        if (ADAPTERS.includes(e.to)) {
+          const key = `${f}>${e.to}`;
+          assert.ok(Object.hasOwn(ALLOWED_EDGES, key), `${start} reaches ${e.to} through ${f}: not a pinned, label-only import`);
+          assert.ok(e.names && e.names.every((n) => ALLOWED_EDGES[key].includes(n)), `${key} takes ${JSON.stringify(e.names)}, only ${ALLOWED_EDGES[key].join(", ")} is allowed`);
+          seen.set(key, e.names);
+        }
+        if (!visited.has(e.to)) { visited.add(e.to); queue.push(e.to); }
+      }
+    }
+  }
+  // the walk is real: it finds the indirect routes (a producer through src/auth.js to src/mail.js, src/coinmeta.js through src/sources.js)
+  assert.ok(seen.has("src/mail.js>src/brand.js") && seen.has("src/sources.js>src/site-config.js") && seen.has("src/swap.js>src/site-config.js"), JSON.stringify([...seen.keys()]));
+  // and no producer imports an adapter itself, except src/swap.js for the User-Agent
+  for (const f of PRODUCERS) {
+    for (const e of importsOf(f)) if (ADAPTERS.includes(e.to)) assert.equal(`${f}>${e.to}`, "src/swap.js>src/site-config.js", `${f} imports ${e.to}`);
+  }
+  // the page footer's rewrite (src/footer-social.js) is the Worker entry's and the page build's only
+  for (const f of ["src/index.js", "scripts/pages/build.mjs"]) assert.ok(importsOf(f).some((e) => e.to === "src/footer-social.js"), f);
 });
 
 test("BRAND and the site settings change no persistent identifier (an unknown BRAND keeps today's labels)", async () => {

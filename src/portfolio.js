@@ -33,7 +33,7 @@
 import { json } from "./http.js";
 import { access } from "./access.js";
 import { activeMint, tokenMint } from "./official.js";
-import { mainTokenV5On } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { MAIN_TOKEN_LABEL } from "./maintoken.js";
 import { ensureSchema } from "./store.js";
 import { chainSymbolsOf, displayTicker } from "./tickers.js";
@@ -99,7 +99,7 @@ async function loadMints(env, now) {
   const flight = (async () => {
     const list = [];
     const seen = new Set(Object.values(PAIRS).map((p) => p.mint)); // SOL, USDC and RAY are never a city coin, whatever the table says
-    const v5 = mainTokenV5On(env), live = v5 ? null : activeMint(env);
+    const v5 = mainTokenV5(env), live = v5 ? null : activeMint(env);
     if (live && isSolanaAddress(live) && !seen.has(live)) {
       seen.add(live);
       list.push({ kind: "vicinity", mint: live, symbol: "VICINITY", name: "Vicinity" });

@@ -68,7 +68,7 @@
  * Settings: SOLANA_RPC_URL, VICINITY_MINT, ADMIN_WALLETS, GOOGLE_CLIENT_ID/SECRET, the e-mail sender settings (see docs/DEPLOY.md),
  * SNAPSHOT_CUTOFF, ATTEST_KEY, JUPITER_API_BASE/KEY, RPC_TIMEOUT_MS (optional); the swap and launchpad cluster settings in src/cluster.js.
  */
-import { activeMint, checkOfficial, marketLink, officialFor, teamFor, teamWalletLabel, tokenMint, withMint } from "./official.js";
+import { activeMint, checkOfficial, mainCacheTag, marketLink, officialFor, teamFor, teamWalletLabel, tokenMint, withMint } from "./official.js";
 import { handleAdmin } from "./admin.js";
 import { SHOW_STALE_MS, getHolding, getTokenFacts, getTopHolders, holderSnapshot, isTeamLock, isTeamWallet, rankOf, rankWithAmount } from "./chain.js";
 import { base58Encode, buildMessage, isSolanaAddress, statementFor } from "./solana.js";
@@ -85,7 +85,7 @@ import { handleHandoffClaim, handleHandoffComplete, handleHandoffInfo, handleHan
 import { handleDelete, handleMedia, handleNewPost, handlePosts, handleReport, handleVote } from "./social.js";
 import { handleMute, handleMutes } from "./mutes.js";
 import { handleNotices, handleNoticesPrefs, handleNoticesRead } from "./notify.js";
-import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw } from "./seats.js";
+import { handleApply, handleDecideObjection, handleEndorse, handleObject, handleResign, handleResult, handleSeats, handleSquadApply, handleSquadCreate, handleSquadGet, handleSquadJoin, handleSquadLeave, handleWithdraw, seatsFrozen } from "./seats.js";
 import { handleElectionResult, handleElectionVote } from "./elections.js";
 import { handleAppeal, handleAudit, handleBanDecision, handleDecideAppeal, handleHide, handleModQueue, handleMyTowns, handleProposeBan,
   handleTownDecision, handleTownRequest, handleUnhide } from "./moderation.js";
@@ -117,7 +117,7 @@ import { handleFees } from "./fees.js";
 import { EDGE_SECONDS as FEE_STATUS_SECONDS, handleFeeStatus } from "./feestatus.js";
 import { handleCoinMeta } from "./coinmeta.js";
 import { BROWSER_SECONDS, EDGE_SECONDS, OFFICIAL_CSV_PATH, officialCacheKey, officialCoinsCsv, officialCoinsJson } from "./officialcoins.js";
-import { isForwardHost, siteConfig } from "./site-config.js";
+import { DEFAULT_SITE, isForwardHost, siteConfig } from "./site-config.js";
 import { checkDeploymentConfig } from "./maintoken.js";
 import { checkPolicyConfig, masterPolicyAnswer, publicMaster, publicV5 } from "./v5policy.js";
 import { officialLinksInPage } from "./footer-social.js";
@@ -339,7 +339,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     const post = (fn) => only("POST") || (sameSite(request) ? fn() : json({ ok: false, error: "bad_origin" }, 403));
     switch (path) {
       case "/api/swap/config": return only("GET") || cached("swap-config-" + (tokenMint(env) || "pre"), 60, () => handleSwapConfig(env, fetchImpl));
-      case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()), 300, () => handleSwapTokens(request, env, fetchImpl));
+      case "/api/swap/tokens": return only("GET") || cached("swap-tokens-" + encodeURIComponent(String(url.searchParams.get("q") || "").slice(0, 44).toLowerCase()) + mainCacheTag(env), 300, () => handleSwapTokens(request, env, fetchImpl));
       case "/api/swap/quote": return post(() => handleSwapQuote(request, env, fetchImpl));
       case "/api/swap/tx": return post(() => handleSwapTx(request, env, fetchImpl));
       case "/api/swap/send": return post(() => needsDb() || handleSend(request, env, fetchImpl)); // the ticket is verified with the database's salt: without one nothing is relayed
@@ -530,8 +530,9 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       const blocked = only("GET");
       if (blocked) return blocked;
       if (!env.DB) return json({ launched: Boolean(tokenMint(env)), seats: [], windows: [] });
-      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server
-      return cached("seats", 30, async () => {
+      // the map polls this every 30 seconds from every open tab: one answer per 30 seconds per server (the key names the main token's mode:
+      // "seats" exactly while MAIN_TOKEN_V5 does not count, src/official.js mainCacheTag)
+      return cached("seats" + mainCacheTag(env), 30, async () => {
         await ensureSchema(env.DB);
         const res = await handleSeats(env);
         const body = await res.json();
@@ -539,25 +540,25 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       });
     }
     case "/api/seats/apply":
-      return only("POST") || handleApply(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleApply(request, env, fetchImpl);
     case "/api/seats/withdraw":
-      return only("POST") || handleWithdraw(request, env);
+      return only("POST") || seatsFrozen(env) || handleWithdraw(request, env);
     case "/api/seats/endorse":
-      return only("POST") || handleEndorse(request, env);
+      return only("POST") || seatsFrozen(env) || handleEndorse(request, env);
     case "/api/seats/object":
-      return only("POST") || handleObject(request, env);
+      return only("POST") || seatsFrozen(env) || handleObject(request, env);
     case "/api/seats/resign":
-      return only("POST") || handleResign(request, env);
+      return only("POST") || seatsFrozen(env) || handleResign(request, env);
     case "/api/seats/objections/decide":
-      return only("POST") || handleDecideObjection(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleDecideObjection(request, env, fetchImpl);
     case "/api/seats/squad/create":
-      return only("POST") || handleSquadCreate(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadCreate(request, env);
     case "/api/seats/squad/join":
-      return only("POST") || handleSquadJoin(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadJoin(request, env);
     case "/api/seats/squad/leave":
-      return only("POST") || handleSquadLeave(request, env);
+      return only("POST") || seatsFrozen(env) || handleSquadLeave(request, env);
     case "/api/seats/squad/apply":
-      return only("POST") || handleSquadApply(request, env, fetchImpl);
+      return only("POST") || seatsFrozen(env) || handleSquadApply(request, env, fetchImpl);
 
     // city coins (designed by City Founders) and prices for the swap panel
     case "/api/coins": {
@@ -565,7 +566,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       if (blocked) return blocked;
       // the whole list is public and the same for everyone: cached. One city's coin (the founder's studio) and the admin queue are live.
       if (url.searchParams.get("city") || url.searchParams.get("waiting")) return handleCoins(request, env, fetchImpl);
-      return cached("coins", 30, () => handleCoins(request, env, fetchImpl));
+      return cached("coins" + mainCacheTag(env), 30, () => handleCoins(request, env, fetchImpl));
     }
     case "/api/coins/design":
       // COIN_V2_READY=on: every coin is the ready-made Vicinity coin ("Use this coin", src/coinready.js); the old studio stays closed
@@ -607,7 +608,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
       return json({ country: cc, rule, manager: mgr ? { name: mgr.name, city: mgr.city, endsAt: mgr.term.ends_at, since: mgr.term.starts_at } : null });
     }
     case "/api/elections/vote":
-      return only("POST") || handleElectionVote(request, env);
+      return only("POST") || seatsFrozen(env) || handleElectionVote(request, env);
 
     // accounts
     case "/api/auth/wallet":
@@ -652,7 +653,7 @@ export async function handleApi(request, env = {}, fetchImpl = fetch, ctx = null
     case "/api/locate/handoff/claim":
       return only("POST") || db(() => handleHandoffClaim(request, env));
     case "/api/members":
-      return only("GET") || cached("members", 60, () => handleMembers(env));
+      return only("GET") || cached("members" + mainCacheTag(env), 60, () => handleMembers(env));
 
     // feeds
     case "/api/posts":
@@ -708,15 +709,18 @@ export function withSecurityHeaders(response) {
   return res;
 }
 
-/** The canonical host (src/site-config.js: SITE_ORIGIN, unset = vicinity.city) is the address; the old names (www.vicinity.city,
- *  vicinitycity.net, www.vicinitycity.net) forward there, keeping the path. The target comes from configuration, never from the request.
- *  Plain http:// visits are sent to https:// (except on this computer, for `wrangler dev`). */
+/** The old names (www.vicinity.city, vicinitycity.net, www.vicinitycity.net; src/site-config.js forwardHosts, which leaves out a name
+ *  SITE_ORIGINS serves in place) forward to today's canonical host, vicinity.city, keeping the path. The target is a constant, never the
+ *  request and not SITE_ORIGIN: a permanent cross-domain redirect to a configured origin belongs to the HOST_REDIRECT switch and its own
+ *  checks (stage S03), so setting SITE_ORIGIN alone never moves it. Plain http:// visits are sent to https:// (except on this computer,
+ *  for `wrangler dev`). */
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
 // `wrangler dev` presents local visits as http://vicinity.city, but from this computer's own address.
 const isLocal = (request, url) =>
   LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
 
-// The configuration checks run once at the first request of an isolate. They never throw and change no answer by themselves:
+// The configuration checks run once at the first request of an isolate, inside the handler's try and in a try of their own, so not even a
+// future fault in one of them can change an answer. They change no answer by themselves:
 // - amendment 01 (src/maintoken.js): with MAIN_TOKEN_V5 off it reports nothing; with it on, each named problem is logged once (its code
 //   and the key's name, never a value);
 // - the v5 policy (src/v5policy.js, stage S07): validatePolicy on this Worker's settings; each named error is logged once (code and path,
@@ -725,13 +729,16 @@ let configChecked = false;
 
 export default {
   async fetch(request, env, ctx) {
-    if (!configChecked) { configChecked = true; checkDeploymentConfig(env); checkPolicyConfig(env); }
     try {
+      if (!configChecked) {
+        configChecked = true;
+        try { checkDeploymentConfig(env); checkPolicyConfig(env); } catch { /* a check is never worth a failed request */ }
+      }
       const url = new URL(request.url);
       const insecure = url.protocol === "http:" && !isLocal(request, url);
       const site = siteConfig(env), forward = isForwardHost(site, url.hostname);
       if (forward || insecure) {
-        if (forward) url.hostname = site.host;
+        if (forward) url.hostname = DEFAULT_SITE.host;
         url.protocol = "https:"; url.port = "";
         return new Response(null, { status: 301, headers: { Location: url.toString(), ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
       }
@@ -739,8 +746,9 @@ export default {
       if (url.pathname.startsWith("/api/") || url.pathname === OFFICIAL_CSV_PATH) return await handleApi(request, env, fetch, ctx);
       // the metadata our launchpad program writes on chain points here (src/coinmeta.js): dark without its settings
       if (url.pathname.startsWith("/coin-meta/")) return await handleCoinMeta(request, env, fetch);
-      // a page the Worker serves itself (an address no file matches, so today the 404 page): with MAIN_TOKEN_V5 on, its footer's social
-      // links are rewritten to the configured ones (src/footer-social.js); with it off the asset's response is passed on untouched
+      // an asset the Worker fetches itself. In production no page comes this way (wrangler.jsonc run_worker_first lists only the paths
+      // above, and not_found_handling serves the 404 page from the assets without the Worker); with MAIN_TOKEN_V5 counting, an HTML answer
+      // gets the configured social links (src/footer-social.js); otherwise the asset's response is passed on untouched
       return withSecurityHeaders(await officialLinksInPage(await env.ASSETS.fetch(request), env));
     } catch (err) {
       console.error("Unhandled error:", err && err.stack ? err.stack : err);

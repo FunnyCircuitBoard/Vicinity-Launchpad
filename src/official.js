@@ -3,7 +3,8 @@
  * "Is this link official?" checker both read from here.
  * Change it only by a public commit so everyone can see the history.
  */
-import { coinV2ReadyOn, launchpadV2On, mainTokenV5On } from "./flags.js";
+import { coinV2ReadyOn, launchpadV2On } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { launchpadCluster, launchpadTradingOn, lpSetup, swapOn } from "./cluster.js";
 import { ADDRESSES } from "./sol/pda.js";
 import { LEGACY_TOKENS, LEGACY_X_URL, MAIN_TOKEN_LABEL, isLegacyMint, mainMint, officialLinks } from "./maintoken.js";
@@ -137,7 +138,7 @@ function socialLink(url) {
 
 /** Decide whether something a visitor pasted is an official Vicinity place (the list as it is now: see withMint). */
 export function checkOfficial(input, isSolanaAddress, env) {
-  if (mainTokenV5On(env)) return checkOfficialV5(input, isSolanaAddress, env);
+  if (mainTokenV5(env)) return checkOfficialV5(input, isSolanaAddress, env);
   const OFFICIAL = withMint(env);
   const raw = clean(input);
   if (!raw) return { verdict: "empty", message: "Paste a link, address or @handle to check it." };
@@ -230,7 +231,7 @@ export function checkOfficial(input, isSolanaAddress, env) {
  * the chain through GET /api/official-coins (src/officialcoins.js).
  *   [{ id, title, rows: [{ label, address, kind: "account" | "token", note, link?: { href, text } }] }]
  */
-export function officialAddresses(env = {}) {
+export function officialAddresses(env = {}, mainToken = mainTokenV5(env)) {
   const lp = lpSetup(env), groups = [];
   const mainnet = lp.on && lp.cluster === "mainnet";
   // the fee wallet is also a team wallet today: each row says so, so nobody counts two wallets (or reads two labels for one address)
@@ -249,7 +250,7 @@ export function officialAddresses(env = {}) {
         note: "The Meteora settings the price curve of an official city coin runs on. Anyone can open a pool on these settings, so they alone do not make a coin official." })),
     ] });
   }
-  if (mainTokenV5On(env)) return [...groups, ...mainTokenAddressGroups(env, mainnet && feeIsTeam)];
+  if (mainToken) return [...groups, ...mainTokenAddressGroups(env, mainnet && feeIsTeam)];
   const mint = activeMint(env), launched = launchedAtOf(mint);
   if (mint) groups.push({ id: "vicinity", title: "$VICINITY", rows: [
     { label: "$VICINITY token", address: mint, kind: "token", note: `The platform token${launched ? `, launched on Raydium LaunchLab on ${longDate(launched)}` : ""}. It is not a city coin.` },
@@ -274,13 +275,21 @@ export const activeMint = (env) => (env && env.VICINITY_MINT) || VICINITY_MINT;
 /**
  * THE mint every main-token consumer reads (the token page, /api/token, the holder list and ranks, /api/verify, balance sampling, roles,
  * profiles, seats, the portfolio, the price history, the swap's token list, the Launchpad's first card, the coin page's allow-list and
- * the edge-cache keys built from it). With MAIN_TOKEN_V5 off it is exactly activeMint(env), the VICINITY_MINT setting, as before. With it
- * on it is mainMint(env), the configured MAIN_TOKEN_MINT, or null when that is unset or refused: each consumer then takes its existing
- * "not launched" path. It is never the legacy mint under the switch (the policy refuses a legacy mint as MAIN_TOKEN_MINT).
+ * the edge-cache keys built from it). While MAIN_TOKEN_V5 does not count (src/v5policy.js mainTokenV5: off, or on with any precondition
+ * missing) it is exactly activeMint(env), the VICINITY_MINT setting, as before. While it counts it is mainMint(env), the configured
+ * MAIN_TOKEN_MINT, which the switch needs (an unset or refused mint keeps the switch from counting, so this never turns into "not
+ * launched" and is never the legacy mint under the switch).
  * VICINITY_MINT keeps its name and stays the legacy $VICINITY mint: the early-member flags (src/signup-finish.js, src/auth.js) keep
  * reading it through activeMint, because "early" means "joined before $VICINITY launched on 3 Oct 2026", a fact of history.
  */
-export const tokenMint = (env) => (mainTokenV5On(env) ? mainMint(env) : activeMint(env));
+export const tokenMint = (env) => (mainTokenV5(env) ? mainMint(env) : activeMint(env));
+
+/**
+ * The part of an edge-cache key that names the main token's mode: "" while MAIN_TOKEN_V5 does not count (so every key is exactly
+ * today's), and "-v5-<mint>" while it does, so an answer cached for one token is never served as the other's after the switch flips
+ * (src/index.js, src/cointakedown.js).
+ */
+export const mainCacheTag = (env) => (mainTokenV5(env) ? `-v5-${tokenMint(env) || "pre"}` : "");
 
 /** The published team wallets and team locks, as facts of a token's holder list: { wallets, locks }. */
 export const TEAM = Object.freeze({ wallets: OFFICIAL.teamWallets, locks: OFFICIAL.teamLocks });
@@ -291,19 +300,21 @@ export const NO_TEAM = Object.freeze({ wallets: Object.freeze([]), locks: Object
  * list (its team wallets and locks are labelled once the owner supplies and verifies them, amendment section 4.1 step 7). Every other
  * list (with the switch off, the legacy token's and the city coins') keeps them, as before.
  */
-export const teamFor = (env, mint) => (mint != null && mainTokenV5On(env) && mint === mainMint(env) ? NO_TEAM : TEAM);
+export const teamFor = (env, mint) => (mint != null && mainTokenV5(env) && mint === mainMint(env) ? NO_TEAM : TEAM);
 
 /** The former official X account (policy.official_links.legacy) as a social profile: refused as official, answered as legacy. */
 const LEGACY_HANDLE = (/^https:\/\/x\.com\/([A-Za-z0-9_]{1,15})$/.exec(LEGACY_X_URL) || [])[1] || null;
 const LEGACY_SOCIAL = LEGACY_HANDLE ? Object.freeze({ network: "X", handle: `@${LEGACY_HANDLE}`, hosts: ["x.com", "twitter.com"] }) : null;
 /**
- * The official social accounts as profiles ({ network, handle, hosts, url? }): with MAIN_TOKEN_V5 off, SOCIAL_PROFILES above, as before;
- * with it on, only what OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL hold after the policy's shape check (src/maintoken.js officialLinks), so an
- * unset or refused link is simply not there and the legacy account is never one of them. The page footers (scripts/pages/build.mjs and
- * the Worker's response-time rewrite, src/footer-social.js) and the link checker read this one list.
+ * The official social accounts as profiles ({ network, handle, hosts, url? }): while MAIN_TOKEN_V5 does not count, SOCIAL_PROFILES above,
+ * as before; while it counts, only what OFFICIAL_X_URL and OFFICIAL_TELEGRAM_URL hold after the policy's shape check (src/maintoken.js
+ * officialLinks), so an unset or refused link is simply not there and the legacy account is never one of them. The page footers
+ * (scripts/pages/build.mjs and the Worker's response-time rewrite, src/footer-social.js) and the link checker read this one list. `on`:
+ * the page build passes its own decision (the switch in wrangler.jsonc, once the build accepts it), because the pages it is writing are
+ * what makes the switch count at run time.
  */
-export function socialProfiles(env) {
-  if (!mainTokenV5On(env)) return SOCIAL_PROFILES;
+export function socialProfiles(env, on = mainTokenV5(env)) {
+  if (!on) return SOCIAL_PROFILES;
   const l = officialLinks(env), out = [];
   if (l.xUrl) out.push(Object.freeze({ network: "X", handle: `@${l.xUrl.slice("https://x.com/".length)}`, hosts: ["x.com", "twitter.com"], url: l.xUrl }));
   if (l.telegramUrl) out.push(Object.freeze({ network: "Telegram", handle: `@${l.telegramUrl.slice("https://t.me/".length)}`, hosts: ["t.me", "telegram.me"], url: l.telegramUrl }));
@@ -333,7 +344,8 @@ function withMainToken(env) {
     teamWallets: [],
     teamLocks: [],
     tokens: [
-      { network: "Solana", name: MAIN_TOKEN_LABEL, symbol: "", contract: main, platform: null, status: main ? "Live" : "Not published yet" },
+      // shape-checked and configured, not verified by this code: "Configured", never "Live" on the strength of a shape check
+      { network: "Solana", name: MAIN_TOKEN_LABEL, symbol: "", contract: main, platform: null, status: main ? "Configured" : "Not published yet" },
       { network: "Solana", name: "Vicinity, legacy token", symbol: "VICINITY", contract: null, platform: "Raydium LaunchLab", status: "Legacy (history only)", legacy: true },
       OFFICIAL.tokens[1],
     ],
@@ -455,7 +467,7 @@ function socialLinkOf(url, profiles) {
  * moment the setting is saved. No code change at launch.
  */
 export function withMint(env) {
-  if (mainTokenV5On(env)) return withMainToken(env);
+  if (mainTokenV5(env)) return withMainToken(env);
   const mint = activeMint(env);
   if (!mint) return OFFICIAL;
   return {

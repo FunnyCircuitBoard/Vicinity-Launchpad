@@ -24,7 +24,7 @@
  * founder gets a fixed sentence (src/notify.js), and the admin gets every change in plain words (`changed`, `message`).
  */
 import { iso } from "./policy.js";
-import { tokenMint } from "./official.js";
+import { mainCacheTag, tokenMint } from "./official.js";
 import { coinV2ReviewOn } from "./flags.js";
 import { notify, pictureReason } from "./notify.js";
 import { coinDefaults } from "./coindefaults.js";
@@ -103,7 +103,7 @@ async function namedInLog(t, c) {
 /** This data centre's cached copies of the pages that show a coin's words (src/index.js cached: the same keys), and this server's list. */
 async function purgePages(env, mint = null, arts = []) {
   const cache = typeof caches !== "undefined" ? caches.default : null;
-  const keys = ["coins", `launchpad-${tokenMint(env) || "pre"}`, ...(mint ? [`coin-${mint}`, `lp-coin-${mint}`] : []), ...arts.map((x) => `coin-meta/art/${x}.png`)];
+  const keys = ["coins" + mainCacheTag(env), `launchpad-${tokenMint(env) || "pre"}`, ...(mint ? [`coin-${mint}`, `lp-coin-${mint}`] : []), ...arts.map((x) => `coin-meta/art/${x}.png`)];
   if (cache) for (const k of keys) { try { await cache.delete(new Request(`https://cache.vicinity.internal/${k}`)); } catch { /* the cache is a convenience */ } }
   forgetCopies(env); // this server's launchpad list (src/launchpad.js registers it)
 }

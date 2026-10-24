@@ -1,8 +1,9 @@
-// Owner amendment 01 (stage S02A): every main-token consumer reads tokenMint (src/official.js). With MAIN_TOKEN_V5 on it is the configured
+// Owner amendment 01 (stage S02A): every main-token consumer reads tokenMint (src/official.js). While MAIN_TOKEN_V5 counts it is the configured
 // MAIN_TOKEN_MINT: no $VICINITY fact (its team wallets and lock, its Raydium LaunchLab launch and date, its name and ticker) is ever shown as
 // the new token's, $VICINITY is a labelled legacy token with no swap, purchase links exist only once the quote path finds a route, an unset
-// or refused mint is "not launched" (never the legacy mint, never a 500), and the scheduled job's steps read the same mint.
-// The main mint and the links here are clearly fake test fixtures; the owner has supplied none of the three values.
+// or refused mint keeps the switch from counting (today's site exactly: never "not launched", never a 500), and the scheduled job's steps
+// read the same mint. The switch counts only with every precondition (src/v5policy.js mainTokenV5); this file stands in for a page build
+// made with it (test/helpers/mainswitch.js). The main mint and the links here are clearly fake test fixtures; the owner has supplied none.
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as W from "./helpers/world.js";
@@ -18,6 +19,10 @@ import { supportedAssets } from "../src/walletsend.js";
 import { allowListedCoins } from "../src/pricehistory.js";
 import { getBlob, putBlob } from "../src/blobs.js";
 import { ensureSchema } from "../src/store.js";
+import { _resetPolicyCheck } from "../src/v5policy.js";
+import { ACCEPTED, pagesBuiltWithSwitch } from "./helpers/mainswitch.js";
+
+pagesBuiltWithSwitch();
 
 const FAKE_MINT = "FakeMainTokenMint111111111111111111111111111"; // a clearly fake fixture with a valid key shape
 const FAKE_X = "https://x.com/ZqFakeTestX";
@@ -26,7 +31,7 @@ const [TEAM_WALLET, FOMO_WALLET] = OFFICIAL.teamWallets;
 const LOCK = OFFICIAL.teamLocks[0].address;
 const H1 = "Hdr1111111111111111111111111111111111111111", H2 = "Hdr2222222222222222222222222222222222222222";
 const BASE = { VICINITY_MINT: LEGACY, LAUNCHPAD_V2: "on", SWAP: "on" };
-const V5 = { ...BASE, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_X_URL: FAKE_X };
+const V5 = { ...BASE, ...ACCEPTED, MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_X_URL: FAKE_X };
 
 /** The test chain, a Jupiter that routes SOL into FAKE_MINT only when `route`, and a log of every mint a holder list was read for. */
 function net({ route = false, decimals = null } = {}) {
@@ -80,7 +85,7 @@ let errors = [];
 const realError = console.error;
 beforeEach(() => {
   W.useClock("2026-10-24T12:00:00Z");
-  _resetSwap(); _resetLaunchpad(); _resetCoin(); _resetPortfolio(); _resetDeploymentCheck();
+  _resetSwap(); _resetLaunchpad(); _resetCoin(); _resetPortfolio(); _resetDeploymentCheck(); _resetPolicyCheck();
   errors = []; console.error = (...a) => errors.push(a.map(String).join(" "));
 });
 afterEach(() => { console.error = realError; W.realClock(); });
@@ -94,7 +99,8 @@ test("/api/official: the configured mint is the official token; $VICINITY, its t
   assert.deepEqual(body.teamLocks, [], "the 60M Jupiter Lock holds $VICINITY: no lock card for the new token");
   assert.deepEqual(body.socials, ["@ZqFakeTestX"]);
   assert.deepEqual(body.officialLinks, { x: FAKE_X, telegram: null });
-  assert.deepEqual(body.tokens[0], { network: "Solana", name: "Main token", symbol: "", contract: FAKE_MINT, platform: null, status: "Live" });
+  assert.deepEqual(body.tokens[0], { network: "Solana", name: "Main token", symbol: "", contract: FAKE_MINT, platform: null, status: "Configured" },
+    "shape-checked, not verified: never \"Live\" on a shape check alone (review finding SEC-8)");
   assert.equal(body.tokens[1].legacy, true);
   assert.equal(body.tokens[1].contract, null, "the legacy row never points at the page's contract card");
   const [legacy] = body.legacyTokens;
@@ -112,25 +118,31 @@ test("/api/official: the configured mint is the official token; $VICINITY, its t
   assert.deepEqual(off.socials, ["@VicinityCitySOL"]);
 });
 
-test("unset or refused MAIN_TOKEN_MINT under the switch: every main-token route answers its existing 'not launched' path (never the legacy mint, never a 500)", async () => {
-  for (const mint of [undefined, "", LEGACY, "not-a-mint"]) {
-    const env = W.newWorld({ ...BASE, MAIN_TOKEN_V5: "on", ...(mint === undefined ? {} : { MAIN_TOKEN_MINT: mint }) }); holders();
-    const tag = `MAIN_TOKEN_MINT=${JSON.stringify(mint)}`;
-    assert.deepEqual((await get(env, "/api/token")).body.launched, false, tag);
-    assert.deepEqual((await get(env, "/api/holders")).body, { launched: false, holders: [] }, tag);
-    assert.equal((await get(env, `/api/rank?address=${H1}`)).body.launched, false, tag);
-    assert.equal((await get(env, "/api/seats")).body.launched, false, tag);
-    assert.equal((await get(env, "/api/policy")).body.launched, false, tag);
-    assert.equal((await get(env, "/api/official")).body.tokenContract, null, tag);
-    const lp = await get(env, "/api/launchpad");
-    assert.equal(lp.status, 200, tag);
-    assert.equal(lp.body.vicinity.mint, null);
-    assert.equal(lp.body.vicinity.status, "upcoming");
-    assert.equal((await get(env, `/api/coin?mint=${LEGACY}`)).status, 404, `${tag}: no coin page (and no Buy) for the legacy mint`);
-    const swap = (await get(env, "/api/swap/config")).body;
-    assert.ok(!swap.tokens.some((t) => t.mint === LEGACY || t.kind === "vicinity"), `${tag}: no swap is offered for $VICINITY`);
-    const job = await runJobs(env, Date.now(), net().fetchImpl, () => 0);
-    assert.deepEqual(job.sample, { sampled: false, why: "not_launched" }, tag);
+test("unset or refused MAIN_TOKEN_MINT, or a refused v5 configuration, under the switch: every main-token route answers exactly as with it off", async () => {
+  // review findings SWON-4 and SEC-4: the switch counts only while both configuration checks accept the deployment; anything else is
+  // today's site (never "not launched", never the legacy mint as the new token, never a 500)
+  const routes = ["/api/token", "/api/holders", `/api/rank?address=${H1}`, "/api/seats", "/api/policy", "/api/official", "/api/launchpad", `/api/coin?mint=${LEGACY}`, "/api/swap/config",
+    `/api/check?q=${LEGACY}`, "/api/check?q=%40VicinityCitySOL"];
+  const answers = async (env) => { const out = {}; for (const r of routes) { _resetSwap(); _resetLaunchpad(); _resetCoin(); out[r] = await get(env, r); } return out; };
+  W.useClock("2026-10-24T12:00:00Z");
+  const offEnv = W.newWorld(BASE); holders();
+  const today = await answers(offEnv);
+  assert.equal(today["/api/official"].body.tokenContract, LEGACY);
+  const cases = [
+    ...[undefined, "", LEGACY, "not-a-mint", "11111111111111111111111111111111"].map((mint) => ({ ...BASE, ...ACCEPTED, ...(mint === undefined ? {} : { MAIN_TOKEN_MINT: mint }) })),
+    { ...BASE, ...ACCEPTED, MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_X_URL: "https://x.com/VicinityCitySOL" }, // the old account refused as the new link
+    { ...BASE, ...ACCEPTED, MAIN_TOKEN_MINT: FAKE_MINT, OFFICIAL_TELEGRAM_URL: "https://t.me/+invite" },
+    { ...BASE, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: FAKE_MINT }, // no environment named and the legacy seats not frozen: the v5 check refuses
+    { ...BASE, ...ACCEPTED, DEPLOYMENT_ENV: "", MAIN_TOKEN_MINT: FAKE_MINT },
+    { ...BASE, ...ACCEPTED, LEGACY_SEATS: "on", MAIN_TOKEN_MINT: FAKE_MINT },
+    { ...BASE, ...ACCEPTED, BRAND: "citycoin", MAIN_TOKEN_MINT: FAKE_MINT }, // not the label set the pages were built with
+  ];
+  for (const extra of cases) {
+    W.useClock("2026-10-24T12:00:00Z");
+    const env = W.newWorld(extra); holders();
+    assert.deepEqual(await answers(env), today, JSON.stringify(extra));
+    const offJob = await runJobs(W.newWorld(BASE), Date.now(), net().fetchImpl, () => 0);
+    assert.deepEqual(await runJobs(env, Date.now(), net().fetchImpl, () => 0), offJob, `${JSON.stringify(extra)}: the job is today's too`);
   }
 });
 
@@ -218,7 +230,8 @@ test("a member's dashboard measures the new token; 'Early member' keeps meaning 
   const env = W.newWorld({ ...V5, MAIN_TOKEN_MINT: undefined });
   const p = await W.person(env, { home: W.IN_UTICA, holds: 3_000 });
   let me = await p.get("/api/me");
-  assert.equal(me.launched, false, "no main token configured: the existing pre-launch path");
+  assert.equal(me.launched, true, "no main token configured: the switch does not count, so $VICINITY is still the token (today's dashboard)");
+  assert.equal(me.badges.find((b) => b.id === "holder").detail, "Hold any $VICINITY.");
   assert.equal(me.badges.find((b) => b.id === "early").earned, false, "VICINITY_MINT is set: $VICINITY had launched when this member joined");
   const env2 = W.newWorld(V5);
   const q = await W.person(env2, { home: W.IN_UTICA, holds: 3_000 });
@@ -249,16 +262,23 @@ test("the scheduled job's steps use tokenMint: the sample, the holder counts and
   assert.ok((await off.DB.prepare("SELECT COUNT(*) AS n FROM streaks").first()).n > 0);
 });
 
-test("the job start runs the configuration check: a named problem is logged once per isolate, and the run goes on", async () => {
-  const env = W.newWorld({ ...BASE, MAIN_TOKEN_V5: "on", MAIN_TOKEN_MINT: LEGACY }); holders();
-  const a = await runJobs(env, Date.now(), net().fetchImpl, () => 0);
-  W.advance(3 * 3600_000);
-  const b = await runJobs(env, Date.now(), net().fetchImpl, () => 0);
+test("the job start runs the configuration check: a named problem is logged once per isolate, the run goes on, and it is today's run", async () => {
+  const run = async (extra) => {
+    W.useClock("2026-10-24T12:00:00Z");
+    const env = W.newWorld({ ...BASE, ...extra }); holders();
+    const a = await runJobs(env, Date.now(), net().fetchImpl, () => 0);
+    W.advance(3 * 3600_000);
+    const b = await runJobs(env, Date.now(), net().fetchImpl, () => 0);
+    return [a, b];
+  };
+  const refused = await run({ ...ACCEPTED, MAIN_TOKEN_MINT: LEGACY });
   assert.deepEqual(errors.filter((e) => /deployment config/.test(e)), ["deployment config refused MAIN_TOKEN_IS_LEGACY_MINT env.MAIN_TOKEN_MINT"]);
-  for (const r of [a, b]) { assert.deepEqual(r.sample, { sampled: false, why: "not_launched" }); assert.deepEqual(r.cleanup, { ok: true }); }
-  _resetDeploymentCheck(); errors = [];
-  await runJobs(W.newWorld(BASE), Date.now(), net().fetchImpl, () => 0);
-  assert.deepEqual(errors.filter((e) => /deployment config/.test(e)), [], "switch off: nothing");
+  assert.deepEqual(errors.filter((e) => /main token switch/.test(e)), ["main token switch refused MAIN_TOKEN_V5_CONFIG_REFUSED", "main token switch refused MAIN_TOKEN_V5_POLICY_REFUSED"],
+    "and why the switch does nothing, once");
+  for (const r of refused) assert.equal(r.sample.sampled, true, "the legacy sampler runs as today");
+  _resetDeploymentCheck(); _resetPolicyCheck(); errors = [];
+  assert.deepEqual(await run({}), refused, "the same runs as with the switch off");
+  assert.deepEqual(errors.filter((e) => /deployment config|main token switch/.test(e)), [], "switch off: nothing");
 });
 
 test("the balance history under the switch: the new token's own days, no $VICINITY streak counted, old days of its series pruned", async () => {
@@ -266,7 +286,7 @@ test("the balance history under the switch: the new token's own days, no $VICINI
   await ensureSchema(env.DB);
   assert.equal(dayKey({ VICINITY_MINT: LEGACY }, "2026-10-24"), "day:2026-10-24");
   assert.equal(dayKey(env, "2026-10-24"), `mday:${FAKE_MINT}:2026-10-24`);
-  assert.equal(dayKey({ ...BASE, MAIN_TOKEN_V5: "on" }, "2026-10-24"), null);
+  assert.equal(dayKey({ ...BASE, ...ACCEPTED }, "2026-10-24"), "day:2026-10-24", "no main token: the switch does not count, today's series");
   await putBlob(env.DB, "day:2026-10-24", { day: "2026-10-24", n: 1, sums: { [H1]: 9 }, last: { [H1]: 9 }, lastAt: "2026-10-24T01:00:00.000Z", labels: {} });
   assert.equal(await latestBalances(env, Date.now()), null, "a $VICINITY day is never read as the new token's");
   await env.DB.prepare("INSERT INTO streaks (wallet, level, above_since) VALUES (?, ?, ?)").bind(H1, 100000, "2026-09-01T00:00:00.000Z").run();

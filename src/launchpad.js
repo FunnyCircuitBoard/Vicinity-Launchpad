@@ -33,7 +33,8 @@ import { DAY, iso } from "./policy.js";
 import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
 import { madeByOf, readyChoices } from "./coinart-store.js";
 import { choiceHolds } from "./coinready.js";
-import { coinV2ReadyOn, mainTokenV5On } from "./flags.js";
+import { coinV2ReadyOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { onForget } from "./memos.js";
 
 const SOL = PAIRS.SOL.mint;
@@ -209,7 +210,7 @@ async function build(env, fetchImpl, now) {
   };
   // MAIN_TOKEN_V5 on: the first card is the configured main token (or "upcoming" without one), with nothing of $VICINITY's: no ticker
   // or name of its own until its on-chain metadata is recorded, no launch date, and purchase links only once a route exists
-  if (mainTokenV5On(env)) Object.assign(vicinity, { ticker: null, name: MAIN_TOKEN_LABEL, launchedAt: null, links: await mainTokenLinks(env, vicMint, fetchImpl, now) });
+  if (mainTokenV5(env)) Object.assign(vicinity, { ticker: null, name: MAIN_TOKEN_LABEL, launchedAt: null, links: await mainTokenLinks(env, vicMint, fetchImpl, now) });
 
   const all = [vicinity, ...cards];
   const isNew = (k) => k.status === "live" && k.launchedAt && now - Date.parse(k.launchedAt) < NEW_DAYS * DAY;

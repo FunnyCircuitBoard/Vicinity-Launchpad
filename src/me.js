@@ -22,7 +22,8 @@ import { ensureNotifySchema, ensureProfilesSchema, ensureSchema, feedApplied } f
 import { communityById } from "./community.js";
 import { displayTicker } from "./tickers.js";
 import { latestBalances } from "./ledger.js";
-import { coinV2ReadyOn, dashboardV2On, feedV2On, mainTokenV5On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { coinV2ReadyOn, dashboardV2On, feedV2On, notifyOn, profilesOn, v2On, walletSendOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { unreadCount } from "./notify.js";
 import { countsOf } from "./profile-core.js";
 import { googleAdded, removeGoogle } from "./logins.js";
@@ -155,7 +156,7 @@ async function liveStatus(env, s, fetchImpl, now) {
   const act = await db.prepare(
     `SELECT COUNT(*) AS posts, COUNT(DISTINCT CASE WHEN kind = 'checkin' THEN substr(created_at, 1, 10) END) AS days FROM posts WHERE user_id = ? AND hidden = 0${alive}`,
   ).bind(u.id).first();
-  const badges = badgesFor({ u, launched, amount, position, seat, manager: isManager, admin, checkins: act?.days || 0, posts: act?.posts || 0, tenure: elig.tenure, threshold: elig.threshold, unit: mainTokenV5On(env) ? "main tokens" : "$VICINITY" });
+  const badges = badgesFor({ u, launched, amount, position, seat, manager: isManager, admin, checkins: act?.days || 0, posts: act?.posts || 0, tenure: elig.tenure, threshold: elig.threshold, unit: mainTokenV5(env) ? "main tokens" : "$VICINITY" });
   const earned = badges.filter((b) => b.earned).map((b) => b.id);
   let lost = [];
   try { lost = JSON.parse(u.badges || "[]").filter((id) => HOLDING_BADGES.has(id) && !earned.includes(id)); } catch {}

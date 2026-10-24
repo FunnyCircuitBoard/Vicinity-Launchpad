@@ -41,9 +41,23 @@ import { countryCities } from "./cities.js";
 import { sha256hex } from "./blobs.js";
 import { HAS_ADDRESS, cleanText } from "./text.js";
 import { notifyOn, profilesOn } from "./flags.js";
+import { mainTokenV5 } from "./v5policy.js";
 import { attempt, notify, notifyMany } from "./notify.js";
 
 const F = POLICY.founder;
+
+/**
+ * The legacy seats measure $VICINITY (balances, hold streaks, the 14-day averages). While MAIN_TOKEN_V5 counts ($VICINITY is then a
+ * legacy token, history only; owner amendment 01 section 5.4, and the v5 configuration check refuses the switch unless LEGACY_SEATS=frozen)
+ * they make no new decision: the job's seats and elections steps do nothing (no window closed, no seat activated, put in grace or
+ * released, no term or election moved), and every seat, squad, endorsement, objection, resign and election writer answers 410
+ * (src/index.js). The reads (the map, a city's picture, the published results) stay: history. With the switch off nothing changes.
+ */
+export const legacySeatsFrozen = (env) => mainTokenV5(env);
+/** The writers' answer while frozen (410), or null. */
+export const seatsFrozen = (env) => (legacySeatsFrozen(env)
+  ? json({ ok: false, error: "seats_frozen", message: "Founder seats, squads and elections are closed for changes while the main token changes. Nothing was changed." }, 410)
+  : null);
 const mask = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
 
@@ -631,6 +645,7 @@ export async function holdsFounderAmount(env, seat, fetchImpl = fetch) {
 
 /** The scheduled job's part: close windows, make seats final, confirm stewards, grace and release. */
 export async function advanceSeats(env, now = Date.now(), fetchImpl = fetch) {
+  if (legacySeatsFrozen(env)) return { skipped: "legacy_seats_frozen" }; // nothing read, nothing written (see legacySeatsFrozen)
   const db = env.DB;
   const out = { closed: 0, activated: 0, confirmed: 0, grace: 0, restored: 0, released: 0 };
   for (const w of (await db.prepare("SELECT * FROM windows WHERE status = 'open' AND closes_at <= ?").bind(iso(now)).all()).results) {

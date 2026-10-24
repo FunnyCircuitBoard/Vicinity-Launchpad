@@ -17,12 +17,16 @@
 // A source may hold a fill, <!--@name-->, which the build replaces with markup made from the site's own data (FILLS below); an
 // unknown name stops the build. Today: <!--@official-addresses--> on /official, the address list of src/official.js officialAddresses()
 // with the settings of wrangler.jsonc (what the Worker runs with), so no address is typed into a page.
+// It also writes src/pages-built.js: what these pages were built with (MAIN_TOKEN_V5 and BRAND from wrangler.jsonc). The Worker counts
+// MAIN_TOKEN_V5 only when the deployed pages were built with it (src/v5policy.js mainTokenV5): the pages are static files it never sees.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SOCIAL_PROFILES, officialAddresses, socialProfiles } from "../../src/official.js";
 import { brandLabels, brandOf } from "../../src/brand.js";
 import { esc, escBrand, rewriteSocialLinks, socialList } from "../../src/footer-social.js";
 import { mainTokenV5On } from "../../src/flags.js";
+import { deploymentAccepted } from "../../src/maintoken.js";
+import { policyConfig } from "../../src/v5policy.js";
 import { isSolanaAddress } from "../../src/solana.js";
 import { settingsFrom } from "../mainnet-preflight.mjs";
 
@@ -193,7 +197,8 @@ export const addressSections = (groups) => groups.map((g) => [
   `          </dl>`,
   `        </section>`,
 ].join("\n")).join("\n\n");
-const FILLS = { "official-addresses": () => addressSections(officialAddresses(deployedVars())) };
+// the /official groups follow the build's own switch decision (the switch in wrangler.jsonc, which pageSocials accepts only after S48)
+const FILLS = { "official-addresses": () => { const vars = deployedVars(); return addressSections(officialAddresses(vars, mainTokenV5On(vars))); } };
 const fill = (f, body) => body.replace(/<!--@([a-z-]+)-->/g, (_, name) => {
   if (!Object.hasOwn(FILLS, name)) throw new Error(`${f}: unknown fill <!--@${name}-->`);
   return FILLS[name]();
@@ -210,13 +215,34 @@ export function pageBrand(vars = deployedVars()) {
  * shell). MAIN_TOKEN_V5 off: SOCIAL_PROFILES, today's footer byte for byte. MAIN_TOKEN_V5=on in wrangler.jsonc stops the build until the
  * brand rollout exists (owner amendment 01 section 3: the switch "rolls out with the brand rollout (BRAND=citycoin, stage S48) or after
  * it"): the pages still name $VICINITY as the token (the token page's copy, its 60M lock card, the client scripts' labels), so building
- * them under the switch would show $VICINITY wording next to the new mint. Tests build the switched footers with `socials`.
+ * them under the switch would show $VICINITY wording next to the new mint. It also stops the build, first, while the Worker would refuse
+ * the switch (a refused MAIN_TOKEN_MINT or link, or a refused v5 configuration): pages are never built for a switch that does not count at
+ * run time. Tests build the switched footers with `socials`.
  */
 export function pageSocials(vars = deployedVars()) {
-  if (!mainTokenV5On(vars)) return socialProfiles(vars);
+  if (!mainTokenV5On(vars)) return socialProfiles(vars, false);
+  const refused = [...(deploymentAccepted(vars) ? [] : ["MAIN_TOKEN_V5_CONFIG_REFUSED"]), ...policyConfig(vars).errors.map((e) => e.code)];
+  if (refused.length) throw new Error(`MAIN_TOKEN_V5=on in wrangler.jsonc with a configuration the Worker refuses (${[...new Set(refused)].join(", ")}): the pages are not built for a switch that does not count`);
   const b = brandOf(vars);
   if (b.problem || b.value === "") throw new Error("MAIN_TOKEN_V5=on in wrangler.jsonc: the main-token switch rolls out with or after the brand rollout (BRAND=citycoin, stage S48); the pages still name $VICINITY as the token");
-  return socialProfiles(vars);
+  return socialProfiles(vars, true);
+}
+
+export const PAGES_BUILT_FILE = fileURLToPath(new URL("../../src/pages-built.js", import.meta.url));
+/**
+ * The text of src/pages-built.js for these settings: whether the pages carry MAIN_TOKEN_V5 (only once pageSocials accepts it, so never
+ * before the brand rollout) and the label set they were built with. The Worker counts the switch only while this says the pages have it
+ * and BRAND is the same label set, so a switch or a BRAND set only in the Cloudflare dashboard never changes the site.
+ */
+export function pagesBuiltSource(vars = deployedVars()) {
+  pageSocials(vars); // refuses MAIN_TOKEN_V5 before the brand rollout
+  const built = { mainTokenV5: mainTokenV5On(vars), brand: pageBrand(vars).value };
+  return [
+    "// Written by scripts/pages/build.mjs from the settings of wrangler.jsonc; do not edit (test/build-parity.test.js checks it).",
+    "// What the deployed pages in public/ were built with. src/v5policy.js mainTokenV5 counts MAIN_TOKEN_V5 only when it is true here.",
+    `export const PAGES_BUILT = Object.freeze({ mainTokenV5: ${built.mainTokenV5}, brand: ${JSON.stringify(built.brand)} });`,
+    "",
+  ].join("\n");
 }
 
 function build(standalone, brand, socials) {
@@ -244,4 +270,6 @@ export const buildStandalonePages = ({ brand, socials } = {}) => build(true, bra
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   for (const [f, html] of [...buildPages(), ...buildStandalonePages()]) { writeFileSync(OUT + f, html); console.log("page ready:", f); }
+  writeFileSync(PAGES_BUILT_FILE, pagesBuiltSource());
+  console.log("ready: src/pages-built.js");
 }
