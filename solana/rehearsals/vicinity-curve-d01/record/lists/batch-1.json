@@ -1,0 +1,49 @@
+{
+ "version": 1,
+ "programId": "nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk",
+ "seq": "1",
+ "leafCount": 5,
+ "root": "16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e",
+ "entries": [
+  {
+   "cityId": "990000002",
+   "founder": "6FnXFQY3N5EcrAoAWqPLsy6JNLoeoQ5b9GK31tuzDxME",
+   "configId": 0,
+   "metaHash": "0c708bb44bc5a0c55244587a3e1fdd42cb481bef7355acd790aa03b55671112a",
+   "name": "D01 Batch One",
+   "symbol": "D01B"
+  },
+  {
+   "cityId": "990000003",
+   "founder": "FXDRMihpZsNKebVaAzaH49Ve3MoRPioxw8t15t75NgYS",
+   "configId": 1,
+   "metaHash": "09b1a3e17813f8eb597f61ee5a836c5e85ab98fa047c8c0d47351b8cd31e1287",
+   "name": "D01 Batch Two",
+   "symbol": "D01C"
+  },
+  {
+   "cityId": "990000011",
+   "founder": "4LUKdnXVeLAMmZBXGNnTHywW2ii27SQ1ih5YvpSPpEP8",
+   "configId": 0,
+   "metaHash": "93da2f42316e7864b5e7def643aa11769b94eb4f5da0f1e9308f701ba36fa424",
+   "name": "D01 Filler 1",
+   "symbol": "D01F1"
+  },
+  {
+   "cityId": "990000012",
+   "founder": "4wT2EcaqzVTC6vJg2kJFYgmXUP1PofmcW2iSbHBxcgB7",
+   "configId": 0,
+   "metaHash": "cf47bea641573aed0f1d1ca872c2ae25a45f2ca1cb834256fc961b9147717cbb",
+   "name": "D01 Filler 2",
+   "symbol": "D01F2"
+  },
+  {
+   "cityId": "990000013",
+   "founder": "5T777GvRi6dauGHUUoN3DrNvHHcbiZEsDnkn4JNxqRsX",
+   "configId": 0,
+   "metaHash": "db82f8dc65ba95d3846116c6d3d6a0a89d328ee2dd82e665143c01eac828bafa",
+   "name": "D01 Filler 3",
+   "symbol": "D01F3"
+  }
+ ]
+}

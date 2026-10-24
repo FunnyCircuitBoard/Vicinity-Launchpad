@@ -1,0 +1,3 @@
+$ node scripts/vcurve/batch.mjs check /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive/nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk/signed/2-1a4413d6898615d416f0e2145bd6122e7c5cd1f58cfc0bdc073c350050459f4c.json --rpc http://127.0.0.1:8899 --rpc http://127.0.0.2:8899 --cluster devnet
+exit 0
+the stored batch is the list (both RPCs agree)

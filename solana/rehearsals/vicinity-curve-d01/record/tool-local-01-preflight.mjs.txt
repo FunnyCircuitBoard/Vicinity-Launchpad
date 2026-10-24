@@ -1,0 +1,5 @@
+$ node scripts/vcurve/preflight.mjs --rpc http://127.0.0.1:8899 --vault F7V1hNXCdPZMKhXJpDg3UCAiqDDzjKNJh3wEPc8A87tt --guardian-multisig BXDJioxLKY46h4yv4LMp5PdQwuP6vkWAdkWAAhFU27iw --cluster devnet --proposed-launch-approver FTLBdYDg92UGFkejbe7j2nM79pGytBpFzBpCcEedahmk
+exit 1
+NOT READY REWARDS_UPGRADE_AUTHORITY: vicinity_rewards' upgrade authority is 9SzJe6zmFxAmxMK2vNsHoT9sekyNRk681ZkHE7JF3RJB, not the vault
+NOT READY LEGACY_UPGRADE_AUTHORITY: the old program's upgrade authority is 9pYCvdmiYXBsBEWVoyrSnEQwPkQpVoSzzcU3ndWG8nVa, not the vault
+2 problem(s): not ready

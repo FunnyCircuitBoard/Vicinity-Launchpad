@@ -1,0 +1,8 @@
+$ node scripts/vcurve/guardian-stop.mjs --rpc http://127.0.0.1:8899 --rpc http://127.0.0.2:8899 --multisig BXDJioxLKY46h4yv4LMp5PdQwuP6vkWAdkWAAhFU27iw --keypair <keypair file> --clear --cluster devnet --priority-fee 1000 --rounds 3
+exit 0
+RPC 1 (127.0.0.1:8899): answered (multisig transaction index 2; does not show the stop)
+RPC 2 (127.0.0.2:8899): answered (multisig transaction index 2; does not show the stop)
+round 1: sent 4 variant(s) for indices 3, 4, 5, 6 on 1 blockhash(es) at 1000 micro-lamports per compute unit; RPC 1 (127.0.0.1:8899) accepted 4 of 4; RPC 2 (127.0.0.2:8899) accepted 4 of 4
+RPC 1 (127.0.0.1:8899): answered (multisig transaction index 6; shows the stop)
+RPC 2 (127.0.0.2:8899): answered (multisig transaction index 6; shows the stop)
+the stop is on chain: both RPCs show it, and this member's transaction 5aLC3mZ3V645barptisrqghFAcYUx1seRK3SHnsGHbXkcSnrkuy3iwSbR9iWaqASDCuWRxHCLHLmhLzD6g34P9bR is confirmed

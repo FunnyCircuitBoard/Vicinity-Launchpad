@@ -1,0 +1,24 @@
+$ node scripts/vcurve/batch.mjs verify /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/lists-local/batch-2.json --rpc http://127.0.0.1:8899 --rpc http://127.0.0.2:8899 --approver CpesEZiVVfSyRRZbQ2jMiB73csrpyFSEbtuYugeCoQXc --archive /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive --cluster devnet
+exit 0
+archive /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive (key /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/.vicinity-curve/archive.key, fingerprint c4b019c802a48ec6)
+warning LATEST_ENDED: the stored batch 1 (root 16ef5f45c1dc639cefe4565c23c6beed0e4a03449e34295e1877cab1359f790e, 5 entries) is cleared: none of its entries can launch, so every entry of this list is a new approval and is listed as added
+changes against no live batch (every entry is a new approval): 3 added, 0 removed, 0 changed
+  + city 990000021 D01N1 "D01 Next 1" founder Gebo69Byc6cC6EupUqy9AFvPvrhek7U4TW2ocfqLcd3r config 0 meta 86ddc58aa3ec287b3078c9e0537f46e740072f002841a1c9aa71a4098b883c00
+  + city 990000022 D01N2 "D01 Next 2" founder 3LvbUaEQ6qd5B9hkmgqTVVhk6X5o19Au3AZ8X8MH2ruP config 0 meta 1350a1ac18b580b2ca59872839de396bea447efa59574e701bf92a15f0167a56
+  + city 990000023 D01N3 "D01 Next 3" founder AdsDgzBQsrwyi6grRMk79VbRmmJyZqR5Xb7cJ5GygVbn config 0 meta 394a75a24198e08f000d49aaeb20fa548222d2db61d4b683a79c0d14795b026b
+for reference, changes against the cleared batch 1 (none of its entries can launch): 3 added, 5 removed, 0 changed
+  + city 990000021 D01N1 "D01 Next 1" founder Gebo69Byc6cC6EupUqy9AFvPvrhek7U4TW2ocfqLcd3r config 0 meta 86ddc58aa3ec287b3078c9e0537f46e740072f002841a1c9aa71a4098b883c00
+  + city 990000022 D01N2 "D01 Next 2" founder 3LvbUaEQ6qd5B9hkmgqTVVhk6X5o19Au3AZ8X8MH2ruP config 0 meta 1350a1ac18b580b2ca59872839de396bea447efa59574e701bf92a15f0167a56
+  + city 990000023 D01N3 "D01 Next 3" founder AdsDgzBQsrwyi6grRMk79VbRmmJyZqR5Xb7cJ5GygVbn config 0 meta 394a75a24198e08f000d49aaeb20fa548222d2db61d4b683a79c0d14795b026b
+  - city 990000002 D01B "D01 Batch One" founder 6FnXFQY3N5EcrAoAWqPLsy6JNLoeoQ5b9GK31tuzDxME config 0 meta 0c708bb44bc5a0c55244587a3e1fdd42cb481bef7355acd790aa03b55671112a
+  - city 990000003 D01C "D01 Batch Two" founder FXDRMihpZsNKebVaAzaH49Ve3MoRPioxw8t15t75NgYS config 1 meta 09b1a3e17813f8eb597f61ee5a836c5e85ab98fa047c8c0d47351b8cd31e1287
+  - city 990000011 D01F1 "D01 Filler 1" founder 4LUKdnXVeLAMmZBXGNnTHywW2ii27SQ1ih5YvpSPpEP8 config 0 meta 93da2f42316e7864b5e7def643aa11769b94eb4f5da0f1e9308f701ba36fa424
+  - city 990000012 D01F2 "D01 Filler 2" founder 4wT2EcaqzVTC6vJg2kJFYgmXUP1PofmcW2iSbHBxcgB7 config 0 meta cf47bea641573aed0f1d1ca872c2ae25a45f2ca1cb834256fc961b9147717cbb
+  - city 990000013 D01F3 "D01 Filler 3" founder 5T777GvRi6dauGHUUoN3DrNvHHcbiZEsDnkn4JNxqRsX config 0 meta db82f8dc65ba95d3846116c6d3d6a0a89d328ee2dd82e665143c01eac828bafa
+kept as pending (never a baseline until you confirm it): /tmp/claude-0/-home-user-Vicinity-Launchpad/259e7af3-62d7-56de-8406-76246b95043c/scratchpad/d01-tools/home-local/archive/nhgCmApbVPVeAkhpQZeoBkrKkNWfkoyKDzeUxSYS7tk/pending/2-1a4413d6898615d416f0e2145bd6122e7c5cd1f58cfc0bdc073c350050459f4c-1792835560.json
+batch 2, 3 entries, root 1a4413d6898615d416f0e2145bd6122e7c5cd1f58cfc0bdc073c350050459f4c
+valid from 2026-10-24T09:52:40.000Z until 2026-10-25T21:52:40.000Z
+message hash FD1Kh983iwP6uS8a4zH7YquYxRvJ16UgB2x6guSjzkYk: sign only on a hardware wallet that shows this message hash (blind signing); any other hash is another transaction
+unsigned publish_launch_batch for CpesEZiVVfSyRRZbQ2jMiB73csrpyFSEbtuYugeCoQXc (base64; valid for about a minute, until its blockhash expires):
+AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAMFr6WrZ9oEdXKVW/PoYATzzFma/V49Rhc7BZU/wJxzAOsMGevDH/DHGGM12y3je5gN/QNjy8ECqPQN4DuoxePpaxW1I9nqvwbexP8vi8+f9yXU6fapyMf+m+SkbVl4utoyUAiyCySvL/OWu2nchACuy95HL7KWYjMTBLvE+58+x9ELtSD5dyhzVbcWySvadaHvz12vxppX4BSBCDrk3y4cSYAqZ1PGKNn+2UUQUTOqdQatWb6EIh84Ko6LTPwknToYAQQFAAMBAgREqSXhZgAm9VMCAAAAAAAAABpEE9aJhhXUFvDiFFvWEi58XNH1jPwL3Ac8NQBQRZ9MAwAAAOh/3GoAAAAAKHreagAAAAA=
+within minutes of its landing, run: node scripts/vcurve/batch.mjs confirm 2 1a4413d6898615d416f0e2145bd6122e7c5cd1f58cfc0bdc073c350050459f4c --rpc <url> --rpc <url of another provider>

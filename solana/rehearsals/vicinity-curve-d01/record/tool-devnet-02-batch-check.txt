@@ -1,0 +1,9 @@
+$ node scripts/vcurve/batch.mjs check lists-local/batch-1.json --rpc https://api.devnet.solana.com --rpc https://solana-devnet.gateway.tatum.io --cluster devnet
+PROBLEM NO_ACCOUNTS: Launchpad or LaunchBatch missing
+1 problem(s): page the guardian members; have one clear the batch with halt (guardian-stop.mjs --clear) if it is not the one you signed (8.4)
+exit 1
+
+$ node scripts/vcurve/batch.mjs check lists-local/batch-1.json --rpc https://api.devnet.solana.com --rpc https://solana-devnet.api.onfinality.io/public --cluster devnet
+PROBLEM NO_ACCOUNTS: Launchpad or LaunchBatch missing
+1 problem(s): page the guardian members; have one clear the batch with halt (guardian-stop.mjs --clear) if it is not the one you signed (8.4)
+exit 1
