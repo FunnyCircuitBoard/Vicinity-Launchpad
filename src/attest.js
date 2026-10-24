@@ -118,7 +118,7 @@ export async function makeAttestation(env, u, purpose, { found, cc }, now) {
  * → { ok, city: { id, name, country } | null, nearby: [...] | null, attestation, expiresAt }
  */
 export async function handleLocate(request, env, now = Date.now(), cf = request.cf) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);

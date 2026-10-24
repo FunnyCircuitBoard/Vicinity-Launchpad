@@ -14,7 +14,7 @@ import * as W from "./helpers/world.js";
 import { SECURITY_HEADERS } from "../src/http.js";
 import { _pagesBuiltForTests, checkPolicyConfig, hostRedirect, hostRedirectRefusals, _resetPolicyCheck } from "../src/v5policy.js";
 import { HANDOFF_QUERY_KEYS, IMMUTABLE_PATHS, SAFE_QUERY_KEYS, acceptedHost, hostAnswer, isImmutable, isOriginBound, onOrigin, safeQuery } from "../src/hostroute.js";
-import { LEGACY_FORWARD_HOSTS, LEGACY_HOSTS, siteConfig } from "../src/site-config.js";
+import { CUTOVER_HOSTS, LEGACY_FORWARD_HOSTS, LEGACY_HOSTS, siteConfig } from "../src/site-config.js";
 import { PAGES_BUILT } from "../src/pages-built.js";
 import { deployedAssets, deployedVars, pageRouting, pagesBuiltSource } from "../scripts/pages/build.mjs";
 
@@ -185,7 +185,11 @@ test("switch unset: every host, scheme, method and path class answers as today (
         for (const [path] of PATHS) {
           const url = `${proto}://${host}${path}`, got = await call(env, url, method);
           const location = todays(url);
-          if (location && host !== "localhost") {
+          if (CUTOVER_HOSTS.includes(host)) {
+            // stage S04 review: the cutover's own hosts (not attached today) are refused until SITE_ORIGINS lists citycoin.dev, never served
+            // unbound (src/hostbind.js); the answer names today's canonical origin, from the configuration
+            assert.deepEqual([got.status, JSON.parse(got.body), headerOf(got, "location")], [421, { error: "wrong_host", origin: "https://vicinity.city" }, null], `${method} ${url}`);
+          } else if (location && host !== "localhost") {
             assert.deepEqual(got, redirectTo(301, location), `${method} ${url}`);
           } else {
             // served in place: no answer of the entry (a redirect or a refusal), the route's own answer, as a second world gives it
@@ -234,8 +238,10 @@ function contract(url, method, kind) {
   const u = new URL(url);
   const secure = u.protocol === "https:";
   if (secure && u.hostname === "citycoin.dev") return ["serve"];
+  if (method === "POST" && u.pathname === "/api/auth/logout") return secure ? ["serve"] : ["421"]; // sign-out is served in place (review R2H-04)
   if (method !== "GET" && method !== "HEAD") return ["421"];
   if (kind === "immutable" || kind === "read") return secure ? ["serve"] : ["308", `https://${u.hostname}${u.pathname}${u.search}`];
+  if (/^\/api\/auth\/[a-z]+\/(start|callback)$/.test(u.pathname)) return ["302", `${CANON}/connect?error=login_expired`]; // a sign-in trip (R2H-05)
   if (kind === "bound") return ["421"];
   return ["308", `${CANON}${u.pathname}${safeQuery(u.search)}`];
 }
@@ -243,8 +249,10 @@ function contract(url, method, kind) {
 test("switch accepted: every accepted host, scheme, method and path class follows the route contract", async () => {
   pagesReachWorker();
   try {
-    const env = world(ON), ref = world();
-    let n308 = 0, n421 = 0, nServe = 0;
+    // the reference is the switch-off Worker with the same site settings (since stage S04 they bind sessions and serve citycoin.dev in
+    // place; with no site settings citycoin.dev is refused, never served unbound)
+    const env = world(ON), ref = world(withoutSwitch(ON));
+    let n308 = 0, n421 = 0, nServe = 0, n302 = 0;
     for (const host of ACCEPTED_HOSTS) for (const proto of ["https", "http"]) for (const method of METHODS) for (const [path, kind] of PATHS) {
       const url = `${proto}://${host}${path}`, label = `${method} ${url}`;
       const [want, location] = contract(url, method, kind);
@@ -255,6 +263,14 @@ test("switch accepted: every accepted host, scheme, method and path class follow
         // one hop: the target answers (no loop, no second redirect, never a refusal)
         const next = await call(env, location, method);
         assert.ok(![301, 302, 307, 308, 421].includes(next.status), `${label} -> ${location} answered ${next.status}`);
+      } else if (want === "302") {
+        n302++;
+        // the new host's sign-in page, the query dropped (no provider code or state travels), never cached, no cookie
+        assert.equal(got.status, 302, label);
+        assert.equal(headerOf(got, "location"), location, label);
+        assert.equal(headerOf(got, "cache-control"), "no-store");
+        assert.equal(headerOf(got, "set-cookie"), null);
+        assert.equal(got.body, null);
       } else if (want === "421") {
         n421++;
         assert.equal(got.status, 421, label);
@@ -262,14 +278,14 @@ test("switch accepted: every accepted host, scheme, method and path class follow
         assert.equal(headerOf(got, "cache-control"), "no-store");
         assert.equal(headerOf(got, "content-type"), "application/json; charset=utf-8");
         assert.equal(headerOf(got, "content-security-policy"), mask(SECURITY_HEADERS["Content-Security-Policy"]));
-        assert.deepEqual(JSON.parse(got.body), { error: "wrong_host" }, label);
+        assert.deepEqual(JSON.parse(got.body), { error: "wrong_host", origin: CANON }, label);
       } else {
         nServe++;
         // served in place: the switch-off answer of the same request on a host served in place, byte for byte
         assert.deepEqual(got, await call(ref, reference(url, path), method), label);
       }
     }
-    assert.ok(n308 > 100 && n421 > 400 && nServe > 100, `${n308} redirects, ${n421} refusals, ${nServe} in place`);
+    assert.ok(n308 > 100 && n421 > 400 && nServe > 100 && n302 > 20, `${n308} redirects, ${n421} refusals, ${nServe} in place, ${n302} sign-in trips`);
   } finally { pagesAsCommitted(); }
 });
 
@@ -281,7 +297,7 @@ test("switch accepted: unknown hosts are refused for every method and path, neve
       const got = await call(env, `${proto}://${host}${path}`, method);
       assert.equal(got.status, 421, `${method} ${proto}://${host}${path}`);
       assert.equal(headerOf(got, "location"), null);
-      assert.deepEqual(JSON.parse(got.body), { error: "wrong_host" });
+      assert.deepEqual(JSON.parse(got.body), { error: "wrong_host", origin: CANON }, "the canonical origin from the configuration, never the request's host");
     }
   } finally { pagesAsCommitted(); }
 });
@@ -385,12 +401,17 @@ test("the path classes: the immutable files, the origin-bound routes of today's 
   for (const h of ["evil.citycoin.dev", "citycoin.dev.evil.example", "xcitycoin.dev", "vicinity.city.", "", null]) assert.equal(acceptedHost(site, h), null, String(h));
 });
 
-test("switch accepted: this computer (wrangler dev) is served as today; a local visit by a route's name follows the host rule", async () => {
+test("switch accepted: this computer (wrangler dev) is served as today outside production; a local visit by a route's name follows the host rule", async () => {
   pagesReachWorker();
   try {
-    const env = world(ON), site = siteConfig(ON);
+    const DEV = { ...ON, DEPLOYMENT_ENV: "test" };
+    assert.equal(hostRedirect(DEV), true);
+    const env = world(DEV), site = siteConfig(DEV);
     for (const url of ["http://localhost:8787/dashboard", "http://127.0.0.1/api/health", "http://[::1]/", "http://app.localhost/x"]) {
       assert.equal(hostAnswer(new Request(url, { method: "POST" }), new URL(url), site, true), null, url);
+      // in production (review SEC-7) a local host name is an unknown host like any other: the Worker never serves it or builds from it
+      assert.equal(hostAnswer(new Request(url, { method: "POST" }), new URL(url), site, false, false).status, 421, url);
+      assert.equal((await call(world(ON), url)).status, 421, `production: ${url}`);
     }
     const local = { "cf-connecting-ip": "127.0.0.1" };
     assert.equal((await call(env, "http://citycoin.dev/api/health", "GET", local)).status, 200, "the canonical host, presented as http by wrangler dev");
@@ -419,7 +440,7 @@ test("existing members stay signed in: a session made today (no host on its row)
       assert.equal(body.user.wallet, p.w.address);
       if (flip) {
         // a write from an old tab on vicinity.city is refused, never replayed elsewhere, and the session is untouched
-        const out = await worker.fetch(request("https://vicinity.city/api/auth/logout", "POST", { cookie }), env, ctx);
+        const out = await worker.fetch(request("https://vicinity.city/api/me/profile", "POST", { cookie }), env, ctx);
         assert.equal(out.status, 421);
         assert.equal(out.headers.get("set-cookie"), null);
         assert.equal(await sessions(), before, "the 421 changed no row");
@@ -428,6 +449,19 @@ test("existing members stay signed in: a session made today (no host on its row)
         assert.equal(fresh.signedIn, false);
         const again = await (await worker.fetch(request("https://vicinity.city/api/me", "GET", { cookie }), env, ctx)).json();
         assert.equal(again.signedIn, true, "still signed in on vicinity.city after the refused write");
+        // sign-out on the old host is served in place (review R2H-04, SEC-5): the session ends there and the cookie is cleared, so a shared
+        // computer can always be signed out of vicinity.city; a foreign Origin is still refused
+        const foreign = await worker.fetch(request("https://vicinity.city/api/auth/logout", "POST", { cookie, origin: "https://evil.example" }), env, ctx);
+        assert.equal(foreign.status, 403);
+        assert.equal(await sessions(), before);
+        const bye = await worker.fetch(request("https://vicinity.city/api/auth/logout", "POST", { cookie }), env, ctx);
+        assert.equal(bye.status, 200);
+        assert.match(bye.headers.get("set-cookie"), /^vs=; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=0$/);
+        assert.equal(await sessions(), before - 1, "the old host's session row is gone");
+        const after = await (await worker.fetch(request("https://vicinity.city/api/me", "GET", { cookie }), env, ctx)).json();
+        assert.equal(after.signedIn, false, "signed out of vicinity.city");
+        // over plain http the sign-out is not served (a Secure cookie never rides on http): 421, nothing changes
+        assert.equal((await worker.fetch(request("http://vicinity.city/api/auth/logout", "POST", { cookie }), env, ctx)).status, 421);
       }
     } finally { pagesAsCommitted(); }
   }

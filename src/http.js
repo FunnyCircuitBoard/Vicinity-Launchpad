@@ -3,6 +3,8 @@
  * cookies, reading a JSON body safely, redirects, and a same-site check for requests
  * that change something.
  */
+import { servedHost } from "./hostbind.js";
+
 export const SECURITY_HEADERS = {
   "Content-Security-Policy":
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
@@ -70,10 +72,17 @@ export const clearCookie = (name) => cookie(name, "", 0);
 /**
  * Requests that change something must come from this site's own pages. Browsers always send
  * Origin on POST, so a missing or foreign Origin means another website (or a script) is trying.
+ * With `env`, while the host binding counts (src/hostbind.js: SITE_ORIGINS lists a second host), the Origin must be exactly the allowlist
+ * entry's origin this request is served as (scheme and host: http://citycoin.dev or a port is refused on https://citycoin.dev).
+ * Otherwise, as always, the Origin's host must be the request's host.
  */
-export function sameSite(request) {
+export function sameSite(request, env) {
   const origin = request.headers.get("origin");
   if (!origin) return false;
+  if (env) {
+    const served = servedHost(env, request);
+    if (served.bound) return !served.refused && origin === served.origin;
+  }
   try { return new URL(origin).host === new URL(request.url).host; } catch { return false; }
 }
 

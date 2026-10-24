@@ -33,7 +33,7 @@ async function find(env, code, now, served) {
 
 /** POST /api/locate/handoff { purpose } → { code, url, expiresAt } (signed in). */
 export async function handleHandoffStart(request, env, now = Date.now(), cf = request.cf) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);
@@ -41,7 +41,7 @@ export async function handleHandoffStart(request, env, now = Date.now(), cf = re
   if (await countRecent(env, s.user.id, "handoff", now - HOUR) >= 10) return json({ ok: false, error: "slow_down" }, 429);
   await noteEvent(env, s.user.id, "handoff", now);
   const code = randomToken(18), id = await sha256(code), served = servedHost(env, request);
-  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  if (served.bound) await ensureHostSchema(env.DB, "handoffs"); // handoffs.host (src/hostbind.js)
   const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'locate' AND (user_id = ? OR expires_at < ?)").bind(s.user.id, iso(now)),
@@ -55,7 +55,7 @@ export async function handleHandoffStart(request, env, now = Date.now(), cf = re
 
 /** POST /api/locate/handoff/info { code } → what the link is for (the page in the phone's browser; no sign-in). */
 export async function handleHandoffInfo(request, env, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   const body = await readJson(request);
   const row = body && await find(env, body.code, now, servedHost(env, request));
   if (!row) return json({ ok: false, error: "expired" }, 410);
@@ -64,7 +64,7 @@ export async function handleHandoffInfo(request, env, now = Date.now()) {
 
 /** POST /api/locate/handoff/complete { code, location, country? } → runs the usual checks, keeps only the attestation. */
 export async function handleHandoffComplete(request, env, now = Date.now(), cf = request.cf) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   const body = await readJson(request);
   const row = body && await find(env, body.code, now, servedHost(env, request));
   if (!row) return json({ ok: false, error: "expired" }, 410);
@@ -87,7 +87,7 @@ export async function handleHandoffComplete(request, env, now = Date.now(), cf =
 
 /** POST /api/locate/handoff/claim { code } → { ok, attestation… } once the phone's browser has answered, else { status: "waiting" }. */
 export async function handleHandoffClaim(request, env, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   const s = await getSession(env, request, now);
   if (!s || !s.user) return json({ ok: false, error: "sign_in" }, 401);
   const body = await readJson(request);

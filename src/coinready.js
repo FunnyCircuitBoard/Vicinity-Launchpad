@@ -413,7 +413,7 @@ export async function handleReady(request, env, fetchImpl = fetch, now = Date.no
 
 /** The founder of `cityId` for a write: { u, seat } or { error }. `fresh`: a wallet proof in the last 30 minutes. */
 async function writer(request, env, now, { fresh }) {
-  if (!sameSite(request)) return { error: fail("wrong_origin", 403) };
+  if (!sameSite(request, env)) return { error: fail("wrong_origin", 403) };
   const a = await access(request, env, now, { write: true, fresh });
   if (a.error) return a;
   const body = await readJson(request, 1024);

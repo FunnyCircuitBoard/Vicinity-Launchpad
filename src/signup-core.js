@@ -11,7 +11,7 @@
  */
 import { clearCookie, cookie, getCookie, json, randomToken, sameSite, sha256 } from "./http.js";
 import { ensureHostSignupSchema, ensureOnboardSchema } from "./store.js";
-import { hostWrite, onThisHost, servedHost } from "./hostbind.js";
+import { hostWrite, onThisHost, servedHost, signupDelete } from "./hostbind.js";
 import { DAY, iso } from "./policy.js";
 
 export const SIGNUP_COOKIE = "vsu";
@@ -27,7 +27,7 @@ const CAP_SECONDS = 3 * 3600;      // ... and never more than three hours from t
  * link, never the rest of the site). Returns a Response to send, or null.
  */
 export async function guardV2(request, env) {
-  if (request.method !== "GET" && !sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (request.method !== "GET" && !sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
   try { await ensureOnboardSchema(env.DB); }
   catch (e) {
@@ -89,7 +89,8 @@ export async function touchSignup(env, row, request, now = Date.now()) {
 /**
  * Throw away this browser's half-done sign-up (and any hand-off bound to it): the person just signed in to an account they
  * already had. Returns the Set-Cookie values that clear the `vsu` cookie ([] when the request carried none). Never throws: a
- * person who just signed in must not fail on tidying up.
+ * person who just signed in must not fail on tidying up. While the host binding counts (src/hostbind.js), only a sign-up of this host is
+ * deleted: a vsu cookie copied from another host clears here and ends nothing there.
  */
 export async function endSignup(env, request) {
   const token = getCookie(request, SIGNUP_COOKIE);
@@ -97,11 +98,10 @@ export async function endSignup(env, request) {
   if (token.length <= 100) {
     try {
       await ensureOnboardSchema(env.DB);
-      const id = await sha256(token);
-      await env.DB.batch([
-        env.DB.prepare("DELETE FROM handoffs WHERE signup_id = ?").bind(id),
-        env.DB.prepare("DELETE FROM signups WHERE id = ?").bind(id),
-      ]);
+      const id = await sha256(token), served = servedHost(env, request);
+      if (served.bound) await ensureHostSignupSchema(env.DB);
+      const del = signupDelete(env.DB, id, served);
+      if (del.length) await env.DB.batch(del);
     } catch (e) { console.error("ending the sign-up failed", String((e && e.message) || e)); }
   }
   return [clearCookie(SIGNUP_COOKIE)];

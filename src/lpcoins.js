@@ -510,7 +510,7 @@ export async function handleLpCoin(request, env, fetchImpl = fetch, now = Date.n
 
 /** POST /api/lp/record { cityId } (no login; it reads only the chain; idempotent). */
 export async function handleLpRecord(request, env, fetchImpl = fetch, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "bad_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "bad_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "unavailable" }, 503);
   const slow = await publicLimit(env, request, "lp_record");
   if (slow) return slow;

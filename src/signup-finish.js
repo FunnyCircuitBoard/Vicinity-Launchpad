@@ -143,7 +143,7 @@ export async function finishCore(env, row, request, now = Date.now(), cf = reque
   // while the host binding counts (src/hostbind.js), the new session records the host it is made on, in the same transaction (a 5th
   // statement after the four: it changes nothing unless statement 2 made the session); otherwise the batch is exactly the four
   const served = servedHost(env, request);
-  if (served.bound) await ensureHostSchema(env.DB);
+  if (served.bound) await ensureHostSchema(env.DB, "sessions");
   const host = hostWrite(env.DB, "sessions", sessionId, served);
   // A username can collide with the (case-insensitive) unique index when someone takes it a moment before: not the person's
   // problem. The whole batch rolled back, so pick another name and go on. An identity collision is theirs (social_taken).

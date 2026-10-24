@@ -110,7 +110,7 @@ async function guard(request, env, minRole, { fresh = false, now = Date.now() } 
 }
 /** Same, but the request changes something: it must come from this site's own pages. */
 const postGuard = (request, env, minRole, opts = {}) =>
-  !sameSite(request) ? { res: json({ ok: false, error: "wrong_origin" }, 403) } : guard(request, env, minRole, opts);
+  !sameSite(request, env) ? { res: json({ ok: false, error: "wrong_origin" }, 403) } : guard(request, env, minRole, opts);
 
 /** Same masking style as mask() in src/me.js. */
 const maskWallet = (w) => (w ? `${w.slice(0, 5)}*****${w.slice(-3)}` : null);

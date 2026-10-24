@@ -169,8 +169,10 @@ const ALLOWED_EDGES = {
   // stage S04, session and challenge host binding (master section 05 BR-03 requires the session host, the challenge host and the hand-off
   // hosts to come from the configuration): the host a request is served as, looked up in the allowlist. It renames nothing pinned above: the
   // cookie names, the signed text's format and its single-use digest stay; with SITE_ORIGIN and SITE_ORIGINS unset every value is today's
-  // (test/host-binding.test.js), and the only stored value it feeds is the new nullable host column (NULL = vicinity.city).
-  "src/hostbind.js>src/site-config.js": ["DEFAULT_SITE", "LOCAL_HOST", "acceptedHost", "siteConfig"],
+  // (test/host-binding.test.js), and the only stored value it feeds is the new nullable host column (NULL = vicinity.city). The review fixes
+  // add two that only refuse: CUTOVER_HOSTS (citycoin.dev and its www are refused until SITE_ORIGINS lists citycoin.dev) and localDevAllowed
+  // (this computer's hosts are honoured outside production only); neither names nor stores anything (test/host-review.test.js).
+  "src/hostbind.js>src/site-config.js": ["CUTOVER_HOSTS", "DEFAULT_SITE", "LOCAL_HOST", "acceptedHost", "localDevAllowed", "siteConfig"],
 };
 /** The relative modules a file imports (static import and export-from, and import()): [{ to, names }] (names null for a namespace or a call). */
 function importsOf(file) {

@@ -257,7 +257,7 @@ export async function linkAccountFor(request, env, now = Date.now(), cf = reques
     const code = q.get("pair");
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(code)) return { error: "pair_expired", status: 410 };
     const served = servedHost(env, request); // (while the host binding counts, a pairing made on another host is unknown here: src/hostbind.js)
-    if (served.bound) await ensureHostSchema(env.DB);
+    if (served.bound) await ensureHostSchema(env.DB, "pairs");
     const p = await env.DB.prepare(served.bound ? "SELECT user_id, host FROM pairs WHERE id = ? AND purpose = 'link' AND wallet IS NULL AND expires_at > ?"
       : "SELECT user_id FROM pairs WHERE id = ? AND purpose = 'link' AND wallet IS NULL AND expires_at > ?").bind(await sha256(code), iso(now)).first();
     const owner = p && p.user_id && onThisHost(served, p.host) ? await env.DB.prepare("SELECT id, handle, wallet FROM users WHERE id = ?").bind(p.user_id).first() : null;
@@ -314,7 +314,7 @@ async function handleCarryStart(request, env, x) {
   ]);
   if (over) return over;
   const code = randomToken(24), until = x.now + MINUTES * 60_000, id = await sha256(code), served = servedHost(env, request);
-  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  if (served.bound) await ensureHostSchema(env.DB, "handoffs"); // handoffs.host (src/hostbind.js)
   const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     // one live code per person: a new tap replaces the one before (a code already used stays: it tells Safari what happened)
@@ -390,12 +390,13 @@ async function handleCarryClaim(request, env, x) {
   if (u.error) return u.error;
   if (session && session.user && session.user.id !== u.owner.id) return json({ ok: false, error: "already_signed_in" }, 409);
   const served = servedHost(env, request);
+  // sessions.host (src/hostbind.js), before the signed text is used up: a migration that fails here leaves the signature usable for a retry
+  if (served.bound) await ensureHostSchema(env.DB, "sessions");
   const r = await checkSigned(body, request, x.now, ["link"], badSigned, env.DB, served.host); // (only on the host the text names)
   if (r.error) return r.error;
   if (r.parsed.pin || r.parsed.handle !== accountName(u.owner)) return json({ ok: false, error: "bad_message" }, 400);
   const wallet = r.parsed.address, app = appOf(body.app), at = iso(x.now);
   const token = randomToken(32), sid = await sha256(token);
-  if (served.bound) await ensureHostSchema(env.DB); // sessions.host (src/hostbind.js)
   const host = hostWrite(env.DB, "sessions", sid, served);
   let res;
   try {
@@ -560,7 +561,7 @@ export async function routeWalletLink(request, env, now = Date.now(), cf = reque
   const route = ROUTES[new URL(request.url).pathname];
   if (!route) return json({ ok: false, error: "not_found" }, 404);
   if (request.method !== route[0]) return json({ error: "method_not_allowed" }, 405);
-  if (request.method !== "GET" && !sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (request.method !== "GET" && !sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
   try { await ensureOnboardSchema(env.DB); }
   catch (e) {

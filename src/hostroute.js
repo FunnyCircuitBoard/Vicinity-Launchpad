@@ -7,21 +7,32 @@
  * calls hostAnswer and answers exactly as before: www.vicinity.city, vicinitycity.net and www.vicinitycity.net answer 301 to vicinity.city
  * and plain http answers 301 to https, for every method; every other host is served in place.
  *
- * hostAnswer(request, url, site, local) runs before any route and returns the answer, or null to serve the request as usual:
+ * hostAnswer(request, url, site, local, dev) runs before any route and returns the answer, or null to serve the request as usual:
  *
  *   the canonical origin (https and SITE_ORIGIN's host)             null: served exactly as today
- *   a local development host (localhost, 127.0.0.1, *.localhost)    null: `wrangler dev` on this computer, never a Cloudflare route
+ *   a local development host (localhost, 127.0.0.1, *.localhost)    null outside production (`dev`: src/site-config.js localDevAllowed):
+ *                                                                   `wrangler dev` on this computer, never a Cloudflare route; in
+ *                                                                   production it is an unknown host like any other
  *   an unknown host (not in SITE_ORIGINS and not a legacy host)     421 wrong_host: refused, never served, never a redirect target
- *   an accepted host, any method but GET and HEAD                   421 wrong_host: a signed POST, an API write or a webhook delivery is
+ *   an accepted host, POST /api/auth/logout over https              null: sign-out is served in place (it only ends the session this host's
+ *                                                                   cookie names and clears that cookie; the Origin check applies)
+ *   an accepted host, any other method but GET and HEAD             421 wrong_host: a signed POST, an API write or a webhook delivery is
  *                                                                   never forwarded to another origin (a 308 would replay it there)
  *   an accepted host, GET or HEAD of an immutable legacy file       null: served in place, the same bytes on every accepted host
  *     (/coin-meta/*, /brand/vicinity-512.png, /official-coins.csv)  (over plain http: 308 to https on the same host, never another host)
- *   an accepted host, GET or HEAD of a wallet challenge, sign-in,   421 wrong_host: bound to the origin that issued it (the signed text
- *     pairing or other hand-off, a callback or a webhook            and the provider's return address name that host)
+ *   an accepted host, GET or HEAD of a sign-in trip                 302 to SITE_ORIGIN/connect?error=login_expired, the query dropped (no
+ *     (/api/auth/<provider>/start or /callback)                     code travels): a browser that comes back from Google to an old host,
+ *                                                                   or follows an old bookmark, lands on the sign-in page of the new one
+ *   an accepted host, GET or HEAD of a wallet challenge, any other  421 wrong_host: bound to the origin that issued it (the signed text
+ *     sign-in route, pairing or other hand-off, a callback or a     and the provider's return address name that host)
+ *     webhook
  *   an accepted host, GET or HEAD of any other /api route           null: read-only answers keep working through the window (over plain
  *                                                                   http: 308 to https on the same host)
  *   an accepted host, GET or HEAD of anything else (the pages and   308 to SITE_ORIGIN + the same path + only the safe query keys
  *     their files)
+ *
+ * Every 421 is JSON {"error":"wrong_host","origin":SITE_ORIGIN}: the page (or a person reading it) learns where the site is now, from the
+ * configuration, never from the request.
  *
  * The accepted hosts are SITE_ORIGINS and the legacy hosts (vicinity.city and its three old names, src/site-config.js LEGACY_HOSTS): those
  * stay attached for at least 12 months after the cutover, so their immutable files and read-only API keep answering whatever SITE_ORIGINS
@@ -31,16 +42,16 @@
  * v5 check), or, for plain http to an accepted host, that host's own allowlist entry over https; the path is appended as text, never
  * resolved against the origin, and the result is checked to have the intended origin before it is sent.
  */
-import { SECURITY_HEADERS, json } from "./http.js";
+import { SECURITY_HEADERS, json, redirect } from "./http.js";
 import { LOCAL_HOST, acceptedHost } from "./site-config.js";
+import { fromThisComputer } from "./hostbind.js";
 import { OFFICIAL_CSV_PATH } from "./officialcoins.js";
 
 /** Hosts of this computer (`wrangler dev`), and the accepted host's allowlist entry: kept in src/site-config.js since stage S04 (the session
  *  and challenge binding, src/hostbind.js, uses the same two), re-exported here unchanged. */
 export { LOCAL_HOST, acceptedHost };
 /** A visit from this computer: a local host name, or `wrangler dev` presenting a route's host (http://vicinity.city) from a local address. */
-export const isLocal = (request, url) =>
-  LOCAL_HOST.test(url.hostname) || ["127.0.0.1", "::1"].includes(request.headers.get("cf-connecting-ip"));
+export const isLocal = (request, url) => LOCAL_HOST.test(url.hostname) || fromThisComputer(request);
 
 /** The immutable legacy files: exact bytes on every accepted host, never redirected (inventory C04 the partner logo named on chain, C05 the
  *  metadata URI prefix compiled into the live launchpad program, C09 the official list a tracker may fetch without following redirects). */
@@ -62,6 +73,10 @@ export const ORIGIN_BOUND = Object.freeze([
   /(^|\/)(callbacks?|webhooks?)(\/|$)/i,
 ]);
 export const isOriginBound = (path) => ORIGIN_BOUND.some((re) => re.test(path));
+/** The browser trips of a sign-in with a provider (the start, and the provider's return with its one-time code). */
+export const AUTH_TRIP = /^\/api\/auth\/[a-z]+\/(start|callback)$/;
+/** Sign-out: served in place on every accepted host while HOST_REDIRECT counts, so a session of an old host can always be ended there. */
+export const SIGN_OUT_PATH = "/api/auth/logout";
 
 /**
  * The query keys a moved page keeps: each names a public thing or a view of this site (a city, a coin, a member's public profile, a looked-up
@@ -94,8 +109,9 @@ export function safeQuery(search) {
   return kept.length ? `?${kept.join("&")}` : "";
 }
 
-/** 421 Misdirected Request: this answer belongs to another origin. JSON, no Location, never cached. */
-export const wrongHost = () => json({ error: "wrong_host" }, 421);
+/** 421 Misdirected Request: this answer belongs to another origin. JSON naming the site's canonical origin (`site`: the configuration, never
+ *  the request), no Location, never cached. */
+export const wrongHost = (site) => json({ error: "wrong_host", origin: site.origin }, 421);
 
 /** 308 with today's redirect headers (the security headers and one hour of caching, so HOST_REDIRECT=off undoes it within the hour). */
 const moved = (location) => new Response(null, { status: 308, headers: { Location: location, ...SECURITY_HEADERS, "Cache-Control": "public, max-age=3600" } });
@@ -108,22 +124,28 @@ export function onOrigin(origin, url, query) {
   return target.origin === origin ? target.href : null;
 }
 
-/** The answer for a request while HOST_REDIRECT counts (see the top of this file), or null to serve it as usual. */
-export function hostAnswer(request, url, site, local = false) {
+/** The answer for a request while HOST_REDIRECT counts (see the top of this file), or null to serve it as usual. `local`: a visit from this
+ *  computer (src/index.js isLocal); `dev`: this deployment honours this computer's hosts (src/site-config.js localDevAllowed: not in
+ *  production). The caller passes local only with dev. */
+export function hostAnswer(request, url, site, local = false, dev = true) {
   const host = String(url.hostname).toLowerCase();
-  if (LOCAL_HOST.test(host)) return null;
+  if (dev && LOCAL_HOST.test(host)) return null;
   const secure = url.protocol === "https:" || local; // `wrangler dev` presents local visits as http, as src/index.js has always allowed
   if (secure && host === site.host) return null;
   const entry = acceptedHost(site, host);
-  if (!entry) return wrongHost();
-  if (request.method !== "GET" && request.method !== "HEAD") return wrongHost();
+  if (!entry) return wrongHost(site);
   const path = url.pathname;
+  if (request.method !== "GET" && request.method !== "HEAD") return request.method === "POST" && path === SIGN_OUT_PATH && secure ? null : wrongHost(site);
   if (isImmutable(path) || (path.startsWith("/api/") && !isOriginBound(path))) {
     if (secure) return null;
     const same = onOrigin(`https://${entry}`, url, url.search);
-    return same ? moved(same) : wrongHost();
+    return same ? moved(same) : wrongHost(site);
   }
-  if (isOriginBound(path)) return wrongHost();
+  if (AUTH_TRIP.test(path)) {
+    const login = onOrigin(site.origin, { pathname: "/connect" }, "?error=login_expired");
+    return login ? redirect(login) : wrongHost(site);
+  }
+  if (isOriginBound(path)) return wrongHost(site);
   const target = onOrigin(site.origin, url, safeQuery(url.search));
-  return target ? moved(target) : wrongHost();
+  return target ? moved(target) : wrongHost(site);
 }

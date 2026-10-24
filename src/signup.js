@@ -191,7 +191,7 @@ async function handleHandoffStart(request, env, x) {
   ]);
   if (over) return over;
   const code = randomToken(18), id = await sha256(code), served = servedHost(env, request);
-  if (served.bound) await ensureHostSchema(env.DB); // handoffs.host (src/hostbind.js)
+  if (served.bound) await ensureHostSchema(env.DB, "handoffs"); // handoffs.host (src/hostbind.js)
   const host = hostWrite(env.DB, "handoffs", id, served);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM handoffs WHERE kind = 'locate' AND (signup_id = ? OR expires_at < ?)").bind(c.row.id, iso(x.now)),

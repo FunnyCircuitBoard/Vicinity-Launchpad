@@ -204,7 +204,7 @@ export async function handleReset(request, env, x) {
   const hash = await hashPassword(env, body.password);
   await ensureOnboardSchema(env.DB); // users.password_at
   const served = servedHost(env, request);
-  if (served.bound) await ensureHostSchema(env.DB); // sessions.host (src/hostbind.js)
+  if (served.bound) await ensureHostSchema(env.DB, "sessions"); // sessions.host (src/hostbind.js)
   const session = await newSessionStatement(env, user, now, served);
   const loginAddress = await limitKey(env, "pwa", email);
   const logins = await dropLoginsStatement(env.DB, user.id); // (makes user_logins first: a batch naming a missing table fails whole)

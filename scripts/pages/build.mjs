@@ -235,14 +235,16 @@ export function pageSocials(vars = deployedVars()) {
 export const deployedAssets = () => JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8")
   .replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")).assets || {};
 /**
- * Whether every page reaches the Worker: wrangler.jsonc's assets block has run_worker_first true. Today it lists only /api/*, /coin-meta/*
- * and /official-coins.csv, so the pages are served straight from the static assets (no Worker request) and this is false. HOST_REDIRECT
+ * Whether every page reaches the Worker: wrangler.jsonc's assets block has run_worker_first true, or a list that holds "/*" and no negative
+ * ("!") pattern (the same routing). Today it lists only /api/*, /coin-meta/* and /official-coins.csv, so the pages are served straight from
+ * the static assets (no Worker request) and this is false. HOST_REDIRECT
  * (stage S03) answers pages on the old hosts with a 308 from the Worker, so HOST_REDIRECT=on in wrangler.jsonc stops the build unless the
  * pages reach the Worker and the Worker would accept the switch (the same rule as MAIN_TOKEN_V5 above: never deploy a switch that does not
  * count). A HOST_REDIRECT set only in the Cloudflare dashboard is refused at run time instead (src/v5policy.js hostRedirectRefusals).
  */
 export function pageRouting(vars = deployedVars(), assets = deployedAssets()) {
-  const pagesReachWorker = Boolean(assets) && assets.run_worker_first === true;
+  const first = assets ? assets.run_worker_first : undefined;
+  const pagesReachWorker = first === true || (Array.isArray(first) && first.includes("/*") && !first.some((p) => String(p).startsWith("!")));
   if (hostRedirectOn(vars)) {
     const refused = [...(pagesReachWorker ? [] : ["HOST_REDIRECT_PAGES_BYPASS_WORKER"]), ...(siteConfig(vars).configured ? [] : ["HOST_REDIRECT_SITE_REFUSED"]),
       ...policyConfig(vars).errors.map((e) => e.code)];

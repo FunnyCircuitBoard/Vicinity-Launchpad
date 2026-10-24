@@ -295,11 +295,13 @@ Rules:
   It counts once `SITE_ORIGINS` lists a host other than `vicinity.city` (or a set site setting is refused: fails closed); there is no
   separate switch, and with the settings unset nothing is read or written. The request's host is looked up in the allowlist (the hosts of
   `SITE_ORIGINS` plus the legacy hosts) and the allowlist's own entry is used, never the request's text; a host outside it answers
-  `421 {"error":"wrong_host"}` before any route. `sessions.host`, `pairs.host`, `handoffs.host` and `signups.host` (nullable, added by the
-  lazy migrations `2026-10-24-host-binding` and `2026-10-24-host-binding-signups`; this section's `ALTER TABLE sessions ADD COLUMN host`)
-  record the entry in the same transaction as the row; `getSession`, the pairing, carry-code, location hand-off and sign-up lookups refuse a
-  row of another host. NULL counts as `vicinity.city`. Copied cookies and replayed hand-off codes fail on the other host. The challenge text
-  names the entry, and a signed text is accepted only on the host it names (src/signed.js; already true today).
+  `421 {"error":"wrong_host","origin":<canonical origin>}` before any route and before the http and old-name 301s. `sessions.host`,
+  `pairs.host`, `handoffs.host` and `signups.host` (nullable, added by four lazy migrations, one per table: `2026-10-24-host-binding-sessions`,
+  `-pairs`, `-handoffs`, `-signups`; this section's `ALTER TABLE sessions ADD COLUMN host`) record the entry in the same transaction as the
+  row; `getSession`, the pairing, carry-code, location hand-off and sign-up lookups refuse a row of another host, and sign-out or sign-in
+  with a copied cookie deletes only that host's row. NULL counts as `vicinity.city`. Copied cookies and replayed hand-off codes fail on the
+  other host. The challenge text names the entry, and a signed text is accepted only on the host it names (src/signed.js; already true
+  today). While the setting does not list citycoin.dev, citycoin.dev and www.citycoin.dev answer 421 (never served unbound).
 - **Location once (§19).** Raw coordinates are never stored. `loc_verified_at`, `loc_policy` and `loc_method` record the
   privacy-safe evidence. `POST /api/home` writes only when `users.home_city IS NULL` (never located), once.
 - **Backfill** (count-checked on a database copy first, D08):
@@ -947,11 +949,13 @@ lease (slow, crashed, or on the other host) cannot write. Per-item claims (`clai
   - `founder`: `session` + the session wallet equals `founder_records.wallet` for the city in the path.
   - `moderator`, `admin`, `owner`: today's console roles; owner comes only from `ADMIN_WALLETS` (src/admin.js:42-57) and every
     console write needs a fresh proof (src/admin.js:783-784).
-- **Writes** need `Origin` host = request host (src/http.js:73-77) and a host in `SITE_ORIGINS` (stage S04: while the host binding counts, a
-  host outside the allowlist is refused with `421 wrong_host` before any route, and hand-off, QR and Google return links are built on the
-  allowlist entry's origin, never on the request's `Host`). While `HOST_REDIRECT` counts, a
-  mutation (any method but GET and HEAD) on a non-canonical host answers `421 {"error":"wrong_host"}` with no `Location` (§04, D05;
-  stage S03 built the body without `ok` or `origin`: a reload of the page follows the 308 to the canonical origin).
+- **Writes** need `Origin` host = request host (src/http.js `sameSite`) and a host in `SITE_ORIGINS` (stage S04: while the host binding
+  counts, a host outside the allowlist is refused with `421 wrong_host` before any route, the `Origin` must be exactly the allowlist entry's
+  origin, scheme and host, and hand-off, QR and Google return links are built on the allowlist entry's origin, never on the request's
+  `Host`). While `HOST_REDIRECT` counts, a mutation (any method but GET and HEAD) on a non-canonical host answers
+  `421 {"error":"wrong_host","origin":<SITE_ORIGIN>}` with no `Location` (§04, D05; the origin comes from the configuration, never the
+  request), except `POST /api/auth/logout`, served in place on every accepted host over https; a GET of `/api/auth/<provider>/start` or
+  `/callback` there answers 302 to `SITE_ORIGIN/connect?error=login_expired` with the query dropped.
 - **Errors** keep today's envelope `{ ok: false, error: "<code>" }` with an HTTP status, plus a plain `message` (§34 "understandable
   error/recovery messages"). Common: `400 bad_request`, `401 sign_in`, `403 forbidden`, `404 not_found` (also every route whose
   switch is off), `405 method_not_allowed`, `409` state conflicts, `410` retired or expired, `421 wrong_host`, `429 slow_down`,

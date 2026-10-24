@@ -12,17 +12,21 @@ import * as W from "./helpers/world.js";
 import { journey, one, outbox, rows } from "./helpers/signup.js";
 import { base58Encode, buildMessage, parseMessage, statementFor } from "../src/solana.js";
 import { NULL_HOST, hostBound, hostWrite, onThisHost, servedHost } from "../src/hostbind.js";
-import { siteConfig } from "../src/site-config.js";
-import { HOST_MIGRATION, HOST_SIGNUP_MIGRATION, ensureHostSchema } from "../src/store.js";
+import { CUTOVER_HOSTS, siteConfig } from "../src/site-config.js";
+import { HOST_MIGRATIONS, HOST_SIGNUP_MIGRATION, ensureHostSchema } from "../src/store.js";
 import { SECURITY_HEADERS, sha256 } from "../src/http.js";
 import { checkSigned } from "../src/signed.js";
 
 beforeEach(() => W.useClock("2026-10-20T12:00:00Z"));
 after(() => W.realClock());
 
-/** The fixture: citycoin.dev canonical, its www and vicinity.city served in place (the S06 shape; HOST_REDIRECT off). */
-const SITES = Object.freeze({ SITE_ORIGIN: "https://citycoin.dev", SITE_ORIGINS: "https://citycoin.dev https://www.citycoin.dev https://vicinity.city" });
+/** The fixture: the S06 shape (domain-cutover.md section 3): citycoin.dev and vicinity.city served in place, vicinity.city still canonical
+ *  (SITE_ORIGIN unset until S55), HOST_REDIRECT off. www.citycoin.dev is NOT listed: it is never a separate origin (section 2: unattached
+ *  until S56, or moved to the apex by a zone redirect), so here it is a host outside the allowlist like any other. */
+const SITES = Object.freeze({ SITE_ORIGINS: "https://citycoin.dev https://vicinity.city" });
 const VC = "https://vicinity.city", CC = "https://citycoin.dev";
+/** The refusal of a host outside the allowlist: 421, naming the site's canonical origin from the configuration (vicinity.city in S06). */
+const WRONG = Object.freeze({ error: "wrong_host", origin: "https://vicinity.city" });
 const COOKIE_RE = /^vs=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=\d+$/;
 const ctx = { waitUntil() {}, passThroughOnException() {} };
 
@@ -34,9 +38,9 @@ async function before(env, fn) {
   try { return await fn(); } finally { if (saved[0] !== undefined) env.SITE_ORIGIN = saved[0]; if (saved[1] !== undefined) env.SITE_ORIGINS = saved[1]; }
 }
 /** A browser on `origin` (the world's browser is fixed to vicinity.test): its own cookies, Origin like a real page, the same API. */
-function at(env, origin, { ip, cf, jar = new Map() } = {}) {
+function at(env, origin, { ip, cf, jar = new Map(), from: page = origin } = {}) {
   const net = { ip, cf };
-  const send = async (path, { method = "GET", body, fetchImpl = W.chain(), from = origin } = {}) => {
+  const send = async (path, { method = "GET", body, fetchImpl = W.chain(), from = page } = {}) => {
     const headers = new Headers();
     if (from) headers.set("origin", from);
     if (jar.size) headers.set("cookie", [...jar].map(([k, v]) => `${k}=${v}`).join("; "));
@@ -51,6 +55,8 @@ function at(env, origin, { ip, cf, jar = new Map() } = {}) {
 }
 /** The same cookies, carried by hand to another host (what a browser never does: host-only cookies). */
 const copyTo = (b, origin, net = b.net) => at(b.env, origin, { ...net, jar: new Map(b.jar) });
+/** The answer of a refused host: [status, body, Location, Set-Cookie count]. */
+const refusal = async (res) => [res.status, await res.json(), res.headers.get("location"), res.headers.getSetCookie().length];
 /** A signed message naming `host` (the browser builds it from /api/message; dated on the test clock). */
 async function signedFor(w, host, statement = statementFor("login")) {
   const nonce = base58Encode(crypto.getRandomValues(new Uint8Array(16)));
@@ -77,18 +83,26 @@ test("the binding counts only once SITE_ORIGINS lists a host other than vicinity
     { SITE_ORIGINS: "nonsense" }, { SITE_ORIGIN: "https://citycoin.dev" }, { SITE_ORIGIN: "http://vicinity.city" }]) assert.equal(hostBound(siteConfig(env)), true, JSON.stringify(env));
 });
 
-test("unset: servedHost gives exactly today's origin and host for every host (on vicinity.city, the configuration's own value)", () => {
+test("unset: servedHost gives exactly today's origin and host for every host that reaches the Worker (on vicinity.city, the configuration's own value)", () => {
   for (const url of ["https://vicinity.city/a?b=1", "https://VICINITY.CITY/a", "https://vicinity.city:443/a", "https://vicinity.city:8443/a", "https://vicinity.test/a",
-    "https://citycoin.dev/a", "https://evil.example/a", "http://localhost:8787/a", "http://vicinity.city/a", "https://www.vicinity.city/a"]) {
-    const s = servedHost({}, new Request(url)), u = new URL(url);
-    assert.deepEqual(s, { bound: false, refused: false, origin: u.origin, host: u.host, key: null }, url);
+    "https://evil.example/a", "http://localhost:8787/a", "http://vicinity.city/a", "https://www.vicinity.city/a", "https://vicinitycity.net/a",
+    "https://www.vicinitycity.net/a", "https://citycoin.dev.evil.example/a", "https://evilcitycoin.dev/a"]) {
+    for (const env of [{}, { SITE_ORIGINS: "https://vicinity.city" }, { DEPLOYMENT_ENV: "production" }]) {
+      const s = servedHost(env, new Request(url)), u = new URL(url);
+      assert.deepEqual(s, { bound: false, refused: false, origin: u.origin, host: u.host, key: null }, url);
+    }
+  }
+  // the cutover's own hosts (not attached today) are refused until SITE_ORIGINS lists citycoin.dev (review R2H-06, SEC-2): never served unbound
+  assert.deepEqual([...CUTOVER_HOSTS], ["citycoin.dev", "www.citycoin.dev"]);
+  for (const url of ["https://citycoin.dev/a", "https://CityCoin.Dev:8443/a", "http://citycoin.dev/a", "https://www.citycoin.dev/a", "http://WWW.CITYCOIN.DEV/a"]) {
+    for (const env of [{}, { SITE_ORIGINS: "https://vicinity.city" }]) assert.deepEqual(servedHost(env, new Request(url)), { bound: false, refused: true, origin: null, host: null, key: null }, url);
   }
 });
 
 test("bound: the allowlist entry is the value used (never the request's text); a host outside it is refused; a local host is its own", () => {
   const cases = [
     ["https://citycoin.dev/x", { origin: CC, host: "citycoin.dev", key: "citycoin.dev" }],
-    ["https://WWW.CityCoin.Dev/x", { origin: "https://www.citycoin.dev", host: "www.citycoin.dev", key: "www.citycoin.dev" }],
+    ["https://CityCoin.Dev:8443/x", { origin: CC, host: "citycoin.dev", key: "citycoin.dev" }],
     ["https://vicinity.city/x", { origin: VC, host: "vicinity.city", key: "vicinity.city" }],
     ["https://vicinity.city:8443/x", { origin: VC, host: "vicinity.city", key: "vicinity.city" }],           // the port is not part of the entry
     ["https://www.vicinity.city/x", { origin: "https://www.vicinity.city", host: "www.vicinity.city", key: "www.vicinity.city" }], // a legacy host
@@ -96,18 +110,32 @@ test("bound: the allowlist entry is the value used (never the request's text); a
   ];
   for (const [url, want] of cases) assert.deepEqual(servedHost(SITES, new Request(url)), { bound: true, refused: false, ...want }, url);
   for (const url of ["https://evil.example/x", "https://citycoin.dev.evil.example/x", "https://vicinity.city.evil.example/x", "https://evilcitycoin.dev/x",
-    "https://vicinity.city./x", "https://127.0.0.2/x", "https://vicinity.test/x"]) {
+    "https://vicinity.city./x", "https://127.0.0.2/x", "https://vicinity.test/x", "https://www.citycoin.dev/x"]) {
     assert.deepEqual(servedHost(SITES, new Request(url)), { bound: true, refused: true, origin: null, host: null, key: null }, url);
   }
+  // this computer: its own hosts, and `wrangler dev`'s http visit of a route's name (review PARITY-2), only outside production (SEC-7)
+  const local = (url) => new Request(url, { headers: { "cf-connecting-ip": "127.0.0.1" } });
+  assert.deepEqual(servedHost(SITES, local("http://vicinity.city/x")), { bound: true, refused: false, origin: "http://vicinity.city", host: "vicinity.city", key: "vicinity.city" });
+  assert.deepEqual(servedHost(SITES, local("http://citycoin.dev/x")), { bound: true, refused: false, origin: "http://citycoin.dev", host: "citycoin.dev", key: "citycoin.dev" });
+  assert.equal(servedHost(SITES, local("http://evil.example/x")).refused, true, "a local visit of a host outside the allowlist is still refused");
+  assert.equal(servedHost(SITES, new Request("http://vicinity.city/x")).origin, VC, "from anywhere else: the https entry");
+  const PROD = { ...SITES, DEPLOYMENT_ENV: "production" };
+  for (const url of ["http://localhost:8787/x", "https://evil.localhost/x", "http://127.0.0.1/x", "http://[::1]/x"]) {
+    assert.equal(servedHost(PROD, new Request(url)).refused, true, `production: ${url}`);
+    assert.equal(servedHost({ ...SITES, DEPLOYMENT_ENV: " Production " }, new Request(url)).refused, true, url);
+    assert.equal(servedHost({ ...SITES, DEPLOYMENT_ENV: "test" }, new Request(url)).refused, false, `test: ${url}`);
+  }
+  assert.equal(servedHost(PROD, local("http://vicinity.city/x")).origin, VC, "production: a local address changes nothing");
   // a refused setting: today's site, every other host refused
   assert.equal(servedHost({ SITE_ORIGINS: "nonsense" }, new Request("https://vicinity.city/x")).key, "vicinity.city");
   assert.equal(servedHost({ SITE_ORIGINS: "nonsense" }, new Request("https://citycoin.dev/x")).refused, true);
   // rows: NULL is vicinity.city; nothing matters while unbound
-  const vc = servedHost(SITES, new Request(`${VC}/x`)), cc = servedHost(SITES, new Request(`${CC}/x`)), off = servedHost({}, new Request(`${CC}/x`));
+  const vc = servedHost(SITES, new Request(`${VC}/x`)), cc = servedHost(SITES, new Request(`${CC}/x`)), off = servedHost({}, new Request("https://vicinity.test/x"));
   assert.equal(NULL_HOST, "vicinity.city");
   assert.deepEqual([onThisHost(vc, null), onThisHost(vc, undefined), onThisHost(vc, "vicinity.city"), onThisHost(vc, "citycoin.dev")], [true, true, true, false]);
   assert.deepEqual([onThisHost(cc, null), onThisHost(cc, "citycoin.dev"), onThisHost(cc, "www.citycoin.dev")], [false, true, false]);
   assert.deepEqual([onThisHost(off, null), onThisHost(off, "anything")], [true, true]);
+  assert.equal(onThisHost(servedHost({}, new Request(`${CC}/x`)), null), false, "a refused host (unset: the cutover's own) uses no row");
   assert.equal(onThisHost(servedHost(SITES, new Request("https://evil.example/")), null), false);
   const db = W.newWorld().DB;
   assert.equal(hostWrite(db, "sessions", "id", off), null, "unbound: nothing is written");
@@ -132,13 +160,15 @@ test("unset: sign-in, pairing, hand-off and Google links are today's (the reques
   assert.equal(g.searchParams.get("redirect_uri"), `${VC}/api/auth/google/callback`);
   assert.equal(parseMessage((await vc.get(`/api/message?address=${p.w.address}&action=login`)).message).host, "vicinity.city");
   // today a session is found by its token alone: the same cookie answers on any host that reaches the Worker (unchanged while unset)
-  for (const o of [VC, CC, "https://vicinity.test"]) assert.equal(await signedIn(copyTo(vc, o)), true, o);
+  for (const o of [VC, "https://www.vicinity.city", "https://vicinity.test"]) assert.equal(await signedIn(copyTo(vc, o)), true, o);
+  // except the cutover's own hosts (not attached today): refused, never served unbound (review R2H-06, SEC-2)
+  assert.deepEqual(await refusal(await copyTo(vc, CC).send("/api/me?lite=1")), [421, WRONG, null, 0]);
   // and on any other host the links and the signed text name that host, as before
   const other = at(env, "https://vicinity.test", { jar: new Map(vc.jar) });
   assert.equal((await other.post("/api/pair")).url.startsWith("https://vicinity.test/connect?pair="), true);
   // nothing was added: no column, no migration record
   for (const t of ["sessions", "pairs", "handoffs"]) assert.ok(!(await columns(env, t)).includes("host"), t);
-  assert.equal(await one(env.DB, "SELECT id FROM schema_migrations WHERE id = ?", HOST_MIGRATION.id), null);
+  assert.equal(await one(env.DB, "SELECT id FROM schema_migrations WHERE id LIKE '2026-10-24-host-binding%'"), null);
 });
 
 /* ---------------------------------------------------------------- existing members */
@@ -153,7 +183,7 @@ test("existing NULL-host sessions stay valid on vicinity.city once the binding c
   assert.equal(me.signedIn, true, "a member signed in today is still signed in on vicinity.city");
   assert.equal(me.user.wallet, p.w.address);
   assert.equal(await signedIn(copyTo(vc, CC)), false, "the same cookie, copied to citycoin.dev, is signed out there");
-  assert.equal(await signedIn(copyTo(vc, "https://www.citycoin.dev")), false);
+  assert.deepEqual(await refusal(await copyTo(vc, "https://www.citycoin.dev").send("/api/me?lite=1")), [421, WRONG, null, 0], "www.citycoin.dev is not listed");
   // the migration added a nullable column and rewrote nothing
   assert.ok((await columns(env, "sessions")).includes("host"));
   const afterRows = await sessionRows(env);
@@ -161,9 +191,11 @@ test("existing NULL-host sessions stay valid on vicinity.city once the binding c
   // a sensitive action on vicinity.city still works with the old session (re-prove with a vicinity.city signature)
   const re = await vc.post("/api/auth/reprove", await signedFor(p.w, "vicinity.city"));
   assert.equal(re.ok, true, JSON.stringify(re));
-  // rollback: SITE_ORIGINS unset, every session is found by its token again (today's)
+  // rollback: SITE_ORIGINS unset, every session is found by its token again (today's), on every host that is served; citycoin.dev is
+  // then refused (never served unbound)
   setSites(env, false);
-  assert.equal(await signedIn(copyTo(vc, CC)), true);
+  assert.equal(await signedIn(copyTo(vc, "https://vicinity.test")), true);
+  assert.equal((await copyTo(vc, CC).send("/api/me?lite=1")).status, 421);
 });
 
 /* ---------------------------------------------------------------- wrong-host session, copied cookie */
@@ -181,7 +213,7 @@ test("a session made on citycoin.dev records it and is refused on every other ho
   const made = (await sessionRows(env)).filter((s) => s.host === "citycoin.dev");
   assert.equal(made.length, 1, "the new session records citycoin.dev (an allowlist entry)");
   assert.equal(await signedIn(cc), true);
-  for (const o of [VC, "https://www.citycoin.dev", "https://www.vicinity.city"]) {
+  for (const o of [VC, "https://vicinitycity.net", "https://www.vicinity.city"]) {
     const copied = copyTo(cc, o);
     assert.equal(await signedIn(copied), false, `copied to ${o}`);
     const re = await copied.send("/api/auth/reprove", { method: "POST", body: await signedFor(p.w, new URL(o).host) });
@@ -194,8 +226,8 @@ test("a session made on citycoin.dev records it and is refused on every other ho
   assert.equal(await signedIn(copyTo(local, CC)), false);
   assert.equal(await signedIn(copyTo(cc, "http://localhost:8787")), false);
   // the cookie carried to a host outside the allowlist: refused before any route
-  const evil = await copyTo(cc, "https://evil.example").send("/api/me");
-  assert.deepEqual([evil.status, await evil.json(), evil.headers.get("location"), evil.headers.getSetCookie().length], [421, { error: "wrong_host" }, null, 0]);
+  assert.deepEqual(await refusal(await copyTo(cc, "https://evil.example").send("/api/me")), [421, WRONG, null, 0]);
+  assert.deepEqual(await refusal(await copyTo(cc, "https://www.citycoin.dev").send("/api/me")), [421, WRONG, null, 0]);
 });
 
 /* ---------------------------------------------------------------- old-domain signatures */
@@ -205,11 +237,21 @@ test("a signature made for one host never authorizes a session on another (bound
     const env = setSites(W.newWorld(), bound);
     const p = await oldMember(env);
     const n = (await sessionRows(env)).length;
-    for (const [signedHost, postTo] of [["vicinity.city", CC], ["citycoin.dev", VC], ["citycoin.dev", "https://www.citycoin.dev"], ["vicinity.city", "https://vicinity.city:8443"]]) {
+    for (const [signedHost, postTo] of [["vicinity.city", CC], ["citycoin.dev", VC], ["citycoin.dev", "https://vicinitycity.net"], ["vicinity.city", "https://vicinity.city:8443"]]) {
       if (!bound && postTo.endsWith(":8443")) continue; // (unset: a port is part of today's host, as before)
       const b = at(env, postTo);
+      if (!bound && postTo === CC) { // unset: citycoin.dev is refused outright (review R2H-06), so nothing is signed in there either
+        assert.deepEqual(await refusal(await b.send("/api/auth/wallet", { method: "POST", body: await signedFor(p.w, signedHost) })), [421, WRONG, null, 0]);
+        continue;
+      }
+      if (bound && postTo === "https://vicinity.city:8443") {
+        // the same host on another port is the same allowlist entry; while bound a write must carry that entry's origin exactly (review SEC-4)
+        const own = await b.send("/api/auth/wallet", { method: "POST", body: await signedFor(p.w, signedHost) });
+        assert.deepEqual([own.status, (await own.json()).error], [403, "wrong_origin"], "an Origin with a port is not the allowlist entry");
+        assert.equal((await b.send("/api/auth/wallet", { method: "POST", body: await signedFor(p.w, signedHost), from: VC })).status, 200);
+        continue;
+      }
       const r = await b.send("/api/auth/wallet", { method: "POST", body: await signedFor(p.w, signedHost) });
-      if (bound && postTo === "https://vicinity.city:8443") { assert.equal(r.status, 200, "the same host on another port is the same allowlist entry"); continue; }
       assert.deepEqual([r.status, (await r.json()).error, r.headers.getSetCookie().length], [400, "wrong_site", 0], `${bound} ${signedHost} -> ${postTo}`);
       const v = await b.send("/api/verify", { method: "POST", body: await signedFor(p.w, signedHost, statementFor("verify")) });
       assert.deepEqual([v.status, (await v.json()).error], [400, "wrong_site"], `verify ${signedHost} -> ${postTo}`);
@@ -219,12 +261,12 @@ test("a signature made for one host never authorizes a session on another (bound
   const env = setSites(W.newWorld(), true);
   const p = await oldMember(env);
   // the text a wallet signs names the allowlist entry: lower case, without a port, whatever the request's spelling
-  for (const [origin, host] of [[CC, "citycoin.dev"], ["https://WWW.CITYCOIN.DEV", "www.citycoin.dev"], ["https://vicinity.city:8443", "vicinity.city"], [VC, "vicinity.city"]]) {
+  for (const [origin, host] of [[CC, "citycoin.dev"], ["https://CITYCOIN.DEV", "citycoin.dev"], ["https://vicinity.city:8443", "vicinity.city"], [VC, "vicinity.city"]]) {
     const m = parseMessage((await at(env, origin).get(`/api/message?address=${p.w.address}&action=login`)).message);
     assert.equal(m.host, host, origin);
   }
   const refused = await at(env, "https://citycoin.dev.evil.example").send(`/api/message?address=${p.w.address}&action=login`);
-  assert.deepEqual([refused.status, await refused.json()], [421, { error: "wrong_host" }]);
+  assert.deepEqual([refused.status, await refused.json()], [421, WRONG]);
   // a message used once is refused the next time (single use, as before) and, on another host, for the host first
   const body = await signedFor(p.w, "citycoin.dev");
   assert.equal((await at(env, CC).send("/api/auth/wallet", { method: "POST", body })).status, 200);
@@ -381,12 +423,13 @@ test("untrusted return addresses: request parameters and the Host never choose a
   // a Host outside the allowlist (spoofed, or a look-alike) is refused before any route: no link, no Location, no cookie, no row
   const snapshot = async () => JSON.stringify([await rows(env.DB, "SELECT * FROM sessions ORDER BY id"), await rows(env.DB, "SELECT * FROM pairs ORDER BY id"), await rows(env.DB, "SELECT * FROM handoffs ORDER BY id")]);
   const rowsBefore = await snapshot();
-  for (const origin of ["https://evil.example", "https://citycoin.dev.evil.example", "https://vicinity.city.evil.example", "https://evilcitycoin.dev", "https://vicinity.test"]) {
+  for (const origin of ["https://evil.example", "https://citycoin.dev.evil.example", "https://vicinity.city.evil.example", "https://evilcitycoin.dev", "https://vicinity.test",
+    "https://www.citycoin.dev"]) {
     for (const [method, path, body] of [["GET", "/api/auth/google/start"], ["POST", "/api/pair", {}], ["POST", "/api/locate/handoff", { purpose: "home" }],
       ["GET", `/api/message?address=${p.w.address}&action=login`], ["POST", "/api/auth/wallet", await signedFor(p.w, new URL(origin).host)], ["GET", "/api/health"]]) {
       const b = at(env, origin, { jar: new Map(p.jar) });
       const r = await b.send(path, { method, body });
-      assert.deepEqual([r.status, await r.json(), r.headers.get("location"), r.headers.getSetCookie().length], [421, { error: "wrong_host" }, null, 0], `${method} ${origin}${path}`);
+      assert.deepEqual(await refusal(r), [421, WRONG, null, 0], `${method} ${origin}${path}`);
       // and through the Worker's own entry, for every path the Worker answers (the official list and the coin metadata too)
       const e = await worker.fetch(new Request(origin + path, { method, headers: { origin, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, ctx);
       assert.equal(e.status, 421, `entry ${method} ${origin}${path}`);
@@ -412,16 +455,17 @@ test("every hand-off, QR, pairing and Google return link names the allowlist ent
   const m = await before(env, async () => { const b = W.browser(env, PHONE); const j = await journey(b, box, { via: "google" }); assert.equal(j.finish.ok, true); return { b, ...j }; });
   // the same host on another port (the request's text differs from the allowlist entry): every link is the entry's origin
   const o = "https://vicinity.city:8443";
-  const b = at(env, o, { ...PHONE, jar: new Map(m.b.jar) });
+  // (a write must carry the allowlist entry's origin exactly while bound, review SEC-4: these requests name the entry as their Origin)
+  const b = at(env, o, { ...PHONE, jar: new Map(m.b.jar), from: VC });
   assert.equal(await signedIn(b), true, "a NULL-host session is vicinity.city's, on any port of it");
   assert.match((await b.post("/api/pair")).url, /^https:\/\/vicinity\.city\/connect\?pair=[A-Za-z0-9_-]+$/);
   assert.match((await b.post("/api/me/wallet/carry", {})).url, /^https:\/\/vicinity\.city\/connect\?link=[A-Za-z0-9_-]+$/);
   assert.match((await b.post("/api/locate/handoff", { purpose: "home" })).url, /^https:\/\/vicinity\.city\/locate\?code=[A-Za-z0-9_-]+$/);
   assert.equal(new URL((await b.send("/api/auth/google/start")).headers.get("location")).searchParams.get("redirect_uri"), `${VC}/api/auth/google/callback`);
-  const s = at(env, "https://WWW.CityCoin.dev:8443", PHONE);
+  const s = at(env, "https://CityCoin.Dev:8443", { ...PHONE, from: CC });
   assert.equal((await s.post("/api/signup/start")).ok, true);
-  assert.match((await s.post("/api/signup/location/handoff")).url, /^https:\/\/www\.citycoin\.dev\/locate\?code=[A-Za-z0-9_-]+$/);
-  assert.equal((await one(env.DB, "SELECT host FROM signups")).host, "www.citycoin.dev");
+  assert.match((await s.post("/api/signup/location/handoff")).url, /^https:\/\/citycoin\.dev\/locate\?code=[A-Za-z0-9_-]+$/);
+  assert.equal((await one(env.DB, "SELECT host FROM signups")).host, "citycoin.dev");
   // and the Google callback names the same address the start did (the token exchange is made with it)
   const seen = [];
   const g = at(env, o, { jar: new Map() });
@@ -479,20 +523,28 @@ test("every way a session is made records its host: the new sign-up's finish (Go
 test("the host columns are added lazily, once, only while the binding counts; additive and nullable; safe to repeat", async () => {
   const env = W.newWorld();
   await oldMember(env);
+  const oldIds = (await rows(env.DB, "SELECT id FROM sessions")).map((r) => r.id);
   for (const t of ["sessions", "pairs", "handoffs"]) assert.ok(!(await columns(env, t)).includes("host"), `unset: no ${t}.host`);
   setSites(env, true);
   // a request with no cookie and no write touches nothing
   await at(env, VC).get("/api/me");
   assert.ok(!(await columns(env, "sessions")).includes("host"));
+  // one record per table, run by the paths that use that table only (review SEC-1): a pairing adds pairs.host and nothing else
   await at(env, CC).post("/api/pair");
+  const has = async (t) => (await columns(env, t)).includes("host");
+  assert.deepEqual([await has("pairs"), await has("sessions"), await has("handoffs")], [true, false, false]);
+  await at(env, CC).send("/api/auth/transfer", { method: "POST", body: { address: (await W.wallet()).address } }); // a session
+  await at(env, VC, { jar: new Map((await oldMember(env)).jar) }).post("/api/locate/handoff", { purpose: "home" }); // a hand-off
   for (const t of ["sessions", "pairs", "handoffs"]) {
     const col = (await rows(env.DB, `PRAGMA table_info(${t})`)).find((c) => c.name === "host");
     assert.deepEqual([col.type, col.notnull, col.dflt_value], ["TEXT", 0, null], t);
+    assert.notEqual(await one(env.DB, "SELECT id FROM schema_migrations WHERE id = ?", HOST_MIGRATIONS[t].id), null, t);
+    await ensureHostSchema(env.DB, t);
+    await ensureHostSchema(W.newWorld().DB, t);
+    assert.equal((await one(env.DB, "SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?", HOST_MIGRATIONS[t].id)).n, 1);
   }
-  assert.notEqual(await one(env.DB, "SELECT id FROM schema_migrations WHERE id = ?", HOST_MIGRATION.id), null);
-  await ensureHostSchema(env.DB);
-  await ensureHostSchema(W.newWorld().DB);
-  assert.equal((await one(env.DB, "SELECT COUNT(*) AS n FROM schema_migrations WHERE id = ?", HOST_MIGRATION.id)).n, 1);
+  await assert.rejects(ensureHostSchema(env.DB, "users"), /unknown table/);
   // the old sessions keep host NULL (vicinity.city): nothing was rewritten
-  assert.ok((await rows(env.DB, "SELECT host FROM sessions")).every((r) => r.host === null));
+  const hosts = await rows(env.DB, "SELECT id, host FROM sessions");
+  assert.ok(oldIds.length > 0 && oldIds.every((id) => hosts.find((r) => r.id === id).host === null));
 });

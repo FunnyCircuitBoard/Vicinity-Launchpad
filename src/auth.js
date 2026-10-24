@@ -59,7 +59,7 @@ import { SESSION_COOKIE, SESSION_SECONDS } from "./session.js";
 import { accountName, linkLocked, linkNotice, linkWallet, lockedAnswer, maskName } from "./walletlink.js";
 import { addGoogle, findAccount, googleAdded, googleNotice } from "./logins.js";
 import { checkCurrentPassword } from "./pwlogin.js";
-import { hostWrite, onThisHost, servedHost } from "./hostbind.js";
+import { hostWrite, onThisHost, servedHost, sessionDelete } from "./hostbind.js";
 
 export { SESSION_COOKIE, SESSION_SECONDS };
 const OAUTH_COOKIE = "vo";
@@ -123,7 +123,7 @@ export async function createSession(env, { wallet = null, userId = null, proof =
     ? env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at, made_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(...values, madeBy)
     : env.DB.prepare("INSERT INTO sessions (id, wallet, user_id, proof, created_at, expires_at, proven_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...values);
   if (served && served.bound) {
-    await ensureHostSchema(env.DB);
+    await ensureHostSchema(env.DB, "sessions");
     await env.DB.batch([insert, hostWrite(env.DB, "sessions", id, served)]);
   } else await insert.run();
   if (Math.random() < 0.02) { // tidy up now and then
@@ -147,7 +147,7 @@ export async function getSession(env, request, now = Date.now()) {
   const served = servedHost(env, request);
   if (served.refused) return null;
   await ensureSchema(env.DB);
-  if (served.bound) await ensureHostSchema(env.DB);
+  if (served.bound) await ensureHostSchema(env.DB, "sessions"); // sessions.host only: a hand-off or pairing column never stops a sign-in
   const row = await env.DB.prepare(served.bound ? "SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at, host FROM sessions WHERE id = ?"
     : "SELECT id, wallet, user_id, proof, created_at, expires_at, proven_at FROM sessions WHERE id = ?").bind(await sha256(token)).first();
   if (!row || Date.parse(row.expires_at) <= now) return null;
@@ -184,9 +184,19 @@ export async function renewSession(env, request, s, now = Date.now()) {
   const r = await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ? AND user_id = ? AND made_by = 'wallet'").bind(iso(until), s.id, s.user.id).run();
   return r.meta.changes === 1 ? cookie(SESSION_COOKIE, token, Math.round((until - now) / 1000)) : null;
 }
+/**
+ * End the session this request's cookie names. While the host binding counts (src/hostbind.js), only if it belongs to this host: a cookie
+ * copied to another host never ends the session on the host that made it (signing out or signing in there deletes nothing of the other
+ * host's). Otherwise by its token alone, exactly as before.
+ */
 export async function dropCurrent(env, request) {
   const token = getCookie(request, SESSION_COOKIE);
-  if (token && token.length <= 100) await dropSession(env, await sha256(token));
+  if (!token || token.length > 100) return;
+  const served = servedHost(env, request);
+  if (!served.bound) return void await dropSession(env, await sha256(token));
+  await ensureHostSchema(env.DB, "sessions");
+  const del = sessionDelete(env.DB, await sha256(token), served);
+  if (del) await del.run();
 }
 
 /**
@@ -292,7 +302,7 @@ export async function handleReprove(request, env, now = Date.now()) {
 }
 
 export const guard = async (request, env) => {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (!env.DB) return json({ ok: false, error: "accounts_unavailable" }, 503);
   await ensureSchema(env.DB);
   return null;
@@ -312,6 +322,8 @@ export async function handleWalletLogin(request, env, now = Date.now()) {
   const body = await readJson(request);
   if (!body) return json({ ok: false, error: "bad_json" }, 400);
   const served = servedHost(env, request);
+  // sessions.host (src/hostbind.js) before the signed text is used up: a migration that fails answers 500 and leaves the signature usable
+  if (served.bound) await ensureHostSchema(env.DB, "sessions");
   // a signed message works once, and only on the host it names (an allowlist entry while the host binding counts: src/hostbind.js)
   const r = await checkSigned(body, request, now, v2On(env) ? ["login", "link"] : ["login"], badSigned, env.DB, served.host);
   if (r.error) return r.error;
@@ -372,7 +384,7 @@ export async function handlePairStart(request, env, now = Date.now()) {
     ? env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at, purpose, user_id) VALUES (?, ?, ?, ?, 'link', ?)").bind(id, pin, iso(now), iso(now + PAIR_SECONDS * 1000), userId)
     : env.DB.prepare("INSERT INTO pairs (id, pin, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(id, pin, iso(now), iso(now + PAIR_SECONDS * 1000));
   if (served.bound) { // the pairing is bound to this host (src/hostbind.js), in the same transaction as its row
-    await ensureHostSchema(env.DB);
+    await ensureHostSchema(env.DB, "pairs");
     await env.DB.batch([insert, hostWrite(env.DB, "pairs", id, served)]);
   } else await insert.run();
   if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM pairs WHERE expires_at < ?").bind(iso(now)).run();
@@ -712,11 +724,18 @@ export async function linkIdentity(env, session, provider, who, now, v2 = null, 
  * and mint a session in the wallet app's browser after the person logged out of Safari on a shared phone).
  */
 export async function handleLogout(request, env, now = Date.now()) {
-  if (!sameSite(request)) return json({ ok: false, error: "wrong_origin" }, 403);
+  if (!sameSite(request, env)) return json({ ok: false, error: "wrong_origin" }, 403);
   if (env.DB) {
-    await ensureSchema(env.DB);
-    if (v2On(env)) await dropCarryCodes(env, request, now);
-    await dropCurrent(env, request);
+    try {
+      await ensureSchema(env.DB);
+      if (v2On(env)) await dropCarryCodes(env, request, now);
+      await dropCurrent(env, request);
+    } catch (e) {
+      // while the host binding counts, a database failure (a host column that cannot be added yet) never keeps a browser signed in: the
+      // cookie is cleared all the same, and the row ends by itself. With the binding off: exactly as before (the error answers 500)
+      if (!servedHost(env, request).bound) throw e;
+      console.error("sign-out: session row not removed", String((e && e.message) || e).slice(0, 120));
+    }
   }
   return json({ ok: true }, 200, { "Set-Cookie": clearCookie(SESSION_COOKIE) });
 }

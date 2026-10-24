@@ -11,7 +11,7 @@
  * in part: the whole answer falls back to today's values and `problems` names what was refused (SITE_ORIGIN_INVALID,
  * SITE_ORIGINS_INVALID, SITE_ORIGIN_NOT_ALLOWED, the same names the v5 configuration check uses).
  *
- * Nothing here reads a request: no Host header, no request URL. A trusted address (a redirect target, a link in a mail, our User-Agent)
+ * Nothing here reads a request: no Host header, no request URL (localDevAllowed reads only DEPLOYMENT_ENV). A trusted address (a redirect target, a link in a mail, our User-Agent)
  * is built from this configuration only. The redirect itself (308, 421 and the HOST_REDIRECT switch) is stage S03 (src/hostroute.js, read
  * only while src/v5policy.js hostRedirect counts); session, hand-off and challenge host binding is stage S04 (src/hostbind.js, which looks
  * a request's host up in this allowlist with acceptedHost and uses the entry, never the request's text).
@@ -95,6 +95,23 @@ export function siteConfig(env) {
 
 /** Hosts of this computer (`wrangler dev`): never a Cloudflare route. The same rule src/index.js has always used for its http exception. */
 export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/;
+/**
+ * May this deployment honour this computer's hosts (LOCAL_HOST, and `wrangler dev`'s local visits) as hosts of their own while the host
+ * binding (src/hostbind.js) or HOST_REDIRECT (src/hostroute.js) counts? Only outside production: DEPLOYMENT_ENV anything but "production"
+ * (the rule the v5 policy applies to http://localhost origins). A production Worker never builds an address, a session
+ * key or a signed text from such a host name: it refuses it like any other host outside the allowlist. (Today's http exception in
+ * src/index.js, with both switches off, is unchanged.)
+ */
+export const localDevAllowed = (env) => String((env && env.DEPLOYMENT_ENV) ?? "").trim().toLowerCase() !== "production";
+
+/**
+ * The cutover's own hosts: the v5 policy's canonical host (pairs_and_branding.canonical_origin, https://citycoin.dev; a test checks the two
+ * agree) and its www. They are not attached to the Worker today. Until SITE_ORIGINS lists citycoin.dev (the S06 configuration), a request
+ * for either is refused, never served unbound (src/hostbind.js servedHost): a custom domain attached before the setting can then never
+ * make sessions, pairings or hand-offs with no host, nor links, QR codes or signed texts built from its Host header. www.citycoin.dev is
+ * never meant to be listed (it moves to the apex: docs/citycoin-master/domain-cutover.md section 2), so it stays refused.
+ */
+export const CUTOVER_HOSTS = Object.freeze(["citycoin.dev", "www.citycoin.dev"]);
 
 /** The accepted host's own allowlist entry (SITE_ORIGINS or a legacy host; exact, lower case, never a suffix match), or null. The value
  *  returned is the configuration's string, never the request's (stage S03 src/hostroute.js and stage S04 src/hostbind.js both use it). */
