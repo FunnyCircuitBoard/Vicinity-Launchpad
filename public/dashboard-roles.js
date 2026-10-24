@@ -120,9 +120,11 @@
     } else if (seat && seat.status === "active") {
       p.icon = "👑"; p.ico = ["crown", "gold"]; p.title = `City Founder of ${seat.city}`;
       p.tag = { text: "Active", cls: "tag--ok" };
-      p.lead = `You moderate ${seat.city}, design its coin and your vote counts ×${weight}. Keep ${fmt(seat.threshold)} $VICINITY: below it, moderation pauses at once.`;
+      // with the ready-made coin on (COIN_V2_READY), the founder chooses the coin Vicinity made from the city list, never designs one
+      const ready = d.coinV2Ready === true;
+      p.lead = `You moderate ${seat.city}, ${ready ? "choose and launch its coin (made by Vicinity from the city list)" : "design its coin"} and your vote counts ×${weight}. Keep ${fmt(seat.threshold)} $VICINITY: below it, moderation pauses at once.`;
       p.meters.push(meter(`Your holding vs your bar (${fmt(seat.threshold)})`, pct(d.holding.amount, seat.threshold), `${fmt(d.holding.amount)} $VICINITY`, d.holding.amount >= seat.threshold ? "ok" : "bad"));
-      p.tools.push(jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
+      p.tools.push(ready ? jump("Your city coin", "#coin-ready") : jump("Design the city's coin", "#coin"), jump("Moderator tools", "#mod"), invite); resign(seat);
     } else if (d.level === "holder") {
       p.icon = "🏅"; p.ico = ["medal", "ok"]; p.title = `Holder in ${city}`;
       // (the tabbed dashboard drops the pill: the meter right under it says the same percentage)
@@ -170,9 +172,12 @@
 
   const QUEUE_LABEL = { posts: ["reported post", "reported posts"], proposals: ["ban proposal", "ban proposals"], appeals: ["appeal", "appeals"],
     objections: ["objection", "objections"], towns: ["town request", "town requests"], coins: ["coin contract to check", "coin contracts to check"], bios: ["reported bio", "reported bios"] };
+  // the old Raydium LaunchLab path closed (the queue's own answer, launchLabClosed): nobody checks such a contract, it can only be rejected
+  const COINS_CLOSED = ["old contract to settle", "old contracts to settle"];
   function renderQueue() {
     const box = $("#role-queue"); if (!box) return;
-    const items = Object.entries(QUEUE_LABEL).filter(([k]) => queue[k]).map(([k, [one, many]]) => `${queue[k]} ${queue[k] === 1 ? one : many}`);
+    const items = Object.entries(QUEUE_LABEL).filter(([k]) => queue[k]).map(([k, label]) => [k, k === "coins" && queue.coinsClosed ? COINS_CLOSED : label])
+      .map(([k, [one, many]]) => `${queue[k]} ${queue[k] === 1 ? one : many}`);
     box.hidden = !queue.known;
     box.textContent = !queue.known ? "" : items.length ? `Waiting for you: ${items.join(" · ")}` : "Nothing is waiting for you right now. ✓";
   }

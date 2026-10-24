@@ -1,0 +1,61 @@
+/* Request changes, the review status and the founder's own description (public/coin-review.js; COIN_V2_REVIEW=on), added to the page by that
+   script only, so with the switch off not one of these rules exists. Phone first; the site's own tokens with fallbacks (dark and light
+   theme); 44 px targets; every status has its words in the tag (never colour alone); nothing scrolls sideways; nothing moves on its own. */
+.coin-review { display: grid; gap: 14px; min-width: 0; border-top: 1px solid var(--line, rgba(128, 128, 128, .16)); padding-top: 14px; }
+.coin-review[hidden], .crv-form[hidden], .crv-confirm[hidden], .crv-hold[hidden] { display: none; }
+.crv-hold { margin: 0; padding: 10px 12px; border-radius: var(--r-chip, 12px); border: 1px solid rgba(255, 213, 138, .45); background: rgba(255, 213, 138, .1); color: var(--text, inherit); }
+.crv-actions, .crv-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.crv-actions:empty { display: none; }
+.coin-review .btn { min-height: 44px; }
+.crv-blocked { margin: 0; }
+.crv-card { display: grid; gap: 10px; padding: 14px; border-radius: var(--r-card, 16px); border: 1px solid var(--line-2, rgba(128, 128, 128, .28)); background: var(--card-2, rgba(128, 128, 128, .06)); min-width: 0; }
+.crv-card:focus { outline: none; }
+.crv-card:focus-visible { outline: 3px solid var(--focus, #F25C24); outline-offset: 2px; }
+.crv-card--pending, .crv-card--flag { border-color: rgba(255, 213, 138, .55); }
+.crv-card--approved, .crv-card--pass { border-color: rgba(83, 211, 140, .5); }
+.crv-card--changes_needed, .crv-card--block { border-color: rgba(242, 92, 36, .6); }
+.crv-card--error { border-color: var(--line-2, rgba(128, 128, 128, .4)); }
+.crv-card__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.crv-card__head h3 { margin: 0; }
+.crv-card__msg, .crv-card p { margin: 0; overflow-wrap: anywhere; }
+.crv-tag { flex: none; }
+.crv-tag--pending { background: rgba(255, 213, 138, .18); color: var(--text, inherit); }
+.crv-tag--ok { background: rgba(83, 211, 140, .18); color: var(--text, inherit); }
+.crv-tag--changes { background: rgba(242, 92, 36, .2); color: var(--text, inherit); }
+.crv-tag--draft { background: var(--card-2, rgba(128, 128, 128, .12)); color: var(--text, inherit); }
+#crv-req-tag:focus { outline: none; }
+#crv-req-tag:focus-visible { outline: 3px solid var(--focus, #F25C24); outline-offset: 2px; }
+.crv-diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-sm, .9rem); }
+.crv-diff th, .crv-diff td { text-align: left; vertical-align: top; padding: 6px 4px; border-bottom: 1px solid var(--line, rgba(128, 128, 128, .16)); overflow-wrap: anywhere; }
+.crv-diff thead th { font-size: var(--fs-xs, .75rem); color: var(--muted, #93A0B6); font-weight: 600; overflow-wrap: normal; }
+.crv-diff tbody th { width: 30%; font-weight: 600; color: var(--muted, #93A0B6); }
+.crv-pic { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--card-2, rgba(128, 128, 128, .08)); }
+.crv-pic--lg { width: 120px; height: 120px; display: block; margin: 6px 0; }
+.crv-pic[hidden] { display: none; }
+.crv-form { display: grid; gap: 12px; padding: 14px; border-radius: var(--r-card, 16px); border: 1px dashed var(--line-2, rgba(128, 128, 128, .35)); min-width: 0; }
+.crv-form h3 { margin: 0; }
+.crv-form p { margin: 0; }
+.crv-fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
+.crv-fieldset legend { font-weight: 600; margin-bottom: 4px; }
+.crv-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.crv-choice input { width: 20px; height: 20px; flex: none; }
+.crv-field { display: grid; gap: 4px; min-width: 0; }
+.crv-field input, .crv-field textarea { width: 100%; min-height: 44px; box-sizing: border-box; font: inherit; }
+#crv-symbol { text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+#crv-file { min-height: 44px; max-width: 100%; }
+#crv-file[hidden] { display: none; }
+.crv-over, .crv-bad { color: var(--warn-text, #F25C24); }
+.crv-confirm { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-chip, 12px); border: 1px solid rgba(255, 213, 138, .55); background: rgba(255, 213, 138, .08); }
+.crv-desc { display: grid; gap: 10px; min-width: 0; }
+.crv-desc-info { margin: 0; color: var(--text-2, inherit); }
+.crv-editor { display: grid; gap: 8px; }
+.crv-editor p { margin: 0; }
+.crv-issues { margin: 0; padding-left: 1.2em; }
+.crv-quote { margin: 0; padding: 8px 10px; border-left: 3px solid var(--line-2, rgba(128, 128, 128, .4)); overflow-wrap: anywhere; white-space: pre-wrap; }
+.crv-quote mark { background: rgba(242, 92, 36, .28); color: inherit; border-radius: 3px; padding: 0 2px; }
+.crv-result:empty { display: none; }
+.crv-err { margin: 0; }
+@media (min-width: 720px) {
+  .coin-review .crv-row .btn, .coin-review .crv-actions .btn { padding-inline: 20px; }
+  .crv-diff tbody th { width: 22%; }
+}

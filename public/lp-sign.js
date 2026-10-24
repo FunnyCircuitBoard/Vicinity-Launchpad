@@ -15,6 +15,15 @@
  *   LP.run({ wallet, build, ephemeral, cluster, onSummary, onStatus })   prepare, then onSummary(response) (resolve true to go
  *                                         on, false to stop), then sign
  *   LP.renderSummary(el, response)     the decoded instruction list and the exact SOL change, in plain words (textContent only)
+ *   LP.canSignAll(wallet)              the wallet can sign several transactions in ONE prompt (signAllTransactions)
+ *   LP.signAll({ wallet, responses, cluster, onStatus, routes })   the owner's daily approval round (src/lpbatch.js): several
+ *                                         transactions the Worker built, each for the wallet ALONE (no one-time key), signed in ONE
+ *                                         prompt; every message must come back byte for byte with a valid signature, or NOTHING is sent
+ *                                         (code "changed": the page then signs them one at a time with prepare()); then each is sent
+ *                                         through the relay in order, and all are watched. onStatus(i, status, signature, extra) per
+ *                                         transaction. Resolves to { results: [{ signature, status, solscan, slot } | null], error,
+ *                                         failedAt } (error: the first transaction that did not land or could not be sent; the ones
+ *                                         after it are not sent).
  *   LP.say(code, extra)                the plain-word message of an error code
  *
  * The order of signing is fixed: the ONE-TIME KEYS sign first, each at its own slot, over the exact message prepare() checked
@@ -317,6 +326,62 @@
       if (Date.now() > deadline) throw Object.assign(err("unconfirmed"), { signature, solscan });
     }
   }
+  /** Can this wallet sign several transactions in one prompt? (public/wallets.js signAllTransactions; canSign false: no) */
+  const canSignAll = (w) => Boolean(w && typeof w.signAllTransactions === "function" && w.canSign !== false && w.canSignAll !== false);
+  /**
+   * The owner's round in ONE prompt (see the header). The checks of prepare() on each transaction first (the cluster, the wallet is the
+   * only signer), then the wallet signs them all; nothing is sent unless every message came back unchanged and every signature checks out.
+   */
+  async function signAll({ wallet, responses, cluster, onStatus = () => {}, routes } = {}) {
+    const R = routesOf(routes);
+    const who = addressOf(wallet);
+    if (!who) throw err("no_wallet");
+    if (!canSignAll(wallet)) throw err("no_sign");
+    const list = Array.isArray(responses) ? responses : [];
+    if (!list.length || list.length > 20) throw err("bad_tx");
+    const items = list.map((res) => {
+      if (!res || res.ok !== true) throw err((res && res.error) || "rpc_unavailable", res || undefined);
+      if (cluster && res.cluster !== cluster) throw err("cluster_mismatch");
+      const tx = fromB64(res.tx), p = parse(tx);
+      if (p.signers[0] !== who) throw err("wrong_wallet");
+      if (p.signers.length !== 1) throw err("unexpected_signer");
+      return { res, tx, p };
+    });
+    const chain = items[0].res.chain || chainOf(items[0].res.cluster);
+    if (items.some((x) => (x.res.chain || chainOf(x.res.cluster)) !== chain)) throw err("cluster_mismatch");
+    items.forEach((_, i) => onStatus(i, "signing"));
+    let out;
+    try { out = await wallet.signAllTransactions(items.map((x) => x.tx.slice()), chain); }
+    catch (e) { throw isReject(e) ? err("rejected") : err(e && e.code === "no_sign" ? "no_sign" : "rejected", { message: e && e.message }); }
+    if (!Array.isArray(out) || out.length !== items.length) throw err("changed");
+    const signed = [];
+    for (let i = 0; i < items.length; i++) {
+      const b = out[i] instanceof Uint8Array ? new Uint8Array(out[i]) : new Uint8Array(out[i] || []);
+      let q;
+      try { q = parse(b); } catch { throw err("changed"); }
+      if (q.count !== items[i].p.count || !same(q.message, items[i].p.message)) throw err("changed");
+      if (!(await verify(who, items[i].p.message, b.subarray(q.sigAt, q.sigAt + 64)))) throw err("bad_signature");
+      signed.push({ bytes: b, own: b58encode(b.subarray(q.sigAt, q.sigAt + 64)) });
+    }
+    // every one checked: sent in order, each watched after all are out (their blockhashes are as young as possible)
+    const results = items.map(() => null), sentIds = [];
+    let error = null, failedAt = null;
+    for (let i = 0; i < items.length; i++) {
+      onStatus(i, "sending");
+      const res = items[i].res;
+      const sent = await call(R.send, { tx: toB64(signed[i].bytes), ticket: res.ticket, lastValidBlockHeight: res.lastValidBlockHeight, cluster: res.cluster });
+      if (sent && sent._noAnswer) { onStatus(i, "confirming", signed[i].own, { unclear: true }); sentIds.push([i, signed[i].own]); continue; }
+      if (!sent || sent.ok !== true || !sent.signature) { error = err((sent && sent.error) || "rpc_unavailable", sent || undefined); failedAt = i; break; }
+      onStatus(i, "confirming", sent.signature, sent.unclear ? { unclear: true } : undefined);
+      sentIds.push([i, sent.signature]);
+    }
+    for (const [i, sig] of sentIds) {
+      try { results[i] = await watch(sig, items[i].res, (st, s2) => onStatus(i, st, s2), false, R); }
+      catch (e) { if (!error) { error = e; failedAt = i; } }
+    }
+    return { results, error, failedAt };
+  }
+
   /** prepare, show (onSummary resolves true to go on), sign. */
   async function run({ wallet, build, ephemeral: n = 0, cluster, onSummary, onStatus, routes } = {}) {
     const h = await prepare({ wallet, build, ephemeral: n, cluster, routes });
@@ -366,6 +431,6 @@
     return el;
   }
 
-  const LP = { supported, ephemeral, prepare, run, renderSummary, say, _pollMs: 2000, _b58: { encode: b58encode, decode: b58decode }, _parse: parse };
+  const LP = { supported, ephemeral, prepare, run, renderSummary, say, canSignAll, signAll, _pollMs: 2000, _b58: { encode: b58encode, decode: b58decode }, _parse: parse };
   root.LP = LP;
 })(typeof window !== "undefined" ? window : globalThis);

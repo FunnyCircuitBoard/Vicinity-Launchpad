@@ -372,7 +372,8 @@ async function dashboard({ gate = true, status = { ...READY, wallet: ADDR } } = 
         if (!gate) return { ok: false, error: "not_enabled", _status: 404 };
         return path.includes("city=") ? status : { ok: true, on: true, cluster: "mainnet", configsSet: true, speedTable: true };
       }
-      if (path.startsWith("/api/coins")) return DESIGN;
+      // the server says in the coin's own answer that the old LaunchLab path is closed, exactly when the launchpad is set up
+      if (path.startsWith("/api/coins")) return { ...DESIGN, ...(gate ? { launchLabClosed: true } : {}) };
       return undefined;
     },
   });

@@ -61,6 +61,11 @@
     upcoming: "Upcoming: designed, or waiting for the contract check.",
     trending: "Trending: by 24-hour volume.",
   };
+  // with city coins launching on the Vicinity launchpad (lpOn below) nobody checks a contract for the Upcoming tab any more
+  const TAB_NOTE_LP = { upcoming: "Upcoming: designed, not launched yet." };
+  // with the ready-made coin on (readyOn below) a city's coin is made by Vicinity and chosen by its founder; an older studio design may
+  // still be listed, so the note names both
+  const TAB_NOTE_READY = { upcoming: "Upcoming: chosen or designed, not launched yet." };
   const SOL_MINT = "So11111111111111111111111111111111111111112";
   const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const isAddr = (a) => typeof a === "string" && ADDR_RE.test(a);
@@ -180,15 +185,35 @@
   const agoText = (s) => (!(s >= 0) ? "" : s < 5 ? "Updated just now" : s < 60 ? `Updated ${s} s ago` : s < 3600 ? `Updated ${Math.floor(s / 60)} min ago` : `Updated ${Math.floor(s / 3600)} h ago`);
 
   /* ----- words on a card ----- */
+  // city coins launch on the Vicinity launchpad here (/api/official cityCoins: its settings are there, so the old Raydium LaunchLab
+  // path is closed: src/coins.js). Set once that answer is in, before any card is drawn (the cards wait for the same answer).
+  let lpOn = false;
+  let readyOn = false; // /api/official coinV2Ready (COIN_V2_READY=on): set once that answer is in
   const STATUS = { live: ["Live", "tag--ok"], waiting: ["Contract being checked", "tag--warn"], designed: ["Designed", ""], upcoming: ["Opens soon", "tag--gold"] };
-  /** The status tag: text and extra class. $VICINITY before its mint carries the countdown. */
-  function statusLabel(c, { now = Date.now(), opensAt = null } = {}) {
+  const WAITING_LP = ["Old contract waiting", "tag--warn"]; // with the launchpad set up nobody checks such a contract: it can only be rejected
+  /**
+   * The status tag: text and extra class. $VICINITY before its mint carries the countdown. `lp`: the launchpad is set up. A coin the
+   * server says Vicinity made (madeBy "vicinity": the ready-made coin its founder chose, src/coinart-store.js) is never called designed;
+   * nor chosen when the server says the choice no longer holds (chosen: false: the city list gave the city another ticker or name since,
+   * src/coinready.js choiceHolds): "Not chosen yet" with a founder seated, else "Not launched".
+   */
+  function statusLabel(c, { now = Date.now(), opensAt = null, lp = lpOn } = {}) {
     if (c && c.status === "upcoming") { const at = Date.parse(str(c.opensAt)) || opensAt; return [Number.isFinite(at) ? countdownText(at - now) : "Opens soon", "tag--gold"]; }
+    if (c && c.status === "waiting" && lp) return WAITING_LP;
+    if (c && c.status === "designed" && c.madeBy === "vicinity") return c.chosen === false ? [c.founder ? "Not chosen yet" : "Not launched", ""] : ["Chosen", ""];
     const s = STATUS[c && c.status] || ["Designed", ""];
     return s;
   }
-  /** Why a coin cannot be bought yet, in plain words. */
-  const notLiveWhy = (c) => (c && c.status === "waiting" ? "Trades once an admin records the contract." : c && c.kind === "vicinity" ? "Trades once $VICINITY launches on Raydium LaunchLab." : "Trades once the founder launches it on Raydium LaunchLab.");
+  /**
+   * Why a coin cannot be bought yet, in plain words. `lp`: the launchpad is set up (no admin records a contract then). `ready`: the
+   * ready-made city coin is on (/api/official coinV2Ready, COIN_V2_READY): a city coin launches on the Vicinity launchpad, and a waiting
+   * contract is never recorded either (src/coins.js).
+   */
+  const notLiveWhy = (c, lp = lpOn, ready = readyOn) => (c && c.status === "waiting"
+    ? (lp || ready ? "A contract from the old Raydium LaunchLab path is waiting; nothing launches until an admin settles it." : "Trades once an admin records the contract.")
+    : c && c.kind === "vicinity" ? "Trades once $VICINITY launches on Raydium LaunchLab."
+      : lp ? "Trades once an admin approves it on chain and the founder launches it on the Vicinity launchpad."
+        : ready ? "Trades once its founder launches it on the Vicinity launchpad." : "Trades once the founder launches it on Raydium LaunchLab.");
   /** The founder line: the handle, or the masked wallet (never a full address, even if the server slipped). */
   function founderText(f) {
     if (!f || (!f.handle && !f.wallet)) return "No founder yet";
@@ -392,7 +417,7 @@
     return `Read from the price-curve settings on Solana${shortAddr(f && f.config) ? ` (${shortAddr(f.config)})` : ""}${hhmm(f && f.readAt) ? ` at\u00a0${hhmm(f.readAt)}` : ""}${halves}`;
   };
 
-  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
+  const pure = { NEW_DAYS, TABS, SORTS, TAB_NOTE, TAB_NOTE_LP, TAB_NOTE_READY, norm, searchText, matches, inTab, isNew, counts, rowsFor, money, fullMoney, count, fullCount, pct, communityText,
     countdownText, ageSeconds, agoText, statusLabel, notLiveWhy, founderText, pairText, links, viewHref, logoSrc, colorOf, initialsOf, cardKey, stateFromUrl, urlFor,
     coinHref, chipOf, priceSource, shortSource, statCells, curveFoot, curveView, venueLine, shapeOf, sparkPick, sparkGeometry, sparkLabel, sparkWhy, hhmm, feesSource };
   window.VLaunchpad = { pure };
@@ -421,8 +446,10 @@
     const h = featured ? 120 : 56, box = field(el("div", `lp-spark${featured ? " lp-spark--lg" : ""}`), "spark"); // its height in CSS: the end dot stays round
     box.setAttribute("aria-hidden", "true");
     if (!isLive(c)) {
-      box.classList.add("is-empty"); box.dataset.sig = "wait";
-      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", "Not trading yet. Nothing is minted."));
+      // a contract sent for the city (waiting) may be a minted coin already, only not traded here; nothing is minted otherwise
+      const sent = c && c.status === "waiting";
+      box.classList.add("is-empty"); box.dataset.sig = sent ? "wait:sent" : "wait";
+      box.append(el("span", "lp-spark__dash"), el("span", "lp-spark__msg", sent ? "Not trading here yet." : "Not trading yet. Nothing is minted."));
       return box;
     }
     const hit = sparks.get(c.mint);
@@ -670,7 +697,7 @@
     const n = Object.fromEntries(TABS.map((t) => [t, rowsFor(cards, { ...opts, tab: t }).length]));
     tabs().forEach((b) => { const on = b.dataset.tab === state.tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; const c = b.querySelector("[data-count]"); if (c) { c.textContent = String(n[b.dataset.tab] || 0); c.classList.toggle("is-zero", !n[b.dataset.tab]); } });
     $("#lp-panel").setAttribute("aria-labelledby", `lp-tab-${state.tab}`);
-    $("#lp-tabnote").textContent = TAB_NOTE[state.tab];
+    $("#lp-tabnote").textContent = (readyOn && TAB_NOTE_READY[state.tab]) || (lpOn && TAB_NOTE_LP[state.tab]) || TAB_NOTE[state.tab];
     const rows = rowsFor(cards, opts);
     const cities = rows.filter((c) => c.kind !== "vicinity").length; // the city coins drawn (the empty card speaks when there is none)
     const keep = focusKey();
@@ -686,7 +713,7 @@
     else if (cities) { retry.hidden = true; }
     else if (none) { say("No city coin is live yet", opensAt() <= now ? "The first city coin appears here the moment its founder's contract is confirmed." : "The Launchpad opens at 10:10 AM New York time."); retry.hidden = true; }
     else if (filtered) { say("No city coin matches", "Try another word, or clear the filters."); retry.hidden = true; }
-    else if (state.tab === "upcoming") { say("Nothing waiting", "No coin is waiting right now. A city's coin shows here as soon as its founder designs it."); retry.hidden = true; }
+    else if (state.tab === "upcoming") { say("Nothing waiting", `No coin is waiting right now. A city's coin shows here as soon as its founder ${readyOn ? "chooses" : "designs"} it.`); retry.hidden = true; }
     else if (state.tab === "new") { say("Nothing new", `No coin went live in the last ${NEW_DAYS} days.`); retry.hidden = true; }
     else { say("No city coin is live yet", "The first city coin appears here the moment its founder's contract is confirmed."); retry.hidden = true; }
     empty.hidden = !(data || fails) || Boolean(data && cities);
@@ -811,6 +838,13 @@
     started = true;
     const fromUrl = stateFromUrl(location.search);
     state.tab = fromUrl.tab; state.q = fromUrl.q; $("#lp-q").value = fromUrl.q;
+    // with the launchpad set up the status filter names a waiting contract the way its cards do
+    if (lpOn) for (const o of $$("#lp-status option")) if (o.value === "waiting") o.textContent = WAITING_LP[0];
+    // with the ready-made coin on, a coin not launched yet is chosen (made by Vicinity) or an older studio design: the filter and the
+    // section's own sentence say so
+    if (readyOn) for (const o of $$("#lp-status option")) if (o.value === "designed") o.textContent = "Chosen or designed";
+    for (const e of $$("[data-designed-copy]")) e.hidden = readyOn;
+    for (const e of $$("[data-ready-copy]")) e.hidden = !readyOn;
     wire();
     render(); // the controls are wired at once; the first answer fills them (the placeholders hold the room meanwhile)
     load();
@@ -829,5 +863,5 @@
   // the coin page and the admin tab follow): the sources fold names it instead of Raydium LaunchLab. Without it nothing changes.
   // The section ships visible (its placeholders hold the room: nothing jumps); with the switch off it goes, and nothing is asked for.
   const lpCopy = (on) => { for (const e of $$("[data-launchlab-copy]")) e.hidden = on; for (const e of $$("[data-lp-only]")) e.hidden = !on; };
-  official.then((o) => { swapOn = Boolean(o && o.swap === true); if (o && o.cityCoins) { lpCopy(true); paintFees(); } if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
+  official.then((o) => { swapOn = Boolean(o && o.swap === true); lpOn = Boolean(o && o.cityCoins); readyOn = Boolean(o && o.coinV2Ready === true); if (lpOn) { lpCopy(true); paintFees(); } if (o && o.launchpadV2 === true) start(); else sec.hidden = true; });
 })();

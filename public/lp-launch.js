@@ -8,7 +8,8 @@
 // signs, signs and the site's relay sends).
 // Only textContent here: nothing from the server is ever HTML. No inline script, no inline style, no element ids made.
 //   LPLaunch.probe()                         -> Promise<{ on, cluster, configsSet, speedTable } | null>
-//   LPLaunch.founder(card, { cityId, design })  the founder card: approved / signing / done / expired / paused / not approved
+//   LPLaunch.founder(card, { cityId, design, ready })  the founder card: approved / signing / done / expired / paused / not approved
+//                                            (ready: COIN_V2_READY is on, so a coin is chosen with "Use this coin", never in the studio)
 //   LPLaunch.graduate(box, { mint, ticker })    the coin page's "Move to the open market" (then the leftover step)
 //   The launched founder card also shows the coin's founder fees read from the chain (GET /api/fee-status, src/feestatus.js): where
 //   they go, earned, collected (or paid out), what is in the fee vault, what is still in the curve or the pool, and what the Collect
@@ -253,8 +254,10 @@
     if (!more) return false;
     return !(isSlot(f.slot) && isSlot(r.source.slot) && r.source.slot >= f.slot);
   }
-  /** What the card says for a status answer: { state, tag: [text, class], lines: [...], canLaunch }. */
-  function view(st, design = null) {
+  /** The one step left before an approval while the ready-made coin is on (COIN_V2_READY): the studio is closed then. */
+  const READY_STEP = "Choose your city coin above (Use this coin); then Vicinity's owner approves it on the blockchain.";
+  /** What the card says for a status answer: { state, tag: [text, class], lines: [...], canLaunch }. `ready`: COIN_V2_READY is on. */
+  function view(st, design = null, { ready = false } = {}) {
     const s = st && st.ok ? st.state : "error";
     const ticker = st && st.coin && st.coin.symbol ? `$${st.coin.symbol}` : st && st.ticker ? `$${st.ticker}` : "your coin";
     switch (s) {
@@ -264,8 +267,11 @@
       case "paused": return { state: s, tag: ["Paused", "tag--warn"], canLaunch: false, lines: [st.message || "Launches are paused for now. Your approval stays; try again later."] };
       case "not_approved": {
         const lines = [st.message || NOT_APPROVED];
-        if (design && design.pair && design.pair !== "SOL") lines.push(`Your design is paired with ${design.pair}. Pick SOL in the coin studio and save, then ask an admin to approve it.`);
-        if (!design) lines.push("Design your coin first in the coin studio (its name, logo and colour), then ask an admin to approve it.");
+        if (ready) { if (!design || (design.pair && design.pair !== "SOL")) lines.push(READY_STEP); }
+        else {
+          if (design && design.pair && design.pair !== "SOL") lines.push(`Your design is paired with ${design.pair}. Pick SOL in the coin studio and save, then ask an admin to approve it.`);
+          if (!design) lines.push("Design your coin first in the coin studio (its name, logo and colour), then ask an admin to approve it.");
+        }
         return { state: s, tag: ["Not approved yet", ""], canLaunch: false, lines };
       }
       default: return { state: "error", tag: [st && st.error === "founder_mismatch" ? "Wrong wallet" : "Not available", "tag--warn"], canLaunch: false,
@@ -289,7 +295,7 @@
   /** The status line for lp-sign.js's onStatus(state, signature, extra). */
   const statusText = (s, extra) => (s === "confirming" && extra && extra.unclear ? STATUS.unclear : STATUS[s] || s);
 
-  const pure = { parseSol, solText, coinsText, dateText, leftText, feeNote, shareNote, feesFrom, view, gradView, statusText, hhmm, whenText, exactAmount, maskOf, isAddr, feeCardView, freshAfterCollect, statusFresh, olderThanStatus, statusTells, keptOf, unclearWait, UNCLEAR_MS, NOT_APPROVED, STATUS, MIGRATE_TEXT };
+  const pure = { parseSol, solText, coinsText, dateText, leftText, feeNote, shareNote, feesFrom, view, READY_STEP, gradView, statusText, hhmm, whenText, exactAmount, maskOf, isAddr, feeCardView, freshAfterCollect, statusFresh, olderThanStatus, statusTells, keptOf, unclearWait, UNCLEAR_MS, NOT_APPROVED, STATUS, MIGRATE_TEXT };
   const root = typeof window !== "undefined" ? window : globalThis;
   root.LPLaunch = { pure };
   if (typeof document === "undefined" || !root.V) return; // node: the helpers are enough
@@ -432,7 +438,7 @@
    * browser brought the page back from its back/forward cache while the card showed a launched coin (restored).
    */
   async function founder(card, opts = {}) {
-    const { cityId, design = null } = opts;
+    const { cityId, design = null, ready = false } = opts;
     restored.delete(card);
     const p = await probe();
     if (!p) { card.hidden = true; return { on: false }; }
@@ -441,7 +447,7 @@
     if (st && st.error === "not_enabled") { card.hidden = true; return { on: false }; }
     card.hidden = false;
     netLine(card.querySelector("[data-lp-net]"), p.cluster);
-    const v = view(st, design);
+    const v = view(st, design, { ready });
     tag.textContent = v.tag[0]; tag.className = `tag ${v.tag[1]}`.trim();
     const title = card.querySelector("h2");
     if (title) title.textContent = v.state === "launched" ? "Your city coin" : "Launch your city coin";
@@ -449,7 +455,8 @@
     const again = async () => { const r = await founder(card, opts); if (typeof opts.onChange === "function") opts.onChange(r); return r; };
     if (v.state === "ready") readyView(body, st, p, again);
     else if (v.state === "launched") restored.set(card, { ...launchedView(body, st, p, again), again });
-    return { on: true, state: v.state };
+    // why it is paused, in the server's words (the Founder card says the same thing: a review pause is not "launches are paused")
+    return { on: true, state: v.state, ...(st && st.ok && st.why ? { why: st.why, message: st.message || null } : {}) };
   }
   /**
    * The launched cards on this page, for the page the browser brings back from its back/forward cache (Back or Forward in this

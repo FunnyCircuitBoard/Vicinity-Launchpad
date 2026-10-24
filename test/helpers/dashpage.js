@@ -58,8 +58,15 @@ export function memberMe({ wallet = null, handle = "SwiftHarbor10", name = "Sa N
  *   wallets          Wallet Standard wallets in this browser ([] = none, like a phone's Safari)
  *   confirm          the answer to window.confirm (default true)
  *   globals          browser features this window lacks by default, set before the scripts run (e.g. { ResizeObserver })
+ *   without          page scripts that did not load (["wallets.js"]: its request failed): the others still run, and one that throws
+ *                    stops only itself, as in a browser (scriptErrors)
+ *   theme            theme.js runs first, as from <head> (its marks, its hold's way out), and DOMContentLoaded fires once the deferred
+ *                    scripts have run, as in a browser
+ *   meDelay          page time (ms) before /api/me answers (Infinity: never); /api/me?lite=1 (the header's) answers at once
+ *   v2Delay          page time (ms) /dashboard-v2.js takes to load once dashboard.js asks for it
+ *   atDefer(doc, win) runs after theme.js and before the deferred scripts (what happened while they loaded)
  */
-export async function openDashboard({ ua = UA.desktop, search = "", hash = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {} } = {}) {
+export async function openDashboard({ ua = UA.desktop, search = "", hash = "", me = memberMe(), api = async () => undefined, storage = {}, session: sessionStore = {}, wallets = [], confirm = true, touchPoints, official = { ok: true }, globals = {}, without = [], theme = false, meDelay = 0, v2Delay = 0, atDefer = null } = {}) {
   const doc = new Doc();
   doc.append(...parse(doc, read("dashboard.html")));
   let now = 0, seq = 0, hidden = false;
@@ -98,12 +105,14 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
       pushState: (st, title, url) => { const u = new URL(url, loc.origin); loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; addressBar.push(loc.href); } },
     navigator: { userAgent: ua, maxTouchPoints: touchPoints ?? (/iPhone|Android/.test(ua) ? 5 : 0), clipboard: { writeText: async () => {} } },
     localStorage: store(local), sessionStorage: store(session),
-    matchMedia: () => ({ matches: true, addEventListener() {} }), // reduced motion: nothing animates, the ring is set at once
+    // reduced motion: nothing animates, the ring is set at once; any other query is false (a computer: the text tab strip, the popover)
+    matchMedia: (q) => ({ matches: /prefers-reduced-motion: reduce/.test(String(q)), addEventListener() {} }),
     fetch: async (path, init = {}) => {
       path = String(path);
       const body = init.body ? JSON.parse(init.body) : undefined;
       calls.push({ path, method: init.method || "GET", body, at: now });
       await null;
+      if (meDelay && path === "/api/me") await new Promise((r) => setTimeout_(r, meDelay));
       let d;
       if (path === "/api/me" || path.startsWith("/api/me?")) d = meAnswer();
       else if (path === "/api/official") d = official;
@@ -132,10 +141,13 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
   // do not (the switch is off in these tests)
   const head = doc.querySelector("head");
   head.append = (s) => {
-    if (s.src === "/dashboard-v2.js") { vm.runInContext(read("dashboard-v2.js"), ctx, { filename: "public/dashboard-v2.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    if (s.src === "/dashboard-v2.js") { vm.runInContext(read("dashboard-v2.js"), ctx, { filename: "public/dashboard-v2.js" }); if (v2Delay) setTimeout_(() => s.onload && s.onload(), v2Delay); else Promise.resolve().then(() => s.onload && s.onload()); }
     else if (s.src === "/vendor/qrcode.js") { vm.runInContext(read("vendor/qrcode.js"), ctx, { filename: "public/vendor/qrcode.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     // the Wallet tab's Send (WALLET_SEND=on: dashboard.js asks for it when /api/me says walletSend), and the signing module it uses
     else if (s.src === "/wallet-send.js") { vm.runInContext(read("wallet-send.js"), ctx, { filename: "public/wallet-send.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    // the ready-made city coin (COIN_V2_READY=on: dashboard.js asks for it when /api/me says coinV2Ready)
+    else if (s.src === "/coin-ready.js") { vm.runInContext(read("coin-ready.js"), ctx, { filename: "public/coin-ready.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
+    else if (s.src === "/coin-review.js") { vm.runInContext(read("coin-review.js"), ctx, { filename: "public/coin-review.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else if (s.src === "/lp-sign.js") { vm.runInContext(read("lp-sign.js"), ctx, { filename: "public/lp-sign.js" }); Promise.resolve().then(() => s.onload && s.onload()); }
     else Promise.resolve().then(() => s.onerror && s.onerror(new Error("not here")));
   };
@@ -152,7 +164,14 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
     }
     now = until; await flush();
   }
-  for (const f of ["site.js", "wallets.js", "dashboard-roles.js", "dashboard.js"]) vm.runInContext(read(f), ctx, { filename: `public/${f}` });
+  const scriptErrors = [];
+  if (theme) vm.runInContext(read("theme.js"), ctx, { filename: "public/theme.js" });
+  if (atDefer) atDefer(doc, win);
+  for (const f of ["site.js", "wallets.js", "dashboard-roles.js", "dashboard.js"]) {
+    if (without.includes(f)) continue;
+    try { vm.runInContext(read(f), ctx, { filename: `public/${f}` }); } catch (e) { if (!without.length) throw e; scriptErrors.push(e); }
+  }
+  if (theme) for (const l of doc.listeners.filter((x) => x.type === "DOMContentLoaded")) l.fn.call(doc, newEvent("DOMContentLoaded"));
   const register = (w) => { for (const l of win.listeners.filter((x) => x.type === "wallet-standard:register-wallet")) l.fn({ detail: (a) => a.register(w) }); };
   for (const w of wallets) register(w);
   await flush();
@@ -164,7 +183,7 @@ export async function openDashboard({ ua = UA.desktop, search = "", hash = "", m
   const $ = (s) => doc.querySelector(s);
   const visible = (e) => Boolean(e && e.getClientRects().length);
   return {
-    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms,
+    doc, win, $, $$: (s) => doc.querySelectorAll(s), calls, assigned, replaced, addressBar, local, session, timers, flush, confirms, scriptErrors,
     /** A Wallet Standard wallet registers now (a wallet app's browser injects it a moment late). */
     register: async (w) => { register(w); await flush(); noteToast(); },
     advance: async (ms) => { await advance(ms); noteToast(); },

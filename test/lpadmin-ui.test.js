@@ -254,3 +254,49 @@ test("a cancelled wallet: the page says so and records nothing", async () => {
   assert.equal(t.calls.some((c) => c.path === "/api/admin/lp/record"), false);
   assert.ok(t.button("Cancel"), "the owner can close it");
 });
+
+test("COIN_V2_READY: a ready-made coin's card shows the exact picture and version that go into its metadata (never the badge line), and approving sends that version", async () => {
+  const HASH = "3f9a2c1b" + "e".repeat(56), ART = `/coin-meta/art/${"b".repeat(64)}.png`;
+  const ready = { ...CANDIDATES.candidates[0], name: "New York City", pitch: "The city coin of New York City, New York, United States.", logo: false, logoStatus: null, approved: false,
+    ready: { version: HASH.slice(0, 8), contentHash: HASH, template: "t1", art: ART, description: "New York City: pizza, parks and the subway at 3 a.m.", descriptionBy: "founder" } };
+  const bodies = [];
+  const t = await tab({ answers: {
+    "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": { ...CANDIDATES, candidates: [ready] },
+    "/api/admin/lp/approve/tx": (b) => { bodies.push(b); return { ok: true, step: "approve", cluster: "mainnet", summary: [approveEntry({ name: "New York City" })], record: { step: "approve", params: { cityId: b.cityId } } }; },
+  } });
+  assert.match(t.text(), new RegExp(`Picture \\(wallets show it, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}: this exact picture goes into the coin metadata for ever`));
+  assert.doesNotMatch(t.text(), /the Vicinity badge is used|wallets show the Vicinity badge/, "a ready-made coin never shows the badge line");
+  const img = t.panel.querySelector(".lp-ready-art img");
+  assert.ok(img, "the picture itself is on the card");
+  assert.equal(img.getAttribute("src"), ART);
+  assert.match(img.alt, new RegExp(`version ${HASH.slice(0, 8)}`));
+  t.button("Approve on chain").click(); await tick();
+  assert.equal(plain(bodies[0]).contentHash, HASH, "the approval names the exact version the card showed");
+  assert.match(t.panel.querySelector(".lp-approve").textContent, new RegExp(`Picture \\(the coin's metadata, for ever\\)Vicinity design t1, version ${HASH.slice(0, 8)}`));
+  // BATCH-1: the approve check shows the description that goes into the metadata for ever, and whose words they are
+  assert.match(t.panel.querySelector(".lp-approve").textContent, /Description \(the coin's metadata, for ever\)The founder's own wordsNew York City: pizza, parks and the subway at 3 a\.m\./);
+});
+
+test("a city whose Raydium LaunchLab contract still waits: 'Reject the old contract' on its card (candidate or approved) asks first, posts only the city, then reads the list again; no other card has it", async () => {
+  const W = (c) => ({ ...c, legacyContract: true });
+  const settled = new Set();
+  const list = () => ({ ...CANDIDATES,
+    candidates: CANDIDATES.candidates.map((c) => (c.cityId === "5140405" && !settled.has("5140405") ? W({ ...c, reasons: [...c.reasons, "A Raydium LaunchLab contract sent for this city through the old path is still waiting."] }) : c)),
+    approvals: CANDIDATES.approvals.map((a) => (settled.has(a.cityId) ? a : W(a))) });
+  const t = await tab({ answers: {
+    "/api/admin/lp/status": statusOf(), "/api/admin/lp/candidates": list,
+    "/api/admin/lp/legacy/reject": (b) => { settled.add(b.cityId); return { ok: true, cityId: b.cityId }; },
+  } });
+  const rejects = () => t.panel.querySelectorAll("button").filter((b) => b.textContent === "Reject the old contract");
+  assert.equal(rejects().length, 2, "Syracuse (a candidate) and Albany (approved): not New York City");
+  const confirms = [];
+  t.win.confirm = (m) => { confirms.push(m); return confirms.length > 1; };
+  rejects()[0].click(); await tick(20);
+  assert.match(confirms[0], /City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded\./, "it shows the words the log and the founder get");
+  assert.equal(t.calls.filter((c) => c.path.startsWith("/api/admin/lp/legacy/reject")).length, 0, "cancelled: nothing sent");
+  rejects()[0].click(); await tick(30);
+  const sent = t.calls.filter((c) => c.path.startsWith("/api/admin/lp/legacy/reject"));
+  assert.deepEqual(sent.map((c) => [c.post, plain(c.body)]), [[true, { cityId: "5140405", cluster: "mainnet" }]], "a POST (a fresh wallet proof, like every POST of the tab) with the city only");
+  assert.deepEqual(t.toasts, ["Rejected: the city is settled"]);
+  assert.equal(rejects().length, 1, "the list read again: Syracuse is settled, Albany still waits");
+});

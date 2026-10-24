@@ -29,6 +29,10 @@ import { _resetLaunchlab } from "./launchlab.js";
 import { getAllHolders, holderSnapshot, isTeamWallet } from "./chain.js";
 import { DAY, iso } from "./policy.js";
 import { applyLpMarket, curvesFor, lpLinks, recordedCoins } from "./lpcoins.js";
+import { madeByOf, readyChoices } from "./coinart-store.js";
+import { choiceHolds } from "./coinready.js";
+import { coinV2ReadyOn } from "./flags.js";
+import { onForget } from "./memos.js";
 
 const SOL = PAIRS.SOL.mint;
 const NEW_DAYS = 7; // "New" = live for less than this (a default, see the product decisions in the report)
@@ -77,6 +81,9 @@ async function countryName(env, cc) {
 }
 /** Forget everything this server remembers for the Launchpad: the list, the country names, every market source's answers. */
 export const _resetLaunchpad = () => { countryNames = null; memo = new WeakMap(); _resetMarketLive(); _resetLaunchlab(); };
+/** Forget this server's copy of the list (an admin's takedown changed a coin's words: src/cointakedown.js); the market answers stay. */
+export const forgetLaunchpadList = (env) => { if (env && env.DB) memo.delete(env.DB); };
+onForget(forgetLaunchpadList);
 
 /** Holder counts the job wrote: Map(mint -> { count, asOf }). Empty, and a note in the log, when the table cannot be made. */
 async function holderCounts(env) {
@@ -151,6 +158,10 @@ async function build(env, fetchImpl, now) {
 
   // the ticker each card shows: the chain's symbol for a launched coin (one query for all of them), else the city list's
   const chainSymbols = await chainSymbolsOf(env, coins.filter((c) => c.mint).map((c) => c.mint));
+  // who made each design and whether it is chosen (src/coinart-store.js madeByOf): read only with the ready-made coin on or a coin
+  // launched, one query for all
+  let choices = new Map();
+  if (coinV2ReadyOn(env) || coins.some((c) => c.mint)) { try { choices = await readyChoices(env.DB); } catch (e) { console.error("coin choices unavailable", shortErr(e)); } }
   const cards = [];
   for (const c of coins) {
     const seat = seats.get(String(c.city)) || null;
@@ -158,8 +169,13 @@ async function build(env, fetchImpl, now) {
       handle: handles.get(String(c.city)) || null, // the username or nothing: never a display name, never a wallet
       wallet: mask(seat.wallet), status: seat.status,
     } : null;
+    // chosen: false for a choice the city list moved away from (src/coinready.js choiceHolds): Vicinity's design, nobody's choice now
+    const choice = choices.get(String(c.city)) || null;
+    let made = null;
+    try { made = await madeByOf(env, c, choice, () => choiceHolds(env, { cityId: c.city, country: c.country }, choice)); }
+    catch (e) { console.error("coin maker unknown", shortErr(e)); }
     cards.push({
-      kind: "city", status: c.mint ? "live" : c.waiting ? "waiting" : "designed",
+      kind: "city", status: c.mint ? "live" : c.waiting ? "waiting" : "designed", ...(made ? { madeBy: made.by, chosen: made.chosen } : {}),
       city: { id: String(c.city), name: c.cityName, country: c.country },
       ticker: (await displayTicker(env, { cityId: c.city, chainSymbol: (c.mint && chainSymbols.get(c.mint)) || null }))?.ticker || null, name: c.name, pitch: c.pitch || "", color: c.color, logo: c.logo,
       pair: { symbol: c.pair, mint: c.pairMint }, mint: c.mint, launchedAt: c.launchedAt, designedAt: c.updatedAt,

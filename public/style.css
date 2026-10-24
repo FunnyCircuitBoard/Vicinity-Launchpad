@@ -200,8 +200,12 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
    site.js shows it again (.is-shown) once the answer says signed out, and hides it for a member or a sign-in in progress. On /connect the
    page itself is the sign-up. */
 :root:not([data-guest]) [data-signup]:not(.is-shown), body[data-page="connect"] [data-signup] { display: none; }
+/* a phone: 8 px under the top of the screen, or under the status bar of a notched iPhone in a full-screen web view (viewport-fit=cover:
+   env(safe-area-inset-top), 47 to 59 px). Its place in the page is the same as where it sticks, and --header-h (its bottom edge) follows,
+   so the dashboard's strip, the anchors and the sheets stay under it instead of sliding beneath it */
 @media (max-width: 900px) {
-  .site-header { top: max(8px, env(safe-area-inset-top)); width: auto; height: 52px; margin: 8px 8px 0; padding: 0 6px 0 10px; border-radius: 14px; }
+  :root { --header-h: calc(max(8px, env(safe-area-inset-top)) + 52px); }
+  .site-header { top: max(8px, env(safe-area-inset-top)); width: auto; height: 52px; margin: max(8px, env(safe-area-inset-top)) 8px 0; padding: 0 6px 0 10px; border-radius: 14px; }
   .site-header__inner { display: flex; gap: 12px; }
   .nav { display: none; }
 }
@@ -217,11 +221,13 @@ code { font-family: var(--mono); font-size: .88em; background: var(--card-2); pa
 @media (max-width: 440px) { .account-btn [data-account-label] { display: inline-block; max-width: max(3.2em, calc(100vw - 232px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } }
 
 /* ---------- the phone tab bar: Home, Launchpad, Map, Token, Me ----------
-   Glass along the bottom edge; the page you are on has its label in full colour, its icon in the accent and a small accent pill above it
-   (.tabbar__ind, which glides to the new tab during a page transition: view-transition-name tab-ind) */
+   Opaque along the bottom edge, like the dashboard's strip (polish-dash.css): the strong glass colour laid on the page's own colour, no
+   backdrop blur, so page text scrolling under it never reads through its labels, in either theme. The page you are on has its label in
+   full colour, its icon in the accent and a small accent pill above it (.tabbar__ind, which glides to the new tab during a page
+   transition: view-transition-name tab-ind) */
 .tabbar { display: none; }
 @media (max-width: 900px) {
-  .tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 1px 0 var(--glass-border); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); view-transition-name: tabbar; }
+  .tabbar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: linear-gradient(var(--glass-bg-strong), var(--glass-bg-strong)), var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: inset 0 1px 0 var(--glass-border); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); view-transition-name: tabbar; }
   .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 12px; color: var(--muted); text-decoration: none; font-size: .75rem; font-weight: 600; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .tabbar a svg { width: 24px; height: 24px; }
   .tabbar a[aria-current="page"] { color: var(--text); }
@@ -1214,6 +1220,16 @@ html.map-is-full, html.map-is-full body { overflow: hidden; }
 /* a guest (theme.js, before the first paint): while /api/me answers, the signed-out page holds its place unseen (no Tab stop, nothing
    read out), so nothing under it moves when it shows; dashboard.js drops .is-pending on the answer. Without JavaScript it stays hidden. */
 :root[data-guest] .dash-out.is-pending[hidden] { display: block !important; visibility: hidden; }
+/* a browser that has shown a member here (theme.js data-returning: its storage said so; nothing is held where it cannot be read): until
+   /api/me answers, the public roles section waits, so a returning member's first paint is never the rules at the top of the page, then a
+   jump (CLS 0.93 at 390 px). A browser whose last visit was the tabbed dashboard (theme.js data-dash-v2) shows its placeholders from the
+   first paint. Both give way when dashboard.js drops .is-pending (in the same task as what takes their place), or when theme.js does
+   because dashboard.js never will (a script that failed or threw, no answer 12 s after the page's scripts ran); the roles also wait
+   while the placeholders show (the tabbed dashboard folds them into its Profile tab). Meanwhile the page is at least a screen tall, so the
+   footer waits below the fold instead of jumping down from mid-screen when the page fills in */
+:root[data-dash-v2] .dash-out.is-pending ~ #dash-skel[hidden] { display: block !important; }
+:root[data-returning] .dash-out.is-pending ~ #roles, #dash-skel:not([hidden]) ~ #roles { display: none; }
+:root[data-returning] main:has(> .dash-out.is-pending), main:has(> #dash-skel:not([hidden])) { min-height: 100vh; }
 .teaser { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: center; }
 @media (max-width: 900px) { .teaser { grid-template-columns: minmax(0, 1fr); gap: 34px; } }
 .onboard { max-width: 720px; margin: 0 auto; }
@@ -1294,6 +1310,8 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .post { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
 .post.is-hidden { opacity: .55; border-style: dashed; }
 .post__vote { grid-row: span 3; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+/* a picture makes a fourth row: the picture and the actions stay in the text column (auto-placed, the actions fell under the vote and widened it) */
+.post__vote ~ .post__img, .post__vote ~ .post__actions { grid-column: 2; }
 .post__vote button { width: 38px; height: 34px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card-2); color: var(--muted); cursor: pointer; font-size: .95rem; }
 .post__vote button[aria-pressed="true"] { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--pin), var(--gold)); }
 .post__vote strong { font-variant-numeric: tabular-nums; font-size: .9rem; }
@@ -1311,7 +1329,7 @@ body.layout-edit .layout-bar { display: flex; align-items: center; gap: 8px; mar
 .post__replies li { font-size: .9rem; }
 .reply-form { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }
 .reply-form input { flex: 1; background: var(--card-2); border: 1px solid var(--field-line); border-radius: 10px; padding: 7px 10px; font-size: .9rem; min-width: 0; }
-.posts--compact .post { grid-template-columns: minmax(0, 1fr); }
+.posts--compact .post, .post__replies > .post { grid-template-columns: minmax(0, 1fr); } /* rows without a vote: one column */
 .empty-feed { text-align: center; padding: 26px 10px; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 16px; }
 .empty-feed strong { display: block; color: var(--text); font-family: var(--display); font-size: 1.1rem; margin-bottom: 4px; }
 .community-card__head { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }

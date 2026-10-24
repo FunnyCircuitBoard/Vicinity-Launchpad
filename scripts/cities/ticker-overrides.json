@@ -1,0 +1,4 @@
+{
+  "about": "Tickers changed by an approved change request (COIN_V2_REVIEW, src/coinreview.js; DESIGN decision D8), by GeoNames city id. scripts/cities/tickers.mjs gives each of these cities exactly this ticker and gives it to nobody else; the build fails if one cannot hold (a launched coin's pin always wins, and a pinned or another overridden ticker is never taken). Add a line only for a request a reviewer approved (the admin's Coin reviews queue shows the line to add), by pull request; the founder's launch waits until the deploy carries it. Never change a line once that city's coin is launched (its pin then holds it). Empty on 23 Oct 2026.",
+  "overrides": {}
+}

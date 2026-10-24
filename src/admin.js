@@ -35,8 +35,9 @@ import { handleLpAdmin } from "./lpadmin.js";
 import { rpcHealth } from "./rpcpool.js";
 import { dropLogins } from "./logins.js";
 import { decidePicture, listPictures, logDecision, waitingPictures } from "./logos.js";
+import { decideReview, listReviews, pendingReviews, reviewArt } from "./coinreview.js";
 import { attempt, notify, pictureReason } from "./notify.js";
-import { notifyOn } from "./flags.js";
+import { coinV2ReviewOn, notifyOn } from "./flags.js";
 
 const ROLES = ["moderator", "admin", "owner"];
 const LEVEL = { moderator: 1, admin: 2, owner: 3 };
@@ -132,7 +133,8 @@ async function handleMe(request, env, now) {
   await ensureSchema(env.DB);
   const c = await adminCaller(request, env, now);
   if (!c) return json({ ok: false, error: "sign_in" }, 401);
-  return json({ ok: true, wallet: c.wallet, role: await adminRoleOf(env, c.wallet) });
+  // COIN_V2_REVIEW on: the page adds the "Coin reviews" queue to Moderation (no key at all with the switch off)
+  return json({ ok: true, wallet: c.wallet, role: await adminRoleOf(env, c.wallet), ...(coinV2ReviewOn(env) ? { coinReviews: true } : {}) });
 }
 
 /** Feed v2: a reported post its author deleted is nobody's to review here (once the column exists; on today's database the text is empty). */
@@ -164,6 +166,8 @@ async function handleOverview(ctx) {
     launchedCityCoins: coins.n,
     snapshots: snaps.n,
     latestSnapshot: snaps.latest,
+    // city-coin requests waiting for a reviewer (COIN_V2_REVIEW on only: no key at all with the switch off)
+    ...(coinV2ReviewOn(ctx.env) ? { pendingCoinReviews: await pendingReviews(db) } : {}),
   });
 }
 
@@ -782,6 +786,22 @@ export async function handleAdmin(request, env, now = Date.now(), fetchImpl = fe
 
   // the City coins tab (src/lpadmin.js): not there at all without its settings (lpSetup); then the owner only, a fresh proof on every POST
   if (rel === "lp" || rel.startsWith("lp/")) return !lpSetup(env).on ? json({ ok: false, error: "not_enabled" }, 404) : run(method === "GET" ? need("owner") : await needPost("owner"), (c) => handleLpAdmin(request, { ...c, fetchImpl }, rel.slice(3), now));
+
+  // the city-coin review queue (COIN_V2_REVIEW on, src/coinreview.js): every role may look; admins and the owner decide, with a fresh
+  // proof, and never on their own city's coin. With the switch off these are unknown paths, answered as the default below answers them
+  if (coinV2ReviewOn(env) && (rel === "coins/reviews" || rel.startsWith("coins/reviews/"))) {
+    if (rel === "coins/reviews") { const b = only("GET"); return b || run(need("moderator"), async (c) => json(await listReviews(env, c.now, fetchImpl), 200, { "Cache-Control": "no-store" })); }
+    if (rel === "coins/reviews/art") { const b = only("GET"); return b || run(need("moderator"), () => reviewArt(env, request.url)); }
+    if (rel === "coins/reviews/decide") {
+      const b = only("POST");
+      return b || run(await needPost("admin"), async (c) => {
+        const r = await decideReview(env, c, await readJson(request, 4096), fetchImpl);
+        if (!r.ok) return json({ ok: false, error: r.error, ...(r.message ? { message: r.message } : {}) }, r.status, { "Cache-Control": "no-store" });
+        return json(r, 200, { "Cache-Control": "no-store" });
+      });
+    }
+    return json({ ok: false, error: "not_found" }, 404);
+  }
 
   switch (rel) {
     case "me": { const b = only("GET"); return b || handleMe(request, env, now); }

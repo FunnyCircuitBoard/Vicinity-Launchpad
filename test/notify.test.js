@@ -55,12 +55,12 @@ after(() => realClock());
 
 /* ---------------- the switch ---------------- */
 
-test("notifyOn: exactly 'on', trimmed, any letter case; the switch is listed in wrangler.jsonc, off for this step", () => {
+test("notifyOn: exactly 'on', trimmed, any letter case; the switch is listed in wrangler.jsonc", () => {
   for (const v of ["on", " on ", "ON", "On", "\ton\n"]) assert.equal(notifyOn({ NOTIFY: v }), true, JSON.stringify(v));
   for (const v of [undefined, "", "off", "true", "1", "yes", "v2", "onn"]) assert.equal(notifyOn(v === undefined ? {} : { NOTIFY: v }), false, JSON.stringify(v));
   assert.equal(notifyOn(undefined), false);
   assert.equal(notifyOn({ NOTIFY: true }), false, "a boolean is not the word on");
-  assert.match(read("wrangler.jsonc"), /\n    "NOTIFY": "off",?\n/, "off in wrangler.jsonc for this step; flipping it is that one word");
+  assert.match(read("wrangler.jsonc"), /\n    "NOTIFY": "(on|off)",?\n/, "the switch is listed in wrangler.jsonc (on since 17 Oct 2026; flipping it is that one word)");
   assert.deepEqual([...KINDS], ["reply", "moderation", "picture", "founder", "election"]);
 });
 
@@ -555,14 +555,14 @@ async function noticesPage({ notices = NOTICES, unread = 2, prefs = { reply: tru
   return { ...p, errors };
 }
 
-test("page: the Notifications tab shows with the switch on (after Feed, the bell, the unread count in its badge, its name and the header), the list opens with unread rows marked and links to the right tab, the shown rows count as read after 2 s, Mark all read, the five controls save on change; no console errors", async () => {
+test("page: the Notifications tab shows with the switch on (after Feed, the bell, the unread count in its badge and its name, none on the header), the list opens with unread rows marked and links to the right tab, the shown rows count as read after 2 s, Mark all read, the five controls save on change; no console errors", async () => {
   const p = await noticesPage();
   const tab = p.$("#tab-notify");
   assert.equal(tab.hidden, false, "the tab shows");
   assert.deepEqual([...p.$$(".dtab")].map((t) => t.id).slice(3, 6), ["tab-community", "tab-notify", "tab-rankings"], "right after Feed (Home, Wallet, City before)");
   assert.ok(tab.querySelector(".dtab__ico svg"), "a bell");
   assert.deepEqual([p.text("#tab-notify-n"), p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label")], ["2", false, "Notifications, 2 unread"]);
-  assert.equal(p.text("[data-account] .hdr-n"), "2", "the header's account button carries the count");
+  assert.equal(p.$("[data-account-avatar] .hdr-n"), null, "one count on the screen: the tab's, never a second one on the header's avatar (its sheet has no list)");
   assert.equal(p.callsTo("/api/notices").length, 0, "nothing is asked until the tab opens");
   assert.equal(p.$("#panel-notify").hidden, true);
   // open the tab
@@ -588,7 +588,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
     assert.deepEqual([inp.checked, inp.getAttribute("role"), inp.getAttribute("aria-checked"), inp.getAttribute("type")], [on, "switch", String(on), "checkbox"], k);
     assert.ok(p.$(`label[for="ntp-${k}"]`), `${k} has a label`);
   }
-  // 2 s on the tab: the two unread rows are marked read, the badge and the header count go, the button hides
+  // 2 s on the tab: the two unread rows are marked read, the badge goes, the button hides
   assert.equal(p.callsTo("/api/notices/read").length, 0);
   await p.advance(1900);
   assert.equal(p.callsTo("/api/notices/read").length, 0, "not yet");
@@ -598,7 +598,7 @@ test("page: the Notifications tab shows with the switch on (after Feed, the bell
   assert.deepEqual(reads[0].body, { ids: [31, 30] });
   assert.deepEqual([...p.$$("#nt-list .nt-row")].map((r) => r.classList.contains("is-unread")), [false, false, false]);
   assert.equal(p.$("#nt-list .sr-only"), null, "the spoken 'Unread' goes with it");
-  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account] .hdr-n").hidden], [true, "Notifications", true]);
+  assert.deepEqual([p.$("#tab-notify-n").hidden, tab.getAttribute("aria-label"), p.$("[data-account-avatar] .hdr-n")], [true, "Notifications", null]);
   assert.equal(p.$("#nt-all").hidden, true);
   // Mark all read (a later visit with new rows): one POST { all: true }
   p.$("#nt-all").hidden = false;
@@ -640,7 +640,7 @@ test("page: Mark all read before the 2 seconds are up cancels the pending mark (
 
 test("page: the empty state; the switch off is today's page (no tab, no request, no header count); a #notify link with the switch off lands on Home", async () => {
   const e = await noticesPage({ notices: [], unread: 0 });
-  assert.deepEqual([e.$("#tab-notify").hidden, e.$("#tab-notify-n").hidden, e.$("[data-account] .hdr-n") === null], [false, true, true], "shown with 0 unread; no badge, no header count");
+  assert.deepEqual([e.$("#tab-notify").hidden, e.$("#tab-notify-n").hidden, e.$("[data-account-avatar] .hdr-n") === null], [false, true, true], "shown with 0 unread; no badge, no header count");
   await e.tap(e.$("#tab-notify"));
   assert.equal(e.$("#nt-empty").hidden, false);
   assert.equal(e.text("#nt-empty"), "Nothing yet. Replies, moderation outcomes, your coin picture's review, founder windows and elections show here.");
@@ -654,7 +654,7 @@ test("page: the empty state; the switch off is today's page (no tab, no request,
   const off = await openDashboard({ me: memberMe({ wallet: ADDR, handle: "jo_utica" }), storage: { vicinity_terms: "2026-10-01" }, globals: { console: { ...console, error: (...a) => errors.push(a.map(String).join(" ")) } } });
   assert.equal(off.$("#tab-notify").hidden, true);
   assert.equal(off.$("#panel-notify").hidden, true);
-  assert.equal(off.$("[data-account] .hdr-n") === null, true, "no header count");
+  assert.equal(off.$("[data-account-avatar] .hdr-n") === null, true, "no header count");
   off.win.VDash.go("notify");
   assert.equal(off.win.VDash.active, "home", "a #notify link with the switch off: Home");
   assert.equal(off.callsTo("/api/notices").length + off.callsTo("/api/notices/prefs").length, 0, "no new request");
@@ -687,4 +687,31 @@ test("copy: the README, docs/DEPLOY.md and src/profiles.js say no messaging and 
   const terms = read("scripts/pages/src/terms.html");
   assert.match(terms, /<strong>Notices\.<\/strong> Notices from us under these Terms will be posted on the Website, in the Services, or sent electronically\. You consent to receive all communications electronically\./);
   assert.doesNotMatch(terms, /in-app notice|Notifications tab/i, "no new Terms wording for the tab");
+});
+
+test("the switches (signed-in test of 17 Oct, N1): the track is a 44x26 pill drawn by ::before, not a square background on the 52x44 input; role=switch, aria-checked, the 44 px target and the focus ring stay", () => {
+  const css = read("public/polish-dash.css"), html = read("public/dashboard.html"), js = read("public/dashboard.js");
+  const bodiesOf = (sel) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].split(",").map((s) => s.trim()).includes(sel)).map((m) => m[2].trim());
+  const px = (body, prop) => { const m = body.match(new RegExp(`(?:^|[; ])${prop}: (-?\\d+)px`)); assert.ok(m, `${prop} in "${body}"`); return Number(m[1]); };
+  const [input] = bodiesOf(".dv2 .nt-switch");
+  assert.equal(px(input, "width"), 52); assert.equal(px(input, "height"), 44, "the 44 px target");
+  assert.match(input, /appearance: none;/);
+  assert.match(input, /background: none;/, "nothing drawn on the input: a 44x26 background on it kept square corners whatever its border-radius");
+  for (const m of css.matchAll(/\.nt-switch[^{]*\{([^}]*)\}/g)) assert.doesNotMatch(m[1], /background-(image|size)|linear-gradient/, "no gradient track left");
+  // the track: centred in the target, its radius half its height (a pill)
+  const [track] = bodiesOf(".dv2 .nt-switch::before");
+  assert.match(track, /content: ""; position: absolute;/);
+  const t = { top: px(track, "top"), left: px(track, "left"), w: px(track, "width"), h: px(track, "height"), r: px(track, "border-radius") };
+  assert.deepEqual(t, { top: 9, left: 4, w: 44, h: 26, r: 13 });
+  assert.equal(t.left * 2 + t.w, 52); assert.equal(t.top * 2 + t.h, 44); assert.equal(t.r * 2, t.h, "rounded ends");
+  assert.match(track, /background: var\(--line-2\);/, "off: the quiet line colour");
+  assert.deepEqual(bodiesOf(".dv2 .nt-switch:checked::before"), ["background: var(--ok-text, #37C29A);"], "on: green");
+  // the knob inside the track, 3 px in from either end
+  const [knob] = bodiesOf(".dv2 .nt-switch::after"), [on] = bodiesOf(".dv2 .nt-switch:checked::after");
+  assert.equal(px(knob, "top"), t.top + 3); assert.equal(px(knob, "left"), t.left + 3);
+  assert.equal(px(on, "left") + px(knob, "width"), t.left + t.w - 3);
+  assert.match(knob, /border-radius: 50%;/);
+  assert.deepEqual(bodiesOf(".dv2 .nt-switch:focus-visible"), ["outline: 2px solid var(--pin); outline-offset: -2px;"], "the focus ring, on the rounded 52x44 box");
+  assert.equal([...html.matchAll(/<input class="nt-switch" type="checkbox" role="switch" id="ntp-[a-z]+" data-pref="[a-z]+" checked>/g)].length, 5, "five switches, role=switch");
+  assert.match(js, /inp\.setAttribute\("aria-checked", String\(inp\.checked\)\)/, "aria-checked follows the state");
 });

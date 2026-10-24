@@ -608,8 +608,12 @@
     show("#coin-ca-badge", official || d.coin.kind === "city");
     $("#coin-ca-badge-text").textContent = official ? "Official" : "Recorded by Vicinity";
     $("#coin-ca-badge").classList.toggle("is-plain", !official);
+    // a coin of the Vicinity launchpad is recorded by the site from the blockchain (src/lpcoins.js), after the owner's approval on chain:
+    // no admin records it; an older coin's contract was recorded by an admin (the Raydium LaunchLab path)
+    const tk = d.coin.ticker ? "$" + d.coin.ticker : "coin", city = d.coin.city && d.coin.city.name ? d.coin.city.name : "this city";
     $("#coin-ca-note").textContent = official ? "This is the only official $VICINITY. Anything else using the name is fake."
-      : `The one ${d.coin.ticker ? "$" + d.coin.ticker : "coin"} an admin recorded for ${d.coin.city && d.coin.city.name ? d.coin.city.name : "this city"}. Check the address before you buy.`;
+      : onVicinity(d) ? `The one ${tk} Vicinity recorded from the blockchain for ${city}, launched on the Vicinity launchpad after an on-chain approval. Check the address before you buy.`
+        : `The one ${tk} an admin recorded for ${city}. Check the address before you buy.`;
   }
   let copiedTimer = 0;
   async function copyMint() {

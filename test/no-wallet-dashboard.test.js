@@ -261,7 +261,9 @@ test("drift guard: the files that read users.wallet are the ones this change rev
     "roles.js", "seats.js", "signup.js", "signup-finish.js", "snapshot.js", "social.js", "walletlink.js", "handoff.js", "signup-core.js", "profile-core.js", "lpadmin.js", "lplaunch.js",
     "logins.js", // logins.js: findAccount hands { id, wallet } to the log-in (src/auth.js linkIdentity), which already takes a NULL wallet
     "logos.js", // logos.js: the admin's picture list masks the founder's wallet (maskWallet(null) is null: a founder without a wallet is listed by handle)
-    "walletsend.js"]); // walletsend.js: a member without a wallet is answered 400 no_wallet before anything is built (test/wallet-send.test.js)
+    "walletsend.js", // walletsend.js: a member without a wallet is answered 400 no_wallet before anything is built (test/wallet-send.test.js)
+    "coinready.js", // coinready.js: a founder without a wallet gets the no_wallet gate (GET) or 403 no_wallet / wallet_mismatch (POST) before anything is drawn or recorded
+    "coinreview.js"]); // coinreview.js: every founder POST answers 403 no_wallet / wallet_mismatch before reading a draft (test/coin-review.test.js); the admin side compares the admin's own (always set) wallet
   const dir = new URL("../src/", import.meta.url);
   const offenders = readdirSync(dir).filter((f) => f.endsWith(".js") && !reviewed.has(f)).filter((f) => {
     const src = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");

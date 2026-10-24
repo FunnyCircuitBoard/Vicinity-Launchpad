@@ -3,7 +3,7 @@
  * "Is this link official?" checker both read from here.
  * Change it only by a public commit so everyone can see the history.
  */
-import { launchpadV2On } from "./flags.js";
+import { coinV2ReadyOn, launchpadV2On } from "./flags.js";
 import { launchpadCluster, launchpadTradingOn, lpSetup, swapOn } from "./cluster.js";
 import { ADDRESSES } from "./sol/pda.js";
 
@@ -304,7 +304,10 @@ export function officialFor(env) {
   // the city-coin launch (lpSetup, src/cluster.js): the pages ask /api/lp/* only when this key is there, so a site without its
   // settings sends no request for it and gets no 404 in the browser's console; off, the key does not exist
   const lp = lpSetup(env);
-  return lp.on ? { ...withTrading, cityCoins: { cluster: lp.cluster } } : withTrading;
+  const withLp = lp.on ? { ...withTrading, cityCoins: { cluster: lp.cluster } } : withTrading;
+  // the ready-made city coin (COIN_V2_READY=on, src/coinready.js): the Launchpad page words a coin that is not live yet as chosen by the
+  // founder and launched on the Vicinity launchpad, not designed and launched on Raydium LaunchLab; off, the key does not exist
+  return coinV2ReadyOn(env) ? { ...withLp, coinV2Ready: true } : withLp;
 }
 
 // Founding Supporter snapshot cutoff (always 00:00 UTC), announced ahead of time. The setting

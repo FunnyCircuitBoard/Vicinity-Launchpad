@@ -1332,16 +1332,21 @@ test("founder card: in this tab, within 5 minutes of a Collect that ended unclea
     const b = [];
     nothing(await dashboard({ "/api/lp/launch/status": blind, "/api/fee-status": () => R }, { session, timers: b, now: mark - 60000 }), b, `${how}: a clock moved back`);
   }
-  // another coin's mark, or none: the status says nothing and nothing is known here, so the card shows the vault (probe P1 stays)
-  for (const session of [new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [addr(61)]: Date.now() } })]]), new Map()]) {
-    const q = await dashboard({ "/api/lp/launch/status": blind, "/api/fee-status": () => R }, { session, timers: [] });
+  // another coin's mark, or none: the status says nothing and nothing is known here, so the card shows the vault (probe P1 stays). The
+  // marks below and the pages that read them use one clock (the page's, set to half a minute after the mark): the test's own clock is
+  // a fixed day, and a page left on the machine's clock would see that mark as long past
+  const m = Date.now();
+  for (const session of [new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [addr(61)]: m } })]]), new Map()]) {
+    const q = await dashboard({ "/api/lp/launch/status": blind, "/api/fee-status": () => R }, { session, timers: [], now: m + 30000 });
     assert.equal(q.card.querySelector(".lp-fees").hidden, false);
     assert.ok(rowsOf(q.card.querySelector(".lp-fees"))[1][3].startsWith(`${taken} from the chain`));
   }
   // a status with figures but no counters hides every reading, as before, with or without a mark
-  const nc = { ...LAUNCHED, founderFees: { ...LAUNCHED.founderFees, earnedLamports: null, collectedLamports: null } }, t2 = [];
-  const n = await dashboard({ "/api/lp/launch/status": nc, "/api/fee-status": () => R }, { session: new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: Date.now() } })]]), timers: t2 });
-  assert.deepEqual([n.card.querySelector(".lp-fees").hidden, n.oldLine().hidden, t2.length], [true, false, 0]);
+  const nc = { ...LAUNCHED, founderFees: { ...LAUNCHED.founderFees, earnedLamports: null, collectedLamports: null } };
+  for (const session of [new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: m } })]]), new Map()]) {
+    const t2 = [], n = await dashboard({ "/api/lp/launch/status": nc, "/api/fee-status": () => R }, { session, timers: t2, now: m + 30000 });
+    assert.deepEqual([n.card.querySelector(".lp-fees").hidden, n.oldLine().hidden, t2.length], [true, false, 0]);
+  }
 });
 
 test("founder card on a page Back brings back as the browser kept it, after a Collect of the coin on a later page of the tab that landed with no slot given: the figures go at once, and when the status read again cannot read its fees, the edge's copy from before the Collect is not drawn again", async () => {
@@ -1349,13 +1354,13 @@ test("founder card on a page Back brings back as the browser kept it, after a Co
   // the new status's founderFees was null
   const R = answerOf("graduated", READ_AT, 100), taken = sol(R.founder.claimable);
   const before = statusNow({ inVault: R.founder.claimable, onCurve: "0", earned: R.founder.earned, collected: R.founder.collected, slot: 100 });
-  const session = new Map(), timers = [];
+  // the viewer's clock (the page's, and the later page's in the same tab that keeps the moment): one clock, a minute after the reading
+  const session = new Map(), timers = [], T = Date.parse(READ_AT) + 60000;
   let st = before;
-  // the page's clock is the test's (useClock): the later page's mark below is taken from the same clock, never the real date
-  const p = await dashboard({ "/api/lp/launch/status": () => st, "/api/fee-status": () => R }, { session, timers, now: Date.now() });
+  const p = await dashboard({ "/api/lp/launch/status": () => st, "/api/fee-status": () => R }, { session, timers, now: T });
   assert.deepEqual([p.card.querySelector(".lp-fees").hidden, p.btn("Collect your fees").hidden], [false, false]);
   // the later page's Collect landed with no slot given: that page kept only the moment (noteUnclear); the status now cannot read its fees
-  session.set("lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: Date.now() } }));
+  session.set("lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: T } }));
   st = { ...LAUNCHED, founderFees: null };
   pageshow(p.win);
   const box = p.card.querySelector(".lp-fees");
@@ -1639,8 +1644,10 @@ test("the dashboard card and the coin page wait the same after a Collect in the 
   assert.deepEqual([at + 299999, at + 300000, at - 1].map((n) => L.unclearWait(at, n)), [true, false, true]);
   // the same tab, a Collect of the coin landed on the dashboard with no slot given half a minute ago: the dashboard card whose status
   // could not read its fees and the coin page both show nothing of the coin's fees from the edge's copy
+  // (the viewer's clock is this test's, half a minute after that Collect: the pages' own would be today's, days after the fixture day)
   const R = answerOf("graduated", READ_AT, 100), mark = Date.now() - 30000;
   const session = new Map([["lp-collected-slot", JSON.stringify({ slots: {}, unclear: { [MINT]: mark } })]]);
+  // (both pages on the clock the mark came from: half a minute after it)
   const d = await dashboard({ "/api/lp/launch/status": { ...LAUNCHED, founderFees: null }, "/api/fee-status": () => R }, { session, timers: [], now: mark + 30000 });
   const k = await coinPage({ status: () => R, session, now: mark + 30000 });
   assert.deepEqual([d.card.querySelector(".lp-fees").hidden, k.page.$("#coin-sofar").hidden], [true, true]);

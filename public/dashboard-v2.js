@@ -22,9 +22,11 @@
 //   moderate  -> #panel-moderate   #mod, #coin-admin-card (gets #coin-admin out of #coin)
 //   profile   -> #panel-profile    #profile-modal (as an in-flow block), #roles-fold (gets #roles)
 //   strip                          #dash-tabs (#dash-tablist, the #tab-* links, the glass pill .dtabs__ind and the #panel-* sections above)
+//                                  (a phone, ICONS: every tab is its line icon, the chosen one's name under it, the pill behind the icon;
+//                                  no Profile tab in the strip: the header's avatar opens it, inStrip / keyStop)
 (() => {
   "use strict";
-  const { $, $$, el, fmt, mask, initials, copy } = window.V;
+  const { $, $$, el, fmt, mask, copy } = window.V;
   const byId = (id) => document.getElementById(id);
 
   const TABS = Object.freeze(["home", "wallet", "city", "community", "notify", "rankings", "founder", "moderate", "profile"]);
@@ -37,16 +39,30 @@
     community: ["#feed", "#national"],
     notify: ["#notices", "#notice-prefs"],
     rankings: ["#rankings-card"],
-    founder: ["#fcard", "#lp-launch", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
+    founder: ["#fcard", "#coin-ready", "#lp-launch", "#progress", "#squad", "#studio-card", "#danger-zone", "#founder-foot"],
     moderate: ["#mod", "#coin-admin-card"],
     profile: ["#profile-modal", "#roles-fold"],
   });
   // a link to a card by its old hash (#progress, #coin, ...) opens the card's tab, then scrolls to the card
-  const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
-    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home" };
-  const HEADER = 67; // the site header: 66px plus its 1px border
+  const ALIAS = { progress: "founder", squad: "founder", "coin-studio": "founder", "lp-launch": "founder", "coin-ready": "founder", coin: "city", "cc-top": "city", request: "city", "city-about": "city",
+    feed: "community", national: "community", notices: "notify", "notice-prefs": "notify", mod: "moderate", roles: "profile", trade: "home", badges: "home", portfolio: "home", "role-home": "home", "wallet-card": "home", welcome: "home",
+    "profile-account": "profile" }; // (the header's account sheet: Account is the Profile tab's Wallet and sign-in rows, Settings the notification settings)
+  // a phone: the strip is icons (polish-dash.css, the same query): the glass pill sits behind the chosen tab's icon, the fit steps are not needed
+  const ICONS = "(max-width: 600px)";
+  const iconMode = () => Boolean(window.matchMedia && window.matchMedia(ICONS).matches);
+  // Where a jump may put something: under the site header and, for a card in a tab, under the strip where it sticks. Read from the page,
+  // never assumed: the header is 8 px down on a phone, or under a notched iPhone's status bar in a full-screen web view (style.css:
+  // env(safe-area-inset-top), --header-h follows), 12 px down on a computer; its place in the page is where it sticks, so its bottom edge
+  // is the same at any scroll. The strip sticks at its own top (polish-dash.css: 6 px under --header-h on a phone).
+  const headerBottom = () => { const h = document.querySelector(".site-header"); return h ? h.getBoundingClientRect().bottom : 68; };
+  const stripBottom = () => {
+    const strip = byId("dash-tabs"), cs = typeof window.getComputedStyle === "function" ? window.getComputedStyle(strip) : null, top = cs ? parseFloat(cs.top) : NaN;
+    return (Number.isFinite(top) ? top : headerBottom()) + strip.offsetHeight;
+  };
   const QUEUE = [["posts", "reported post", "reported posts"], ["proposals", "ban proposal", "ban proposals"], ["appeals", "appeal", "appeals"],
     ["objections", "objection", "objections"], ["towns", "town request", "town requests"], ["coins", "coin contract to check", "coin contracts to check"]];
+  // the coins' words while the old LaunchLab path is closed: nobody checks such a contract any more, it can only be rejected
+  const QUEUE_COINS_CLOSED = ["old contract to settle", "old contracts to settle"];
 
   let ctx = null, active = "home", pending = null, lastMod = null, coin = null, coinKnown = false, coinQueueN = 0, fcardAction = null, lastTarget = null, targetTimer = 0;
   // the glass pill behind the chosen tab: its box now ({ x, y, w, h }, or null until it has measured a tab), its slide on the way, and
@@ -55,8 +71,24 @@
   // the tabs gliding to new places after a change on screen (reflow: tab -> its animation), and whether such a change is running
   const tabGlides = new Map();
   let reflowing = false;
-  // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known; off = the LaunchLab path
+  // the launch on our own launchpad (public/lp-launch.js through dashboard.js): { on, state } once known (state null: its status is on
+  // its way, or could not be asked)
   let lp = { on: false, state: null };
+  // the launch status's reasons that come from the coin's review (src/coinreview.js, COIN_V2_REVIEW): said in the server's words, never as
+  // "launches are paused" (that is the owner's switch) nor as "your launch opens after the next round" (the round won't approve it yet)
+  const REVIEW_PAUSE = new Set(["paused_request", "paused_description", "not_reviewed", "registry_waiting", "description_recheck", "description_unchecked", "bad_content", "art_missing", "approval_mismatch", "approval_changed"]);
+  // the old Raydium LaunchLab path as the server says it in the coin's own answer (GET /api/coins launchLabClosed, through dashboard.js
+  // coin() and coinQueue()): true closed (the launchpad's settings are there), false open, null not said yet. The old path's words show
+  // ONLY when the server said it is open (labOpen); not said yet, the card says nothing it would have to take back.
+  let lab = null;
+  const lpEra = () => lp.on || lab === true; // city coins launch on the Vicinity launchpad here
+  const labOpen = () => !lpEra() && lab === false;
+  // a contract sent through the old LaunchLab path before the launchpad was set up: with the launchpad set up nobody records it, an
+  // admin can only reject it (src/coins.js), and nothing launches while it waits (src/lplaunch.js says the same words). What it means
+  // comes first, so a line cut short on a phone still says it.
+  const LEGACY_CONTRACT = "Nothing can launch until an admin settles the contract sent for this city through the old Raydium LaunchLab path.";
+  // the launchpad's words while the launch card's status is on its way (or could not be asked): true whatever it will say
+  const LP_PENDING = "Your coin launches on the Vicinity launchpad, after an admin approves it on chain.";
   const me = () => (ctx ? ctx.me() : null);
   const countryName = (cc) => (ctx ? ctx.countryName(cc) : cc);
   const behavior = () => (window.V.reduced ? "auto" : "smooth");
@@ -71,9 +103,21 @@
   const modOn = () => { const m = me(); return Boolean((lastMod && lastMod.moderator === true) || (m && m.roles && m.roles.admin)); };
   // in-app notices (NOTIFY=on): /api/me carries `unread` (a number) only while the switch is on; the tab exists only then
   const notifyOn = () => { const m = me(); return Boolean(m && typeof m.unread === "number"); };
+  // the ready-made city coin (COIN_V2_READY=on): /api/me carries coinV2Ready only while the switch is on; the coin is then chosen in #coin-ready
+  const readyOn = () => { const m = me(); return Boolean(m && m.coinV2Ready === true); };
+  // the last answer of GET /api/coins/ready (public/coin-ready.js tells it through dashboard.js; COIN_V2_READY=on): the founder's own
+  // view ({ mode: "founder", coin, inUse, gate, ... }) or a preview; null until it is known
+  let readyCoin = null, readyKnown = false;
+  const readyFounder = () => (readyCoin && readyCoin.mode === "founder" ? readyCoin : null);
+  // the owner's approval rounds (COIN_V2_BATCH=on: the founder's coin answer carries approvalRound): the launch opens after the owner's
+  // next round, never with a time
+  const inRounds = () => { const rf = readyFounder(); return Boolean(rf && rf.approvalRound === true); };
   // with the city-coin launch on (lp, public/lp-launch.js): the chain's word wins, so this fact agrees with the launch card's tag
-  const coinState = () => (!coin ? "Not designed yet" : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? "Contract being checked"
-    : lp.on && lp.state === "ready" ? "Approved" : "Designed");
+  // (with the ready-made coin on, nobody designs a coin: the founder chooses it, then it is chosen and not launched yet; a city with
+  // no founder has nobody to choose it)
+  const unchosen = () => { const m = me(), s = m && m.community && m.community.seat; return !s ? "No founder yet" : s.you ? "Ready to choose" : "Not chosen yet"; };
+  const coinState = () => (!coin ? (readyOn() ? unchosen() : "Not designed yet") : coin.launched || (lp.on && lp.state === "launched") ? "Live" : coin.waiting ? (lpEra() ? "Old contract waiting" : "Contract being checked")
+    : lp.on && lp.state === "ready" ? "Approved" : readyOn() ? "Not launched yet" : "Designed");
 
   /* ---------- set-up: the cards move into their panels, the old two-column tools retire ---------- */
   function init(c) {
@@ -95,10 +139,12 @@
     $("#community").classList.add("city-head");
     for (const id of ["studio-step-1", "studio-step-2", "studio-step-3"]) byId(id).hidden = false;
     window.V.openProfile = () => go("profile"); // the header button: dashboard.js's own opener runs when the tab is entered
+    // the header's account sheet (site.js): Profile opens the tab (the keyboard on its panel), Account and Settings the card in theirs
+    window.V.accountGo = (hash) => { if (TABS.includes(hash)) { go(hash); byId("panel-" + hash).focus({ preventScroll: true }); } else goTo("#" + hash); };
     try { history.scrollRestoration = "manual"; } catch {}
     $("#dash-main").addEventListener("click", onClick);
     $("#dash-tablist").addEventListener("keydown", onKey);
-    $("#dash-tablist").addEventListener("scroll", () => $("#dash-tabs").classList.toggle("is-scrolled", $("#dash-tablist").scrollLeft > 4), { passive: true });
+    $("#dash-tablist").addEventListener("scroll", edges, { passive: true });
     $("#fcard-go").addEventListener("click", () => { if (fcardAction) fcardAction(); });
     $("#wt-copy").addEventListener("click", copyAddress);
     $("#wt-refresh").addEventListener("click", () => { if (ctx && ctx.readWallet) ctx.readWallet(); });
@@ -129,7 +175,7 @@
     if (ALIAS[h]) return { tab: ALIAS[h], target: "#" + h, ok: false };
     return { tab: "home", target: null, ok: false };
   }
-  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - HEADER - 8;
+  const dv2Top = () => $("#dv2").getBoundingClientRect().top + window.scrollY - headerBottom() - 8;
   function go(tab, { push = true, scroll = true, replace = false } = {}) {
     if (!TABS.includes(tab)) tab = "home";
     if (tab === "moderate" && !modOn()) { pending = "moderate"; tab = "home"; push = false; replace = true; } // opens once /api/mod says so
@@ -158,7 +204,7 @@
   /** Only when the strip scrolls (200% text): bring the tab into view by the least distance ("nearest"), so Home is never pushed out. */
   function centerTab(tab) {
     const list = $("#dash-tablist"), t = byId("tab-" + tab);
-    if (!list || !t || list.scrollWidth <= list.clientWidth + 1) return;
+    if (!list || !t || !inStrip(t) || list.scrollWidth <= list.clientWidth + 1) return;
     const lr = list.getBoundingClientRect(), tr = t.getBoundingClientRect(), pad = 28;
     const dx = tr.left < lr.left + pad ? tr.left - lr.left - pad : tr.right > lr.right - pad ? tr.right - lr.right + pad : 0;
     if (dx) list.scrollTo({ left: list.scrollLeft + dx, behavior: behavior() });
@@ -167,7 +213,9 @@
    * The strip fits the screen: every tab whole and shown, no sideways strip. Should seven tabs not fit (a moderator on a phone), one step
    * at a time: the gaps close (.is-snug), "Rankings" says "Rank" (.is-short), Founder and Moderate show as their icons (.is-compact). The
    * tabs never shrink below their words, so a tight strip is seen as one. Only if it still does not fit (a large text setting) does the
-   * strip scroll (.is-scrollable, with edge fades). Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
+   * strip scroll (.is-scrollable, with edge fades). A phone's icons (ICONS) have two steps: the row drops its inner padding and, below
+   * 375 px, the strip widens to 4 px from the screen's edges (.is-flush: only when needed, so the strip otherwise lines up with the
+   * header), then it scrolls. Then the glass pill goes to the chosen tab (place): `how` is "slide" for a tab the
    * person chose, "follow" while the tabs glide to new places (reflow), else it is set at once, or a slide on its way turns there in
    * the time it had left. While the tabs are measured the pill is parked at no size, so where it was a moment ago (a wider strip)
    * never counts as overflow.
@@ -175,12 +223,37 @@
   function measure(how) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs");
     if (!list || !strip) return;
-    const over = () => list.scrollWidth > list.clientWidth + 1;
+    // (a phone's icons: any whole pixel over counts, so a moderator's 8 tabs at 375 px, 1 px too wide as they are, go flush and fit;
+    // the words' strip keeps a pixel of slack for its sub-pixel word widths)
+    const icons = iconMode(), over = () => list.scrollWidth > list.clientWidth + (icons ? 0 : 1);
     const left = park();
     const steps = ["is-snug", "is-short", "is-compact", "is-scrollable"];
-    strip.classList.remove(...steps);
-    for (const step of steps) { if (!over()) break; strip.classList.add(step); }
+    strip.classList.remove(...steps, "is-flush");
+    for (const step of icons ? ["is-flush", "is-scrollable"] : steps) { if (!over()) break; strip.classList.add(step); } // icons: tighter, then they scroll (with snap)
+    edges();
+    keyStop();
     place(how || (reflowing ? "follow" : ""), left);
+  }
+  /** A row that scrolls: a fade on each side that has more (.is-scrolled: some tabs are off to the left; .is-end: none to the right). */
+  function edges() {
+    const list = $("#dash-tablist"), strip = $("#dash-tabs");
+    if (!list || !strip) return;
+    strip.classList.toggle("is-scrolled", list.scrollLeft > 4);
+    strip.classList.toggle("is-end", list.scrollLeft >= list.scrollWidth - list.clientWidth - 4);
+  }
+  /**
+   * A phone: Profile has no tab in the strip (polish-dash.css D2c; owner, 17 Oct 2026: "remove one", "keep a single avatar in the
+   * top-right that opens Profile, Account and Settings"): the header's avatar opens it. While it is the chosen tab, the avatar wears the
+   * chosen ring (polish.css .hdr-avatar.is-current) and the sheet's Profile row says it is the current place, and the strip's one Tab
+   * stop is Home (the chosen tab is not there to take it), so the keyboard still reaches the strip. A computer: every tab is in it.
+   */
+  function inStrip(t) { return Boolean(t) && !t.hidden && !(t.dataset.tab === "profile" && iconMode()); }
+  function keyStop() {
+    const tabs = $$(".dtab", $("#dash-tablist")), chosen = byId("tab-" + active), stop = inStrip(chosen) ? chosen : byId("tab-home");
+    for (const t of tabs) t.setAttribute("tabindex", t === stop ? "0" : "-1");
+    const onProfile = active === "profile", av = $("[data-account-avatar]"), row = $('[data-acct-go="profile"]');
+    if (av) av.classList.toggle("is-current", onProfile && iconMode());
+    if (row) { if (onProfile) row.setAttribute("aria-current", "true"); else row.removeAttribute("aria-current"); }
   }
 
   /* ---------- the glass pill: one marker behind the chosen tab that slides (and stretches a little) to the next one ---------- */
@@ -241,9 +314,10 @@
     ind.style.width = "0px"; ind.style.transform = "none";
     return left;
   }
-  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide). */
+  /** A tab's box where the layout has it (a tab gliding to a new place, reflow, is measured without its glide): on a phone, its icon's. */
   function boxOf(tab) {
-    const r = tab.getBoundingClientRect();
+    const mark = iconMode() ? tab.querySelector(".dtab__ico") || tab : tab;
+    const r = mark.getBoundingClientRect();
     if (!tabGlides.has(tab)) return r;
     const m = /^matrix\(([^)]+)\)$/.exec(String(window.getComputedStyle(tab).transform || "").trim()), dx = m ? Number(m[1].split(",")[4]) || 0 : 0;
     return { left: r.left - dx, top: r.top, width: r.width, height: r.height };
@@ -253,8 +327,8 @@
   function place(how = "", left = 0) {
     const list = $("#dash-tablist"), strip = $("#dash-tabs"), ind = pillEl(), tab = byId("tab-" + active);
     if (!list || !strip || !ind) return;
-    const tr = tab && !tab.hidden ? boxOf(tab) : null, lr = list.getBoundingClientRect();
-    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip) or no chosen tab: the tab's own look, no pill
+    const tr = inStrip(tab) ? boxOf(tab) : null, lr = list.getBoundingClientRect();
+    if (!tr || !tr.width || !lr.width) { // not laid out (a hidden strip), or the chosen tab is not in the strip (a phone's Profile): no pill
       if (pillAnim) { pillAnim.cancel(); pillAnim = null; }
       pill = null; strip.classList.remove("has-ind");
       return;
@@ -304,19 +378,20 @@
   /** Open the tab a card is in and scroll to the card (opening any <details> around it). */
   function goTo(selector, { focus = true, openRole, noAlias = false } = {}) {
     let sel = selector;
+    if (sel === "#notice-prefs" && !notifyOn()) { go("profile", { push: started, replace: !started }); return; } // the account sheet's Settings with notices off: the Profile tab
     if (!noAlias && sel === "#coin" && !$("#studio-card").hidden) sel = "#coin-studio"; // the founder lands on the studio, everyone else on the coin
     if (sel === "#trade" && $("#trade").hidden && !$("#wallet-card").hidden) sel = "#wallet-card"; // a phone's Safari buys in the wallet app
     const target = $(sel);
     if (!target) return;
     const panel = target.closest(".dpanel");
-    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - HEADER - 12, behavior: behavior() }); return; }
+    if (!panel) { window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - headerBottom() - 12, behavior: behavior() }); return; }
     const tab = panel.id.slice("panel-".length);
     go(tab, { push: tab !== active, scroll: false });
     if (active !== tab) return; // the tab is gated (Moderate without rights): it opens when the rights arrive
     for (let d = target.closest("details"); d; d = d.parentElement ? d.parentElement.closest("details") : null) d.open = true;
     if (openRole) { const r = $("#roles").querySelector(`details[data-role="${openRole}"]`); if (r) r.open = true; }
     if (target.closest("[hidden]")) return; // a card that is not shown right now (no squad, no studio): the tab is enough
-    const top = target.getBoundingClientRect().top + window.scrollY - (HEADER + $("#dash-tabs").offsetHeight + 12);
+    const top = target.getBoundingClientRect().top + window.scrollY - (stripBottom() + 12);
     window.scrollTo({ top, behavior: behavior() });
     if (focus) {
       if (!target.matches("input, textarea, select, button, a[href], [tabindex]")) target.setAttribute("tabindex", "-1");
@@ -353,7 +428,7 @@
     if (ALIAS[h]) { e.preventDefault(); goTo(href); }
   }
   function onKey(e) {
-    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => !t.hidden && t.getClientRects().length); // (a tab stepped out of a tight strip is skipped)
+    const tabs = $$(".dtab", $("#dash-tablist")).filter((t) => inStrip(t) && t.getClientRects().length); // (a tab not in the strip is skipped: a phone's Profile)
     const cur = tabs.indexOf(document.activeElement);
     let next = -1;
     if (e.key === "ArrowRight") next = cur < 0 ? 0 : (cur + 1) % tabs.length;
@@ -389,7 +464,7 @@
     const n = (k) => (m && Array.isArray(m[k]) ? (k === "proposals" ? m[k].filter((x) => x.canApprove).length : m[k].length) : 0);
     const counts = { posts: n("posts"), proposals: n("proposals"), appeals: n("appeals"), objections: n("objections"), towns: n("towns"), coins: coinQueueN };
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const parts = QUEUE.filter(([k]) => counts[k]).map(([k, one, many]) => `${counts[k]} ${counts[k] === 1 ? one : many}`);
+    const parts = QUEUE.map((q) => (q[0] === "coins" && lpEra() ? ["coins", ...QUEUE_COINS_CLOSED] : q)).filter(([k]) => counts[k]).map(([k, one, many]) => `${counts[k]} ${counts[k] === 1 ? one : many}`);
     return { counts, total, parts };
   }
   function badge() {
@@ -419,6 +494,22 @@
     const dd = Math.floor(ms / 86400000), hh = Math.floor((ms % 86400000) / 3600000), mm = Math.floor((ms % 3600000) / 60000);
     return dd > 0 ? `${dd}d ${hh}h` : `${hh}h ${mm}m`;
   }
+  /**
+   * The Today line that sends the founder to "Use this coin": its title and its words, from the server's own flags (src/coinready.js
+   * founderView), the way public/coin-ready.js words its note: a choice made by a former founder, the founder's own choice that the city
+   * list or Vicinity's design has moved past (a new version), their choice whose design row changed since, their own earlier studio design
+   * kept aside (earlier), a former founder's (earlierOther), or no design at all. Never "your earlier design" for a design that was
+   * Vicinity's or a former founder's.
+   */
+  function readyStep(rf, city) {
+    const ch = rf.chosen && !rf.chosen.launched ? rf.chosen : null;
+    if (ch && ch.current && !ch.mine) return [`Choose ${city}'s coin`, "A former founder chose this coin. Use it to make it yours."];
+    if (ch && ch.current) return [`Choose ${city}'s coin again`, "Vicinity's design or the city list changed since you chose. Check the new version, then use it."];
+    if (ch && ch.mine) return [`Choose ${city}'s coin again`, "Your coin's design was changed since you chose it. Check it, then use it again."];
+    if (rf.earlier) return [`Choose ${city}'s coin`, "Your earlier design is kept, but city coins are made by Vicinity now. Check yours, then use it."];
+    if (rf.earlierOther) return [`Choose ${city}'s coin`, "A former founder's design is kept, but city coins are made by Vicinity now. Check this coin, then use it."];
+    return [`${city}'s coin is ready`, "The Vicinity design with your city's ticker, from the city list. Check it, then use it."];
+  }
   function today(d) {
     const f = d.founder || {}, seat = f.seat, c = d.community, n = d.national, sq = d.squad, h = d.holding || {}, u = d.user;
     const city = u.home ? u.home.name : "your city", seated = Boolean(seat && (seat.status === "active" || seat.status === "steward"));
@@ -433,10 +524,16 @@
     if (w && w.canEndorse && !w.myEndorsement && !(w.applicants || []).some((a) => a.you)) add("Endorse a founder", `${w.applicants.length} applying to found ${c.name} · ${left(w.closesAt)}`, "info", "founder", "#p-window");
     const e = n && n.election;
     if (e && e.canVote && !e.myVote) add("Vote for your Country Manager", `Election closes ${left(e.closesAt)}`, "info", "community", "#national");
-    if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
-    if (seated && coin && !coin.mint && !coin.waiting && !lp.on) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
+    // the ready-made coin (COIN_V2_READY): said only once the founder's coin answer has a coin (a city the list has no ticker for gets none)
+    const rf = readyFounder(), rcoin = Boolean(rf && rf.coin);
+    if (readyOn()) { if (seated && coinKnown && rcoin && !rf.inUse && !rf.gate && (!coin || (!coin.launched && !coin.waiting))) add(...readyStep(rf, seat.city), "ok", "founder", "#coin-ready"); }
+    else if (seated && coinKnown && !coin) add(`Design ${seat.city}'s coin`, "Name, pitch, pair, colour, logo (shown once checked). Public and logged.", "ok", "founder", "#coin-studio");
+    // the old path's step only while the server says that path is open (never from a guess: a status call still on its way, a probe that failed)
+    if (seated && coin && !coin.mint && !coin.waiting && labOpen() && !readyOn()) add("Add your coin's contract", "Launched it on Raydium LaunchLab? Send the address for a check.", "ok", "founder", "#cs-mint");
     if (seated && lp.on && lp.state === "ready") add("Launch your city coin", "An admin approved it. One signature in your wallet.", "ok", "founder", "#lp-launch");
-    if (seated && coin && coin.waiting) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
+    // with the Vicinity launchpad set up, a contract sent through the old LaunchLab path is never recorded, only rejected (src/coins.js)
+    if (seated && coin && coin.waiting && lpEra()) add("Old contract waiting", LEGACY_CONTRACT, "info", "city", "#coin", true);
+    else if (seated && coin && coin.waiting && labOpen()) add("Contract being checked", "An admin checks it on the blockchain. Nothing to do.", "info", "city", "#coin", true);
     const q = queueCounts();
     if (modOn() && q.total > 0) add(`${q.total} waiting for you`, q.parts.join(" · "), "warn", "moderate", q.total === q.counts.coins ? "#coin-admin" : "#mod");
     if (sq && sq.joinable && !sq.joinable.full) add(`A squad is forming in ${city}`, `${sq.joinable.members.length} of ${sq.joinable.max} members · join to pool holdings`, "info", "founder", "#squad");
@@ -616,21 +713,50 @@
     if (st === "provisional") { note.textContent = "No founder powers yet. Locals can object until then; if no objection is upheld, you become the founder."; button("Founder path", "btn btn--primary", () => goTo("#progress")); }
     else if (st === "grace") { note.textContent = `Hold ${fmt(seat.threshold)} $VICINITY again before the deadline or the seat reopens. Moderation is paused meanwhile.`; button("Buy & swap", "btn btn--primary", () => goTo("#trade")); }
     else if (!coinKnown) { note.textContent = ""; go.hidden = true; fcardAction = null; }
+    // the ready-made coin (COIN_V2_READY): until the founder has chosen it ("Use this coin"), the card sends them to it, BEFORE the
+    // launch's words (an approval of an earlier studio design aside: that one launches as approved)
+    else if (readyOn() && readyFirst()) {
+      const rf = readyFounder();
+      if (!rf && !readyKnown) { note.textContent = "Checking your city coin…"; go.hidden = true; fcardAction = null; }
+      else if (!rf) { note.textContent = "City coins are made by Vicinity from the city list now: yours is in your Founder tab."; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      else if (!rf.coin) { note.textContent = rf.gate ? rf.gate.message : ""; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      // something stands in the way of "Use this coin" (an approval for another wallet or of an earlier design, a low balance...): why
+      else if (rf.gate) { note.textContent = rf.gate.message; button("See your city coin", "btn btn--glass", () => goTo("#coin-ready")); }
+      else if (!coin) { note.textContent = `${seat.city}'s coin is ready: the Vicinity design with its ticker, from the city list. Check it, then use it.`; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+      // (the Founder card is the first card of the Founder tab, the coin card right under it: ORDER.founder)
+      else { note.textContent = "Choose your city coin below (Use this coin); then Vicinity's owner approves it on the blockchain."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
+    }
     else if (!coin) { note.textContent = `Your coin, your call. Design ${seat.city}'s coin: everyone in ${seat.city} sees it.`; button("Design the city coin", "btn btn--primary", () => goTo("#coin-studio")); }
     else if (coin.launched) { note.textContent = `${seat.city}'s coin is live. Its design is locked for good, as the rules promise.`; button("Manage city coin", "btn btn--primary", () => goTo("#coin", { noAlias: true })); }
-    else if (coin.waiting) { note.textContent = "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
-    else if (lp.on) {
-      const s = lp.state;
+    else if (!lpEra() && !labOpen()) { note.textContent = ""; go.hidden = true; fcardAction = null; } // which path is not said yet: nothing to take back
+    else if (coin.waiting) { note.textContent = lpEra() ? LEGACY_CONTRACT : "An admin is checking the contract. Once recorded, the design is locked and it becomes the one official coin."; button("See the coin", "btn btn--glass", () => goTo("#coin", { noAlias: true })); }
+    else if (lpEra()) {
+      // the launch card's word (lp.state); none yet (its status on its way, or the launch card could not be shown): LP_PENDING, no button;
+      // a status that could not be read ("error": the card says why): LP_PENDING too, never "not approved" from a guess
+      const s = lp.on ? lp.state : null;
       note.textContent = s === "ready" ? "An admin approved your coin. Launch it on the Vicinity launchpad: one signature in your wallet."
         : s === "launched" ? "Your coin is live on the Vicinity launchpad."
-          : s === "expired" ? "Your approval expired. Ask an admin to approve your coin again."
-            : s === "paused" ? "Launches are paused for now. Your approval stays."
-              : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.";
-      button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
+          : s === "expired" ? (inRounds() ? "Your approval ran out before you launched. It is renewed at the owner's next approval round." : "Your approval expired. Ask an admin to approve your coin again.")
+            : s === "paused" ? (REVIEW_PAUSE.has(lp.why) && lp.message ? lp.message : "Launches are paused for now. Your approval stays.")
+              : s === "not_approved" ? (inRounds() ? "Your launch opens after the owner's next approval round. Then you launch it here." : "An admin approves your coin on chain first; your pair must be SOL. Then you launch it here.") : LP_PENDING;
+      if (s) button(s === "ready" ? "Launch your city coin" : s === "launched" ? "See your coin" : "See the launch", s === "ready" ? "btn btn--primary" : "btn btn--glass", () => goTo("#lp-launch"));
+      else { go.hidden = true; fcardAction = null; }
     }
+    else if (readyOn()) { note.textContent = "Your coin is made by Vicinity from the city list. Check the coin you chose; Vicinity's owner approves it on the blockchain before it can launch."; button("See your city coin", "btn btn--primary", () => goTo("#coin-ready")); }
     else { note.textContent = "Launch it on Raydium LaunchLab, then add the contract here. An admin (never you) checks and records it."; button("Add the contract", "btn btn--primary", () => goTo("#cs-mint")); }
     $("#fcard-alt").hidden = !((st === "active" || st === "steward") && modOn());
     $("#fcard-meter").hidden = st !== "steward";
+  }
+
+  /**
+   * COIN_V2_READY: the Founder card points at the ready-made coin first: no design yet, or a design that is not the chosen ready-made
+   * coin (an earlier studio design, or a choice made stale) while nothing is approved or launched with it.
+   */
+  function readyFirst() {
+    if (!coin) return true;
+    if (coin.launched || coin.waiting || (lp.on && (lp.state === "ready" || lp.state === "launched"))) return false;
+    const rf = readyFounder();
+    return !rf || !rf.inUse;
   }
 
   /* ---------- the studio card wraps the existing form; a few sentences point at tabs instead of "below" or "on the right" ---------- */
@@ -799,22 +925,29 @@
   /* ---------- what dashboard.js calls ---------- */
   function render(d) {
     $("#tab-home").classList.toggle("is-alert", !$("#ban-notice").hidden || !$("#lost-alert").hidden);
-    $("#tab-profile .dtab__av").textContent = initials(d.user.handle || d.user.name || "V");
     reflow(() => { gate(); notifyGate(); unreadBadge(d.unread); }); // the roles (and the switch) can change on a refresh: a tab comes or goes as one glide
     placeCard(); standing(d); today(d); rankings(d); cityHeader(d); founderStatus(d); founderCard(d); studioSync(); postProcess(); walletTab(d);
   }
   function setCoin(c) {
     coin = c && c.coin ? c.coin : null; coinKnown = true;
+    if (c && typeof c.launchLabClosed === "boolean") lab = c.launchLabClosed;
     const d = me(); if (!d) return;
     today(d); cityHeader(d); founderCard(d); studioSync(); postProcess(); balancesDraw();
+  }
+  /** The ready-made coin's answer (public/coin-ready.js, through dashboard.js): the Today strip, the City header and the Founder card follow it. */
+  function setReady(r) {
+    readyCoin = r || null; readyKnown = true;
+    const d = me(); if (!d) return;
+    today(d); cityHeader(d); founderCard(d);
   }
   function mod(d) {
     lastMod = d || null;
     reflow(() => { gate(); badge(); }); // /api/mod answers after the strip is on screen: the bar re-divides as one glide
     const m = me(); if (m) { today(m); founderCard(m); }
   }
-  function coinQueue(n) {
+  function coinQueue(n, closed) {
     coinQueueN = n;
+    if (typeof closed === "boolean") lab = closed;
     $("#coin-admin-card").hidden = $("#coin-admin").hidden;
     reflow(badge);
     const m = me(); if (m) today(m);
@@ -822,7 +955,7 @@
 
   /** The launch card's state (dashboard.js after LPLaunch.founder): the Today strip and the Founder card follow it. */
   function setLp(info) {
-    lp = { on: Boolean(info && info.on), state: (info && info.state) || null };
+    lp = { on: Boolean(info && info.on), state: (info && info.state) || null, why: (info && info.why) || null, message: (info && info.message) || null };
     const d = me(); if (d) { today(d); founderCard(d); }
   }
 
@@ -832,6 +965,6 @@
     const ready = Boolean(r && !r.loading && r.balances && m);
     return { data: r, rows: ready ? walletRows(r, { vicMint: c.vicMint || null, coin: c.coin || null, community: m.community || null }) : null };
   }
-  window.VDash = { init, render, coin: setCoin, lp: setLp, mod, coinQueue, wallet, walletRows, walletState, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
+  window.VDash = { init, render, coin: setCoin, lp: setLp, ready: setReady, mod, coinQueue, wallet, walletRows, walletState, unread: (n) => reflow(() => unreadBadge(n)), start, go, goTo, placeCard, get active() { return active; }, TABS, ORDER, ALIAS: Object.freeze(ALIAS),
     pill: Object.freeze({ box: pillBox, frames: pillFrames, fromStyle: pillFromStyle, ms: PILL_MS, followMs: FOLLOW_MS, easing: PILL_EASE, easeIn: PILL_IN, easeOut: PILL_OUT }) };
 })();

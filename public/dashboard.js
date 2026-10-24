@@ -12,7 +12,7 @@
 // (the chain's symbol once launched, else the city list's): this file never makes one up from the city's name.
 (() => {
   "use strict";
-  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal, isAddr } = window.V;
+  const { $, $$, el, api, toast, copy, fmt, compact, mask, short, ago, initials, getLocation, burst, reveal, isAddr, logout } = window.V;
   const W = window.VW;
   // the wallet app this person uses on this phone, and the one whose browser this is (site.js): null on a computer and in Safari
   const WA = window.V.walletApp || { here: () => null, remembered: () => null, remember() {} };
@@ -50,8 +50,12 @@
   const when = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const left = (iso) => { const ms = Date.parse(iso) - Date.now(); if (ms <= 0) return "closing now"; const h = Math.floor(ms / 3600000); return h >= 48 ? `${Math.floor(h / 24)} days left` : h >= 1 ? `${h}h left` : `${Math.ceil(ms / 60000)} min left`; };
   let me = null, checkedAt = 0;
-  // the launch on our own launchpad (lpMount below): is it switched on here, asked once; the city whose launch card is shown
+  // the launch on our own launchpad (lpMount below): is it switched on here (the server's word in every GET /api/coins answer,
+  // launchLabClosed, or the probe asked once); the city whose launch card is shown
   let lpOn = false, lpProbed = false, lpCity = null;
+  // the old Raydium LaunchLab path as the server says it in the coin's own answer (src/coins.js: launchLabClosed: true while the
+  // launchpad's settings are there; no key: open): true closed, false open, null no answer yet. Its words never show from a guess (labSaid).
+  let labClosed = null;
   // the tabbed dashboard (DASHBOARD_V2=on): its code is fetched only when /api/me says so, and this stays null otherwise
   let v2 = null;
   const V2_KEY = "vicinity:dash-v2";
@@ -155,7 +159,7 @@
   $("#proof-cancel").addEventListener("click", () => closeProof(false));
   $("#proof-login").addEventListener("click", async () => {
     const again = Boolean(me && me.user && me.user.wallet); // (the 7 days after a wallet joined from another app: say why on the Log in tab)
-    closeProof(false); await api("/api/auth/logout", {}); location.assign(again ? "/connect?mode=login&error=relogin_confirm" : "/connect?mode=login");
+    closeProof(false); await logout(again ? "/connect?mode=login&error=relogin_confirm" : "/connect?mode=login");
   });
   /** Run a sensitive call; if the server asks, confirm with the wallet and try once more. An answer that needs a wallet points at the link card. */
   async function sensitive(call) {
@@ -229,6 +233,7 @@
     // the pass shows the sign-in method only — never the real name (privacy)
     $$("[data-me-login]").forEach((e) => (e.textContent = PROVIDER_LABEL[u.provider] || "Google"));
     $("#me-avatar").textContent = initials(name);
+    if (window.V.setAccount) window.V.setAccount(u); // the header's account sheet: the username and home community, kept in step
     $("#me-copy").hidden = !linked; $("#me-link").hidden = linked || d.signupFlow !== "v2"; // (Link only while the new sign-up's link routes are on)
     $("#pass-ring").hidden = linked;
     if (!linked) ringSet($("#pass-ring"), d.setup, false);
@@ -434,7 +439,7 @@
     if (!confirm(`Remove this wallet (${wn.wallet}) from your account? ${k ? k.name : "The wallet app"} will be logged out of Vicinity.`)) return;
     const r = await api("/api/me/wallet/disown", {});
     if (r.ok) { toast(r.passwordCleared ? "Wallet removed. Other browsers are logged out. Set a new password with “Forgot password”." : "Wallet removed. Other browsers are logged out."); linkedNow = false; await refresh(); return; }
-    if (r.error === "relogin") { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin"); return; } // a fresh login first (a stolen old cookie can't)
+    if (r.error === "relogin") { await logout("/connect?mode=login&error=relogin"); return; } // a fresh login first (a stolen old cookie can't)
     toast(DISOWN_ERR[r.error] || errText({}, r, "Couldn't remove it. Tap Feedback and we'll help."));
   }
 
@@ -544,6 +549,10 @@
     if (noticesOn()) noticesSync(d); // in-app notices (NOTIFY=on): the header's count, and a list on screen follows a changed count
     if (v2 && d.walletSend === true) loadWalletSend(); // Send in the Wallet tab: fetched the first time the switch is seen on
     if (wsend) wsend.render(d);
+    if (d.coinV2Ready === true) loadCoinReady(); // the ready-made city coin (COIN_V2_READY=on): fetched the first time the switch is seen on
+    // the roles list says who makes the coin: the founder's design, or (switch on) the coin Vicinity makes and the founder chooses
+    $$("[data-coin-designed]").forEach((e) => (e.hidden = d.coinV2Ready === true));
+    $$("[data-coin-ready]").forEach((e) => (e.hidden = d.coinV2Ready !== true));
   }
 
   /* ---------- in-app notices (NOTIFY=on: /api/me carries `unread`, a number): the Notifications tab's list, marking read, the five controls ---------- */
@@ -562,17 +571,12 @@
     a.append(dot, text, at); li.append(a);
     return li;
   }
-  /** The unread count everywhere it shows: the tab's badge (dashboard-v2.js) and the header's account button. */
+  /** The unread count: on the Notifications tab only (its badge and its name, dashboard-v2.js). The header's avatar carries no second
+   *  count: one number on the screen, on the tab it leads to (the avatar's sheet has no notifications list). */
   function setUnread(n) {
     const k = Math.max(0, Number(n) || 0);
     if (me) me.unread = k;
     if (v2) v2.unread(k);
-    const b = $("[data-account]");
-    if (!b) return;
-    let s = b.querySelector(".hdr-n");
-    if (!s && !k) return; // nothing to show, nothing made
-    if (!s) { s = el("span", "hdr-n"); s.setAttribute("aria-hidden", "true"); b.append(s); } // (the tab carries the count in its name)
-    s.textContent = k ? String(k) : ""; s.hidden = !k;
   }
   function noticesSync(d) {
     setUnread(d.unread);
@@ -818,7 +822,7 @@
       : c.window ? `Choosing · ${c.window.applicants.length} applying` : "Open seat 🔥";
     const others = c.members - 1;
     $("#cc-fomo").textContent = c.seat && c.seat.you
-      ? `You're ${c.name}'s founder. Bring your locals in, and design ${c.name}'s coin so they can see what's coming.`
+      ? `You're ${c.name}'s founder. Bring your locals in, and ${d.coinV2Ready === true ? "check and use" : "design"} ${c.name}'s coin so they can see what's coming.`
       : c.seat
       ? `${c.name} has a founder. Climb the local board: the top holders here are the first people the city sees.`
       : c.window ? `${c.name} is choosing its founder right now (${left(c.window.closesAt)}). Locals' endorsements count most.`
@@ -1200,10 +1204,12 @@
     mint_changed: "The founder submitted a different address since you opened this one. Reload the queue and check the new one.",
     not_a_mint: "The blockchain says that address is not a token with a supply. Nothing was recorded.",
     chain_unavailable: "The blockchain could not be asked just now. Nothing was recorded; try again in a minute.",
+    // the server's own words: a founder's "can't be added here", an admin's "can only be rejected, not recorded"
+    launchpad_only: (d) => d.message || "City coins launch on the Vicinity launchpad now. Nothing was changed.",
   };
   let coinData = null, coinPairs = null, vicMint = null, logoData = null, dropLogo = false, studioDirty = false;
   let coinP = null; // the /api/coins answer on its way (render starts it; the Wallet tab waits for it, its mints come from there)
-  const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint }); };
+  const v2Coin = () => { if (v2) v2.coin({ coin: coinData, vicMint, launchLabClosed: labClosed }); };
   // the city coin's label ("$UTICA", or the city's name while it has no ticker) and the short text on its disc
   const cityTk = () => coinLabel(me && me.community);
   const cityDisc = () => coinDisc(me && me.community) || "CITY";
@@ -1216,7 +1222,9 @@
     const r = await api(`/api/coins?city=${encodeURIComponent(c.id)}`);
     if (!r || r.ok === false) return;
     coinData = r.coin || null; coinPairs = r.pairs || coinPairs; vicMint = r.vicinity || null;
+    labSaid(r);
     renderCoin(); renderTrade(); v2Coin(); lpMount();
+    if (cready) cready.render(me); // after the coin card: its preview stands in that card
     if (me.roles && me.roles.admin) loadCoinQueue();
   }
   function paintCoin({ name, color, logo, pair }) {
@@ -1238,25 +1246,47 @@
     $("#coin-city").textContent = c.name;
     $$("[data-city-ticker]").forEach((e) => (e.textContent = c.ticker ? tk : `${c.name} coin`));
     const st = $("#coin-status");
+    // with the ready-made coin on (COIN_V2_READY) nobody designs a coin: Vicinity makes it from the city list and the founder chooses it.
+    // byV: the server says this design row IS Vicinity's ready-made coin (chosen, or launched with it: src/coins.js madeBy), so it is
+    // never called the founder's design, launched or not, with a founder now or not. chosenV: and that choice still holds (the server's
+    // chosen: false for one the city list moved away from since, src/coinready.js choiceHolds: nobody chose the coin the list gives
+    // the city now, so it is never "Chosen" nor "chosen <date>")
+    const rdy = me.coinV2Ready === true, founded = Boolean(seat && ["active", "steward", "grace"].includes(seat.status));
+    const byV = Boolean(cd && cd.madeBy === "vicinity"), chosenV = byV && cd.chosen !== false;
     st.className = "tag " + (cd && cd.launched ? "tag--ok" : cd && cd.waiting ? "tag--warn" : cd ? "tag--gold" : "");
-    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? "Contract being checked" : cd ? "Designed" : "Not designed yet";
+    st.textContent = cd && cd.launched ? "● Live" : cd && cd.waiting ? (lpOn ? "Old contract waiting" : "Contract being checked")
+      : cd ? (byV ? (!founded ? "Not launched" : chosenV ? "Chosen" : "Not chosen yet") : "Designed") : rdy ? (founded ? "Not chosen yet" : "No founder yet") : "Not designed yet";
+    const kick = $("#coin-kicker"); // coin-ready.js names Vicinity here while its preview stands in, and puts these words back after
+    kick.dataset.base = (rdy && !cd) || byV ? "City coin · made by Vicinity" : "City coin · designed by the City Founder";
+    kick.textContent = kick.dataset.base;
     // the founder sees their working picture (the server sends logoDraft to them and the staff only); everyone else the approved one or none
     if (!(mine && studioDirty)) paintCoin(cd ? { ...cd, logo: mine ? cd.logoDraft || cd.logo : cd.logo } : { name: c.name, color: "gold", logo: null, pair: null });
     $("#coin-pitch").textContent = cd ? cd.pitch : "";
-    $("#coin-by").textContent = cd ? `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}` : "";
+    $("#coin-by").textContent = !cd ? "" : byV ? (chosenV ? `Made by Vicinity from the city list · chosen ${date(cd.updatedAt)}` : "Made by Vicinity from the city list")
+      : `Designed by ${cd.by || "the City Founder"} · updated ${date(cd.updatedAt)}`;
     logoState(mine ? cd : null);
     $("#coin-contract").hidden = !(cd && cd.mint);
     // a short chip (the whole address is the copy button's name and the chip's title); Copy copies the whole address
     if (cd && cd.mint) { $("#coin-mint").textContent = cd.mint; $("#coin-mint").title = cd.mint; $("#coin-mint-copy").setAttribute("aria-label", `Copy the contract address ${cd.mint}`); }
     tickerLine();
-    $("#coin-note").textContent = mine
-      ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.` : "Change anything until your coin launches. Every save is public in the log.")
+    const MADE = "Every city coin is made by Vicinity from the city list; the founder chooses it and launches it once Vicinity's owner approves it on the blockchain.";
+    $("#coin-note").textContent = rdy && !cd
+      ? (mine ? `${c.name}'s coin is ready in your Founder tab: check it, then use it.` : seat ? `${MADE} ${seat.name}, ${c.name}'s ${founded ? "founder" : "chosen founder"}, hasn't chosen it yet.` : `${MADE} The seat is still open: see the founder path.`)
+      : mine
+      ? (cd ? (cd.launched ? `${c.name}'s coin is live. Its design is locked, as the rules promise.`
+        : rdy ? (byV && !chosenV ? "Your city coin is made by Vicinity, and the city list changed since it was chosen: see your Founder tab. Nothing has launched yet."
+          : "Your city coin is the one made by Vicinity, in your Founder tab. Nothing has launched yet.")
+          : "Change anything until your coin launches. Every save is public in the log.")
         : `Your coin, your call. Design ${c.name}'s coin below: everyone in ${c.name} will see it.`)
-      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.` : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
+      : cd ? (cd.launched ? `The one official ${c.ticker ? tk : `${c.name} coin`}. Buy or swap it in the panel on the right.`
+        : byV ? "Made by Vicinity from the city list. Nothing has launched yet." : rdy ? `Designed by ${c.name}'s founder. Nothing has launched yet.`
+          : `Designed by ${c.name}'s founder. It launches on ${lpOn ? "the Vicinity launchpad" : "Raydium LaunchLab"}.`)
       : seat ? `${seat.name}, ${c.name}'s founder, hasn't designed the coin yet. It'll appear here the moment they do.`
       : `${c.name}'s founder designs this coin: its name, logo, colour and what it's paired with. The seat is still open: see the founder path.`;
-    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched);
+    // with the ready-made coin on (COIN_V2_READY), the coin is made by Vicinity and chosen in its own card: the old studio stays hidden
+    $("#coin-studio").hidden = !mine || Boolean(cd && cd.launched) || me.coinV2Ready === true;
     if (mine && !studioDirty) fillStudio();
+    if (cready) cready.repaint(); // the ready-made coin's preview, painted earlier, stands in this card again
   }
   const countPitch = () => ($("#cs-count").textContent = `${$("#cs-pitch").value.length}/200`);
   // the founder's one line about their picture's check (src/logos.js): nobody else gets these fields, so nobody else sees a line.
@@ -1354,28 +1384,53 @@
     $$("[data-launchlab-copy]").forEach((e) => (e.hidden = lpOn));
     $$("[data-lp-only]").forEach((e) => (e.hidden = !lpOn));
   }
+  /** The server's word on the old LaunchLab path, from a GET /api/coins answer: closed switches the launchpad's words on at once. */
+  function labSaid(r) {
+    if (!r || r.ok === false) return;
+    labClosed = r.launchLabClosed === true;
+    if (labClosed && !lpOn) { lpOn = true; lpCopy(); }
+  }
   async function lpMount() {
     const L = window.LPLaunch;
     if (!L || typeof L.probe !== "function") return;
-    if (!lpProbed) { lpProbed = true; lpOn = Boolean(await L.probe()); if (lpOn) { lpCopy(); renderCoin(); } }
+    // the probe can only switch the launchpad's words on: a probe that failed never undoes what the server said (labSaid)
+    if (!lpProbed) { lpProbed = true; if (Boolean(await L.probe()) && !lpOn) { lpOn = true; lpCopy(); renderCoin(); renderTrade(); } }
     if (!lpOn) return;
     const c = me && me.community, seat = c && c.seat, card = $("#lp-launch");
     const mine = Boolean(seat && seat.you && (seat.status === "active" || seat.status === "steward"));
     if (!mine) { card.hidden = true; lpCity = null; if (v2) v2.lp({ on: true, state: null }); return; }
     if (lpCity === c.id) return;
     lpCity = c.id;
-    const r = await L.founder(card, { cityId: c.id, design: coinData, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
+    if (v2) v2.lp({ on: true, state: null }); // the launchpad's words at once (state null: the status is on its way), never the old path's
+    // ready: with the ready-made coin on (COIN_V2_READY), the card points at "Use this coin", never at the studio it hides
+    const r = await L.founder(card, { cityId: c.id, design: coinData, ready: me.coinV2Ready === true, onChange: (x) => { if (v2) v2.lp(x); loadCoin(); } }); // launched: the coin card follows
     if (coinData && coinData.launched && r.state !== "launched") card.hidden = true; // launched on Raydium LaunchLab before: nothing to launch here
     if (v2) v2.lp(r);
   }
 
-  // admins: contracts founders sent, waiting for someone else to check them
+  // admins: contracts founders sent, waiting for someone else to check them. While the Vicinity launchpad is set up (the queue's own
+  // answer says so: launchLabClosed) that old LaunchLab path is closed: a contract sent before can only be REJECTED (the server refuses
+  // to record one), which settles the city for the launchpad, so the queue shows Reject only, says why, and asks for no reason: the
+  // server logs fixed, neutral words and tells the founder (LEGACY_REJECTED in src/coins.js; the contract is not judged)
+  const LEGACY_REJECTED = "City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded.";
+  function settleForm(host, go) {
+    host.querySelector(".reason-form")?.remove();
+    const f = el("form", "reason-form reason-form--settle");
+    const ok = el("button", "btn btn--primary btn--sm", "Reject it"); ok.type = "submit";
+    f.append(el("p", "tiny muted", `The public log and the founder get these words: “${LEGACY_REJECTED}”`), ok, actBtn("Cancel", () => f.remove()));
+    f.addEventListener("submit", async (e) => { e.preventDefault(); ok.disabled = true; await go(); ok.disabled = false; f.remove(); });
+    host.append(f);
+  }
   async function loadCoinQueue() {
     const r = await api("/api/coins?waiting=1");
     const list = r && r.ok ? r.waiting : [];
+    const closed = Boolean(r && r.launchLabClosed === true) || lpOn;
     $("#coin-admin").hidden = !list.length;
-    if (v2) v2.coinQueue(list.length);
-    window.VRole.queue({ coins: list.length });
+    const title = closed ? "Old LaunchLab contracts to settle" : "Contracts waiting for a check";
+    $("#coin-admin-title").textContent = title;
+    const card = $("#coin-admin-card"); if (card) card.setAttribute("aria-label", closed ? title : "Coin contracts waiting for a check");
+    if (v2) v2.coinQueue(list.length, closed);
+    window.VRole.queue({ coins: list.length, coinsClosed: closed });
     $("#coin-waiting").replaceChildren(...list.map((w) => {
       const li = el("li", "coin-check");
       const link = el("a", "mono coin-check__mint", w.pendingMint); // in full: a look-alike address can match the first and last few characters link.href = `https://solscan.io/token/${w.pendingMint}`; link.target = "_blank"; link.rel = "noopener";
@@ -1386,10 +1441,14 @@
       li.append(head, mintRow);
       // the decision carries the address the admin looked at: the server records only if it is still the one waiting
       const decide = (approve, note) => sensitive(() => api("/api/coins/mint/decide", { city: w.city, mint: w.pendingMint, approve, note }));
-      const acts = el("div", "coin-check__actions");
-      acts.append(
-        actBtn("Record it", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }, "btn btn--primary btn--sm"),
-        actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
+      const acts = el("div", `coin-check__actions${closed ? " coin-check__actions--one" : ""}`);
+      if (closed) li.append(el("p", "tiny muted coin-check__closed", "City coins launch on the Vicinity launchpad now, so this contract can't be recorded as the city's coin. Reject it to settle the city: then its coin can be approved and launched on the launchpad."));
+      else acts.append(actBtn("Record it", async () => { const x = await decide(true, "Checked on the blockchain"); toast(x.ok ? "Recorded: it's the official coin now ✓" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue(); }, "btn btn--primary btn--sm"));
+      acts.append(closed
+        ? actBtn("Reject", () => settleForm(li, async () => {
+          const x = await decide(false); toast(x.ok ? `Rejected: ${w.cityName} is settled` : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
+        }), "btn btn--glass btn--sm")
+        : actBtn("Reject", () => reasonForm(li, "Reject", async (reason, note) => {
           const x = await decide(false, note || REASONS[reason]); toast(x.ok ? "Rejected" : errText(COIN_ERR, x, "Couldn't do that.")); loadCoinQueue();
         }), "btn btn--glass btn--sm"));
       li.append(acts);
@@ -1451,6 +1510,22 @@
       if (me) wsend.render(me);
     };
     s.onerror = () => { wsendAsked = false; }; // the next /api/me tries again
+    document.head.append(s);
+  }
+  /* ---------- the ready-made city coin (COIN_V2_READY=on): its code is fetched ONLY when /api/me says coinV2Ready, so with the switch off this page never asks for it ---------- */
+  // public/coin-ready.js fills the founder's #coin-ready card (the coin made from the city list, "Use this coin") and the preview in #coin
+  let cready = null, creadyAsked = false;
+  function loadCoinReady() {
+    if (cready || creadyAsked) return;
+    creadyAsked = true;
+    const s = document.createElement("script"); s.src = "/coin-ready.js";
+    s.onload = () => {
+      if (!window.VCoinReady) { creadyAsked = false; return; }
+      // onState: every ready-coin answer goes to the tabbed dashboard too (its Today strip and Founder card speak from it)
+      cready = window.VCoinReady.init({ api, sensitive, toast, changed: () => loadCoin(), onState: (r) => { if (v2 && typeof v2.ready === "function") v2.ready(r); } });
+      if (me) cready.render(me);
+    };
+    s.onerror = () => { creadyAsked = false; }; // the next /api/me tries again
     document.head.append(s);
   }
   let qrP = null;
@@ -1526,7 +1601,8 @@
       go2.hidden = true;
       $("#tr-note").textContent = !vicMint
         ? "Trading opens the moment $VICINITY launches on Raydium LaunchLab. Its contract is published on the Token page first."
-        : `${tk} trades once ${me.community.name}'s founder launches it and an admin records its contract.`;
+        : lpOn ? `${tk} trades once an admin approves it on chain and ${me.community.name}'s founder launches it on the Vicinity launchpad.`
+          : `${tk} trades once ${me.community.name}'s founder launches it and an admin records its contract.`;
     } else {
       go.textContent = `${route === "swap" ? "Swap" : flipped ? `Sell ${a[0]}` : `Buy ${b[0]}`} on Jupiter ↗`;
       go.href = `https://jup.ag/swap/${swapSide(a[1])}-${swapSide(b[1])}`; go.target = "_blank"; go.rel = "noopener";
@@ -1754,7 +1830,7 @@
     e.replaceChildren(...(text ? [text] : []));
     if (relogin) {
       const b = el("button", "link-btn link-btn--tiny"); b.type = "button"; b.textContent = "Log in again";
-      b.addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/connect?mode=login&error=relogin_confirm"); });
+      b.addEventListener("click", () => logout("/connect?mode=login&error=relogin_confirm"));
       e.append(" ", b);
     }
     e.hidden = !text;
@@ -1858,7 +1934,7 @@
     try { localStorage.removeItem(WCARD_SKIP); } catch {}
     await refresh(); openProfile();
   });
-  $("#profile-logout").addEventListener("click", async () => { await api("/api/auth/logout", {}); location.assign("/"); });
+  $("#profile-logout").addEventListener("click", () => logout("/"));
   $("#username-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = $("#username-err"); err.hidden = true;
@@ -2074,19 +2150,27 @@
     // signed-out page's room, unseen, so the roles under it never jump down when it shows (on a computer they dropped 839 px)
     const out = $("#dash-out");
     guestCta(); W.onChange(guestCta); // the signed-out page's button (#dash-out shows only for a visitor; a wallet app's wallet can turn up a moment late)
-    try { if (localStorage.getItem(V2_KEY) === "1") $("#dash-skel").hidden = false; } catch {}
+    // (only while the page is held: once theme.js has given up waiting, the roles are on screen and stay until what replaces them)
+    try { if (localStorage.getItem(V2_KEY) === "1" && out.classList.contains("is-pending")) $("#dash-skel").hidden = false; } catch {}
     const d = await api("/api/me");
     const unhold = () => out.classList.remove("is-pending"); // the held room gives way, in the same task as what takes its place
+    // still held when the answer came? theme.js gives up after a while (a slow answer, a slow network): then the roles have shown, and a
+    // late answer goes from them straight to what it opens, never back to the placeholders (roles, placeholders, then the dashboard)
+    const held = out.classList.contains("is-pending");
     const tabbed = d.dashboardV2 === true && d.signedIn && d.user && d.user.home;
-    if (!tabbed) { $("#dash-skel").hidden = true; if (d.dashboardV2 !== true) { try { localStorage.removeItem(V2_KEY); } catch {} } }
+    // the tabbed dashboard's key: forgotten on a real answer that will not show it (the switch is off, or nobody is signed in here: a guest
+    // on a browser a member once used gets no member placeholders next time); an answer that failed (500, 401, offline) says nothing
+    if (!tabbed) { $("#dash-skel").hidden = true; if (d._status === 200 && (d.dashboardV2 !== true || !d.signedIn)) { try { localStorage.removeItem(V2_KEY); } catch {} } }
     if (!d.signedIn) {
-      if (d.pending || d.proof) { location.assign("/connect"); return; }
+      // a sign-in in progress: off to /connect, held as it is until the page is left (never the roles at the top for as long as the
+      // navigation takes); the page Back brings back is unheld, so it shows the roles
+      if (d.pending || d.proof) { window.addEventListener("pagehide", unhold); location.assign("/connect"); return; }
       unhold();
       preview();
       out.hidden = false; return;
     }
     // a member: the tabbed dashboard's placeholders while its code loads (in the room a guest's page held: a first visit after signing in)
-    if (tabbed) { $("#dash-skel").hidden = false; unhold(); }
+    if (tabbed) { if (held) $("#dash-skel").hidden = false; unhold(); }
     me = d;
     // ?welcome=1 (the account was just made), ?linked=1 (the wallet was just linked) and ?google= (back from adding Google sign-in) are
     // moments, not places: read once, then taken off the address bar
@@ -2123,7 +2207,7 @@
     render(d);
     if (!v2) layoutInit();
     if (v2) v2.start();
-    else if (location.hash === "#profile") {
+    else if (["#profile", "#profile-account"].includes(location.hash)) { // (the account sheet's Profile and Account, from another page)
       history.replaceState(null, "", location.pathname + location.search);
       openProfile();
     }
@@ -2134,5 +2218,10 @@
     if (linked && d.user.wallet) { const k = appNamed(d.user.walletApp); toast(k ? `${k.name} connected ✓` : "Wallet linked ✓"); const r = $("#wallet-card").getBoundingClientRect(); burst(r.left + r.width / 2, r.top + 40); }
     if (!v2 && params.get("claim")) $("#progress").scrollIntoView({ block: "center" });
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
-  })();
+  })().catch((e) => {
+    // whatever went wrong on the way, the page is not left held: the placeholders go and the roles show (today's page; theme.js does the
+    // same when this file never runs at all), and the error still reaches the console
+    $("#dash-skel").hidden = true; $("#dash-out").classList.remove("is-pending");
+    console.error(e);
+  });
 })();

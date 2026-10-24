@@ -72,3 +72,45 @@ export { swapOn, launchpadTradingOn } from "./cluster.js";
  * anything else, unset included, is the Wallet tab as it is: no Send control, and the three paths answer like any unknown path (404).
  */
 export const walletSendOn = (env) => String((env && env.WALLET_SEND) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_READY=on turns on the first stage of the new city-coin flow (src/coinready.js): the founder's Founder tab shows a coin that is
+ * already made (the Vicinity template drawn with the city's registry ticker and name, src/coinart.js; the name, city, region, country and
+ * a default description from the Vicinity city list), read-only, with one action, "Use this coin", which records that exact version
+ * (its content hash) as the city's design for the existing admin approval and launch; launches then publish the template picture and
+ * the server-built metadata (only for a version the owner's approval was built from while it is on). Everyone else in a city that has a
+ * founder sees it labelled "Preview, not launched". While on, the old studio (POST /api/coins/design) and a founder's Raydium LaunchLab
+ * contract (POST /api/coins/mint) answer 409, and an admin can only reject a contract still waiting (POST /api/coins/mint/decide).
+ * The routes GET /api/coins/ready, POST /api/coins/ready/art and POST /api/coins/ready/use, the key coinV2Ready on /api/me and /api/official, the
+ * coin_art, coin_versions, coin_ready and coin_legacy_designs tables (lazy, additive) exist only then. Exactly "on" (trimmed, any letter
+ * case); anything else, unset included, is the site exactly as before. Whatever this says, a recorded coin's picture
+ * (/coin-meta/art/<sha256>.png) and its /coin-meta JSON keep being served (src/coinmeta.js): a launched coin's picture never goes away.
+ */
+export const coinV2ReadyOn = (env) => String((env && env.COIN_V2_READY) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_REVIEW=on turns on the second stage of the new city-coin flow, on top of the first (it does nothing unless COIN_V2_READY is on
+ * too): "Request changes" (a separate draft for another picture, ticker or name, reviewed by a person against its exact content hash;
+ * submitting it pauses the launch until an admin or the owner decides), the review status cards (Pending, Approved, Changes needed, each
+ * with a plain reason), the founder's own description with automatic screening (src/screen.js: a founder's own words never pass by
+ * themselves, a person reads every one; a flag pauses the launch only if the founder sends it for review, a block or a screening error
+ * never counts as approval; only Vicinity's own sentence passes), and the admin queue "Coin
+ * reviews" (src/coinreview.js). The routes /api/coins/review*, /api/admin/coins/reviews*, the key `review` on GET /api/coins/ready, the
+ * key coinReviews on /api/admin/me and /api/admin/overview, the coin_requests and coin_screenings tables (lazy, additive) exist only
+ * then. Exactly "on" (trimmed, any letter case) AND COIN_V2_READY on; anything else is the site exactly as before.
+ */
+export const coinV2ReviewOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_REVIEW) ?? "").trim().toLowerCase() === "on";
+
+/**
+ * COIN_V2_BATCH=on turns on the owner's daily launch-approval round for the live launchpad program (src/lpbatch.js; DESIGN 6.5 / 9.4; it
+ * does nothing unless COIN_V2_READY is on too): in the admin's City coins tab a card "Launch approvals to sign" lists every city in four
+ * groups (Approve: a founder whose chosen coin passes every check; Renew: an approval with under 48 hours left, or one whose wallet lost
+ * the seat to a new eligible founder; Revoke: an approval whose wallet lost the seat, whose founder is banned or whose coin may not launch
+ * now; Blocked, with the reasons), and "Sign today's approvals" builds UNSIGNED transactions (up to 5 cities each, within Solana's size
+ * limit) that the owner's own wallet signs: the website never signs and never holds a key. A pre-approved founder then launches with no
+ * per-launch step, and every founder-facing line says the launch opens after the owner's next approval round (never a time). The routes
+ * GET /api/admin/lp/batch and POST /api/admin/lp/batch/tx, the record step "batch", the key batch on GET /api/admin/lp and
+ * approvalRound on GET /api/coins/ready exist only then; no table or column is added. Exactly "on" (trimmed, any letter case) AND
+ * COIN_V2_READY on; anything else is the site exactly as before.
+ */
+export const coinV2BatchOn = (env) => coinV2ReadyOn(env) && String((env && env.COIN_V2_BATCH) ?? "").trim().toLowerCase() === "on";

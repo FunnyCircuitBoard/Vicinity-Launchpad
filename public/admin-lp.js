@@ -100,6 +100,16 @@
   }
   const reasonList = (reasons) => { const ul = el("ul", "lp-reasons"); for (const r of reasons) ul.append(el("li", null, r)); return ul; };
   /**
+   * A coin's description as the owner approves it (BATCH-1): the words, and whose they are. A founder's own words were approved by a
+   * reviewer (they never pass the automatic checks by themselves); Vicinity's are the city list's sentence.
+   */
+  function describe(x) {
+    const wrap = el("span", "lp-desc");
+    const tag = el("span", `tag ${x.descriptionBy === "founder" ? "tag--warn" : "tag--ok"} lp-desc__by`, x.descriptionBy === "founder" ? "The founder's own words" : "Vicinity's sentence");
+    wrap.append(tag, el("q", "lp-desc__text", x.description || ""));
+    return wrap;
+  }
+  /**
    * The approval's own arguments, read back from the transaction's bytes by the site (summary entry approve_launch, .fields): they
    * must be the card's name, ticker, founder and city, or nothing is offered. Shown big, because the wallet does not show them.
    */
@@ -116,6 +126,10 @@
       fact(dl, "Coin name", f.name);
       fact(dl, "Ticker", `$${f.symbol}`);
       fact(dl, "Founder wallet (only it can launch)", addr(f.founder));
+      if (c.ready) {
+        fact(dl, "Picture (the coin's metadata, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`);
+        if (c.ready.description != null) fact(dl, "Description (the coin's metadata, for ever)", describe(c.ready));
+      }
       fact(dl, "Can launch until", `${new Date(f.expiresAt).toLocaleString()} (${f.expiresAt.slice(0, 16).replace("T", " ")} UTC)`);
       wrap.append(dl, el("p", "muted small", "Check the name and the founder wallet once more. Your wallet will not show them: it only shows the accounts and the SOL."));
       return { node: wrap };
@@ -235,6 +249,21 @@
   }
 
   /* ---------------------------------------------------------------- cities */
+  // the public log's and the founder's words when a waiting Raydium LaunchLab contract is rejected (src/coins.js LEGACY_REJECTED)
+  const LEGACY_REJECTED = "City coins launch on the Vicinity launchpad now; a contract from the old Raydium LaunchLab path is not recorded.";
+  /**
+   * "Reject the old contract": a contract sent for this city through the old Raydium LaunchLab path still waits (c.legacyContract), so
+   * nothing is approved or launched for it. Rejecting it settles the city (src/coins.js settleLegacyContract): nothing on chain, no
+   * wallet signature, a fresh wallet proof like every POST here. Here because the dashboard's queue needs a home community.
+   */
+  function legacyReject(card, cityId) {
+    const box = el("div", "lp-step__box");
+    card.append(btn("Reject the old contract", async () => {
+      if (!window.confirm(`Reject the contract sent for this city through the old Raydium LaunchLab path? It is never recorded. The public log and the founder get these words: “${LEGACY_REJECTED}”`)) return;
+      const r = await D.post("/api/admin/lp/legacy/reject", { cityId, cluster });
+      if (r && r.ok) { D.toast("Rejected: the city is settled"); await rerender(); } else box.replaceChildren(el("p", "lp-error", words(r)));
+    }), box);
+  }
   async function citiesSection(s) {
     const body = el("div"); body.append(loading()); s.append(body);
     const r = await D.api(q("/api/admin/lp/candidates"));
@@ -253,13 +282,25 @@
       fact(dl, "Coin", `${c.name} · $${c.ticker || "?"} · paired with ${c.pair}`);
       fact(dl, "Founder", c.founder ? addr(`${c.handle ? `@${c.handle} · ` : ""}${c.founder}`) : "No founder seat");
       fact(dl, "Description (wallets and Jupiter show it for ever)", c.pitch || "None: the standard text is used");
-      // the picture is checked separately (Moderation › Pictures): only an approved one is ever shown; the launch does not wait for it.
-      // The badge lines speak of the chain's image URL (/coin-meta/<mint>.png, what wallets show); the site shows the city's initials.
-      fact(dl, "Picture", c.approved && c.logoStatus !== "approved" ? `An approved picture shows; a newer one ${c.logoStatus === "rejected" ? "was not approved" : "waits for a check (Moderation › Pictures)"}`
-        : c.logoStatus === "approved" ? "Approved (on the coin page; you can still take it down later)"
-          : c.logoStatus === "rejected" ? "Not approved: wallets show the Vicinity badge until the founder sends another"
-            : c.logo ? "Waiting for a check (Moderation › Pictures): wallets show the Vicinity badge until it is approved" : "None: the Vicinity badge is used");
-      card.append(dl);
+      if (c.ready) {
+        // the ready-made coin (COIN_V2_READY): this exact picture and version go into the coin's metadata for ever once it launches
+        // (src/coinart-store.js binds only the version an approval was built from), so the owner sees them before approving
+        fact(dl, "Picture (wallets show it, for ever)", `Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}: this exact picture goes into the coin metadata for ever`);
+        const fig = el("figure", "lp-ready-art");
+        const img = el("img");
+        img.setAttribute("src", c.ready.art); img.setAttribute("width", "160"); img.setAttribute("height", "160");
+        img.alt = `$${c.symbol || c.ticker || ""} coin picture: Vicinity design ${c.ready.template || "t1"}, version ${c.ready.version}`;
+        fig.append(img);
+        card.append(dl, fig);
+      } else {
+        // the picture is checked separately (Moderation › Pictures): only an approved one is ever shown; the launch does not wait for it.
+        // The badge lines speak of the chain's image URL (/coin-meta/<mint>.png, what wallets show); the site shows the city's initials.
+        fact(dl, "Picture", c.approved && c.logoStatus !== "approved" ? `An approved picture shows; a newer one ${c.logoStatus === "rejected" ? "was not approved" : "waits for a check (Moderation › Pictures)"}`
+          : c.logoStatus === "approved" ? "Approved (on the coin page; you can still take it down later)"
+            : c.logoStatus === "rejected" ? "Not approved: wallets show the Vicinity badge until the founder sends another"
+              : c.logo ? "Waiting for a check (Moderation › Pictures): wallets show the Vicinity badge until it is approved" : "None: the Vicinity badge is used");
+        card.append(dl);
+      }
       for (const wmsg of c.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
       if (c.ok) {
@@ -268,8 +309,9 @@
         sel.value = "7";
         const lab = el("label", "field"); lab.append(el("span", "fieldset__label", "The founder can launch within"), sel);
         const row = el("div", "admin-row");
-        // the card sends what it shows: the site builds nothing if the design changed since (reload and look again)
-        const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt };
+        // the card sends what it shows: the site builds nothing if the design changed since (reload and look again); with the
+        // ready-made coin, the exact version too (its picture is the one above)
+        const seen = { cityId: c.cityId, name: c.name, symbol: c.symbol, founder: c.founder, designAt: c.designAt, ...(c.ready ? { contentHash: c.ready.contentHash } : {}) };
         const approve = btn("Approve on chain", () => signFlow(box, { path: "/api/admin/lp/approve/tx", body: { ...seen, expiryDays: Number(sel.value) }, check: approveCheck(c), after: rerender }), "btn btn--primary");
         if (hold) { approve.disabled = true; approve.title = hold; approve.setAttribute("aria-describedby", `lp-hold-${c.cityId}`); }
         row.append(lab, approve);
@@ -277,6 +319,7 @@
         if (hold) { const why = el("p", "lp-warn lp-hold", hold); why.id = `lp-hold-${c.cityId}`; card.append(why); }
         card.append(el("p", "muted small", "Your wallet pays the approval's rent (about 0.0016 SOL); it comes back when the founder launches or you revoke. From the moment you prepare it, the founder can no longer change this design."));
       } else card.append(el("p", "lp-strong", "Not yet:"), reasonList(c.reasons));
+      if (c.legacyContract) legacyReject(card, c.cityId);
       card.append(box);
       body.append(card);
     }
@@ -293,8 +336,233 @@
       for (const wmsg of a.warnings || []) card.append(el("p", "lp-warn", wmsg));
       const box = el("div", "lp-step__box");
       card.append(btn("Revoke", () => signFlow(box, { path: "/api/admin/lp/revoke/tx", body: { cityId: a.cityId }, after: rerender })), box);
+      if (a.legacyContract) legacyReject(card, a.cityId);
       body.append(card);
     }
+  }
+
+  /* ---------------------------------------------------------------- the owner's daily approval round (COIN_V2_BATCH, src/lpbatch.js) */
+  // The probe (GET /api/admin/lp) says batch: true only while the switch is on; then this card lists every city in four groups and
+  // "Sign today's approvals" builds the round's transactions. The page checks every instruction of every transaction against the rows it
+  // showed before the wallet opens (nothing else may be in them), and the owner's wallet signs: one prompt for all when the wallet can,
+  // else one at a time (each next transaction is built again just before, so its blockhash is fresh). Each landed one is recorded.
+  const ONE_KEY = "vicinity_lp_batch_one"; // per browser: wallets that changed transactions signed together are asked one at a time
+  const oneAtATime = (w) => { try { return (JSON.parse(localStorage.getItem(ONE_KEY) || "[]") || []).includes(w && w.name); } catch { return false; } };
+  const rememberOne = (w) => { try { const v = JSON.parse(localStorage.getItem(ONE_KEY) || "[]") || []; if (w && w.name && !v.includes(w.name)) localStorage.setItem(ONE_KEY, JSON.stringify([...v, w.name].slice(-5))); } catch { /* the page still works */ } };
+  const GROUPS = [
+    ["approve", "Approve", "A new approval for each founder's chosen coin. Each one lasts 14 days; your wallet pays its rent (about 0.002 SOL), which comes back at launch or revoke."],
+    ["renew", "Renew", "The approval on chain is withdrawn and made again in the same transaction (under 48 hours left, expired, or the seat changed hands)."],
+    ["revoke", "Revoke", "The approval on chain is withdrawn: the program would let that wallet launch until it expires. Its rent comes back."],
+  ];
+  const echoOf = (r) => ({ cityId: r.cityId, action: r.action, founder: r.founder, name: r.name, symbol: r.symbol, contentHash: r.contentHash || null });
+  const versionOf = (h) => (h ? h.slice(0, 8) : "");
+  /** Every instruction of a built round transaction is one the shown rows ask for, and every city in it is a shown row: else a reason. */
+  function roundCheck(t, shown) {
+    const seenApprove = new Set(), seenRevoke = new Set();
+    for (const e of t.summary || []) {
+      if (e.ix === "set_compute_unit_limit" || e.ix === "set_compute_unit_price") continue;
+      const f = e.fields || {}, r = shown.get(String(f.cityId || ""));
+      if (e.ix === "approve_launch") {
+        if (!r || r.action === "revoke" || f.name !== r.name || f.symbol !== r.symbol || f.founder !== r.founder || seenApprove.has(r.cityId)) return "an approval that is not the one this list shows";
+        seenApprove.add(r.cityId);
+      } else if (e.ix === "revoke_approval") {
+        if (!r || r.action === "approve" || seenRevoke.has(r.cityId)) return "a withdrawal this list does not show";
+        seenRevoke.add(r.cityId);
+      } else return `an instruction this list does not ask for (${e.ix || "unknown"})`;
+    }
+    for (const c of t.cities || []) {
+      const r = shown.get(String(c.cityId));
+      if (!r || r.action !== c.action) return "a city this list does not show";
+      if (r.action !== "revoke" && !seenApprove.has(r.cityId)) return "a city without its approval";
+      if (r.action !== "approve" && !seenRevoke.has(r.cityId)) return "a city without its withdrawal";
+    }
+    if (seenApprove.size + [...seenRevoke].filter((x) => !seenApprove.has(x)).length !== (t.cities || []).length) return "more cities than it says";
+    return null;
+  }
+  /** Ticked by default: every row but one whose description is the founder's own words (the owner reads it, then ticks it: BATCH-1). */
+  const tickedFirst = (r) => r.action === "revoke" || r.descriptionBy !== "founder";
+  function roundRow(r, onToggle) {
+    const li = el("li", "lp-round__row");
+    const box = el("input"); box.type = "checkbox"; box.checked = tickedFirst(r); box.id = `lp-round-${r.action}-${r.cityId}`;
+    box.setAttribute("aria-describedby", `${box.id}-why`);
+    box.addEventListener("change", () => onToggle(r, box.checked));
+    const lab = el("label", "lp-check lp-round__pick"); lab.htmlFor = box.id;
+    const head = el("span", "lp-round__head");
+    head.append(el("strong", null, `${r.cityName}${r.country ? ` (${r.country})` : ""} · $${r.symbol}`), el("span", "lp-round__name", ` “${r.name}”`));
+    lab.append(box, head);
+    li.append(lab);
+    const dl = el("dl", "lp-facts");
+    const founder = el("span", "mono lp-addr", `${r.handle ? `@${r.handle} · ` : ""}${r.founderMasked || "—"}`); founder.setAttribute("title", r.founder || "");
+    fact(dl, "Founder", founder);
+    if (r.contentHash) { const v = el("span", "mono", `Version ${r.version || versionOf(r.contentHash)}`); v.setAttribute("title", r.contentHash); fact(dl, "Coin", v); }
+    if (r.description != null && r.action !== "revoke") fact(dl, "Description (in the coin's metadata for ever)", describe(r));
+    if (r.approval) fact(dl, "On chain now", `“${r.approval.name}” ($${r.approval.symbol}) for ${r.approval.founderMasked}, until ${new Date(r.approval.expiresAt).toLocaleString()}`);
+    li.append(dl);
+    const why = el("p", "muted small", r.why || ""); why.id = `${box.id}-why`; li.append(why);
+    if (r.checks && r.checks.length) {
+      const d = el("details", "fold lp-round__checks");
+      d.append(el("summary", null, "Checks ✓"), reasonList(r.checks.map((c) => `✓ ${c}`)));
+      li.append(d);
+    }
+    for (const w of r.warnings || []) li.append(el("p", "lp-warn", w));
+    return li;
+  }
+  async function batchSection(s) {
+    const body = el("div", "lp-round"); body.append(loading()); s.append(body);
+    const r = await D.api(q("/api/admin/lp/batch"));
+    if (!r || !r.ok) { body.replaceChildren(el("p", "lp-error", words(r))); return; }
+    body.replaceChildren();
+    const g = r.groups;
+    const hold = r.meteora && r.meteora.state !== "ok" ? (r.meteora.state === "changed" ? r.meteora.message : "Meteora's programs could not be checked just now, so approvals wait. Reload in a minute.") : null;
+    if (r.global && r.global.length) { const n = el("div", "lp-note"); n.append(el("p", "lp-strong", "Nothing can be signed yet:"), reasonList(r.global)); body.append(n); }
+    if (hold) body.append(el("p", "lp-warn lp-hold", hold));
+    if (r.paused) body.append(el("p", "lp-warn", "Launches are paused: approvals can still be signed, but nobody can launch until you resume launches (below)."));
+    const counts = el("p", "lp-round__counts", `Approve ${g.approve.length} · Renew ${g.renew.length} · Revoke ${g.revoke.length} · Blocked ${g.blocked.length}${r.settled ? ` · ${r.settled} approval${r.settled === 1 ? "" : "s"} on chain need nothing today` : ""}`);
+    counts.setAttribute("role", "status");
+    body.append(counts);
+    const picked = new Map();
+    const go = btn("Sign today's approvals", () => roundFlow(box, [...picked.values()]), "btn btn--primary");
+    const sync = () => {
+      const n = picked.size;
+      go.textContent = n ? `Sign today's approvals (${n} cit${n === 1 ? "y" : "ies"})` : "Sign today's approvals";
+      go.disabled = !n || Boolean(hold) || Boolean(r.global && r.global.length);
+    };
+    const toggle = (row, on) => { if (on) picked.set(row.cityId, row); else picked.delete(row.cityId); sync(); };
+    for (const [key, title, intro] of GROUPS) {
+      if (!g[key].length) continue;
+      const fs = el("fieldset", "lp-round__group");
+      fs.append(el("legend", null, `${title} (${g[key].length})`), el("p", "muted small", intro));
+      const ul = el("ul", "lp-plain lp-round__rows");
+      for (const row of g[key]) { if (tickedFirst(row)) picked.set(row.cityId, row); ul.append(roundRow(row, toggle)); }
+      fs.append(ul);
+      body.append(fs);
+    }
+    if (g.blocked.length) {
+      const d = el("details", "fold lp-round__group lp-round__blocked");
+      d.append(el("summary", null, `Blocked (${g.blocked.length}): nothing is built for these`));
+      const ul = el("ul", "lp-plain lp-round__rows");
+      for (const b of g.blocked) {
+        const li = el("li", "lp-round__row");
+        li.append(el("strong", null, `${b.cityName}${b.country ? ` (${b.country})` : ""}${b.symbol ? ` · $${b.symbol}` : ""}`));
+        if (b.founderMasked) { const f = el("span", "muted small mono", ` ${b.founderMasked}`); li.append(f); }
+        li.append(reasonList(b.reasons || []));
+        ul.append(li);
+      }
+      d.append(ul);
+      body.append(d);
+    }
+    if (!g.approve.length && !g.renew.length && !g.revoke.length) body.append(el("p", "muted", "Nothing to sign today."));
+    const box = el("div", "lp-step__box");
+    sync();
+    const own = [...g.approve, ...g.renew].filter((x) => !tickedFirst(x)).length;
+    if (own) body.append(el("p", "lp-warn", `${own} cit${own === 1 ? "y has" : "ies have"} a description in the founder's own words. A reviewer approved it, and it goes into the coin's metadata for ever. Read it too, then tick the city.`));
+    if (picked.size || own) body.append(el("p", "muted small", "Untick a city to leave it out of today's round; it comes back in the next one. Founders are told only that their launch opens after your next approval round, never a time."), go);
+    body.append(box);
+  }
+  /** Build the round from the ticked rows, show every transaction, then sign (all at once when the wallet can, else one at a time). */
+  async function roundFlow(box, rows) {
+    box.replaceChildren(el("p", "muted", "Preparing: the site checks every city again and builds the transactions (nothing is sent)."));
+    const shown = new Map(rows.map((x) => [x.cityId, x]));
+    const res = await D.post("/api/admin/lp/batch/tx", { cluster, rows: rows.map(echoOf) });
+    const dropList = (dropped) => { const ul = el("ul", "lp-reasons"); for (const d of dropped || []) ul.append(el("li", null, `${shown.has(d.cityId) ? shown.get(d.cityId).cityName : d.cityId}: ${d.why}`)); return ul; };
+    if (!res || !res.ok) {
+      box.replaceChildren(el("p", "lp-error", words(res)));
+      if (res && res.dropped && res.dropped.length) box.append(el("p", "lp-strong", "Left out:"), dropList(res.dropped));
+      box.append(btn("Reload the list", () => rerender()));
+      return;
+    }
+    const txs = res.transactions;
+    for (const t of txs) {
+      const bad = roundCheck(t, shown);
+      if (bad) { box.replaceChildren(el("p", "lp-error", `A transaction the site built holds ${bad}. Nothing was sent. Reload the page; if it happens again, tell the team.`)); return; }
+    }
+    const wallet = await D.wallet();
+    const parts = [];
+    if (res.dropped && res.dropped.length) parts.push(el("p", "lp-warn", "Left out of this round (nothing is built for them):"), dropList(res.dropped));
+    const lines = [];
+    const list = el("ol", "lp-round__txs");
+    txs.forEach((t, i) => {
+      const li = el("li", "lp-round__tx");
+      li.append(el("p", "lp-strong", `Transaction ${i + 1} of ${txs.length}: ${t.cities.map((c) => `${c.action === "approve" ? "approve" : c.action === "renew" ? "renew" : "revoke"} ${c.cityName} ($${c.symbol})`).join(", ")}`));
+      const d = el("details", "fold");
+      const sum = el("div", "lp-sum");
+      window.LP.renderSummary(sum, t);
+      d.append(el("summary", null, "What your wallet signs"), sum);
+      const line = el("p", "lp-status", "Not signed yet."); line.setAttribute("role", "status");
+      lines.push(line);
+      li.append(d, line);
+      list.append(li);
+    });
+    parts.push(el("p", null, `Approvals last ${res.days} days (until ${new Date(res.expiresAt).toLocaleString()}). Your wallet will show only the accounts and the SOL: the cities, names and tickers are the ones above.`), list);
+    const ctl = el("div", "admin-row");
+    box.replaceChildren(...parts, ctl);
+    const done = new Set();
+    const say = (i, st, extra) => { lines[i].textContent = st === "confirming" && extra && extra.unclear ? SAY_STATUS.unclear : SAY_STATUS[st] || st; };
+    const recordOne = async (i, r) => {
+      const t = txs[i];
+      const entry = { step: "batch", signature: r.signature, params: t.record.params, cluster, at: Date.now() };
+      writePending([...readPending(), entry]);
+      lines[i].textContent = "Confirmed on the blockchain. Recording it here…";
+      const rec = await record(entry);
+      lines[i].textContent = rec && rec.ok ? "Done and recorded." : `Done on the blockchain. ${words(rec)} This page will try to record it again next time.`;
+      if (r.solscan) { const a = el("a", "lp-link", "See it on Solscan"); a.href = r.solscan; a.target = "_blank"; a.rel = "noopener"; lines[i].append(" ", a); }
+      done.add(i);
+    };
+    const finish = () => { ctl.replaceChildren(btn("Reload the list", () => rerender(), "btn btn--primary")); D.toast(done.size === txs.length ? "Today's approvals are signed ✓" : `${done.size} of ${txs.length} signed`); };
+    /** One at a time from transaction i: each one signed straight from its own tap; the next one is built again first (a fresh blockhash). */
+    const oneByOne = async (i, prepared = null) => {
+      if (i >= txs.length) { finish(); return; }
+      let h;
+      try {
+        let t = prepared;
+        if (!t) {
+          lines[i].textContent = "Building it again with a fresh blockhash…";
+          const again = await D.post("/api/admin/lp/batch/tx", { cluster, rows: txs[i].cities.map((c) => echoOf(shown.get(String(c.cityId)))) });
+          if (!again || !again.ok || again.transactions.length !== 1) throw Object.assign(new Error(again && again.ok ? "This transaction's cities changed since. Reload the list." : words(again)), { stop: true });
+          t = again.transactions[0];
+          const bad = roundCheck(t, shown);
+          if (bad) throw Object.assign(new Error(`The rebuilt transaction holds ${bad}. Nothing was sent.`), { stop: true });
+          txs[i] = t;
+        }
+        h = await window.LP.prepare({ wallet, cluster, build: async () => t });
+      } catch (e) { lines[i].textContent = e && e.message ? e.message : "Couldn't prepare this transaction."; ctl.replaceChildren(btn("Reload the list", () => rerender())); return; }
+      lines[i].textContent = "Ready to sign.";
+      const go = btn(`Sign transaction ${i + 1} of ${txs.length}`, async () => {
+        try {
+          const r = await h.sign({ onStatus: (st, _sig, extra) => say(i, st, extra) });
+          await recordOne(i, r);
+          ctl.replaceChildren();
+          await oneByOne(i + 1);
+        } catch (e) {
+          lines[i].textContent = e && e.message ? e.message : "Something went wrong. Nothing was sent.";
+          // it went out and may still land, or may have with no id to watch: never offered twice; the list is reloaded instead
+          ctl.replaceChildren(e && (e.signature || e.unclear) ? btn("Reload the list", () => rerender()) : btn(`Try transaction ${i + 1} again`, () => { ctl.replaceChildren(); return oneByOne(i); }));
+        }
+      }, "btn btn--primary");
+      ctl.replaceChildren(go, btn("Stop here", () => finish()));
+      go.focus();
+    };
+    const all = btn(`Sign all ${txs.length} in your wallet (one prompt)`, async () => {
+      ctl.replaceChildren();
+      try {
+        const out = await window.LP.signAll({ wallet, responses: txs, cluster, onStatus: (i, st, _sig, extra) => say(i, st, extra) });
+        for (let i = 0; i < txs.length; i++) if (out.results[i]) await recordOne(i, out.results[i]);
+        if (out.error) {
+          lines[out.failedAt].textContent = out.error.message || "Something went wrong.";
+          ctl.replaceChildren(btn("Reload the list", () => rerender(), "btn btn--primary"));
+          return;
+        }
+        finish();
+      } catch (e) {
+        // nothing was sent: the wallet changed a message, a signature did not check out, or the person cancelled
+        if (e && e.code === "changed") rememberOne(wallet);
+        for (const l of lines) l.textContent = "Not signed.";
+        box.append(el("p", "lp-error", e && e.code === "changed" ? "Your wallet changed the transactions when signing them together, so nothing was sent. Sign them one at a time instead: your wallet then asks once for each." : (e && e.message) || "Nothing was sent."));
+        ctl.replaceChildren(btn("Sign one at a time", () => { ctl.replaceChildren(); return oneByOne(0); }, "btn btn--primary"));
+      }
+    }, "btn btn--primary");
+    if (window.LP.canSignAll(wallet) && !oneAtATime(wallet) && txs.length > 1) ctl.append(all, btn("Sign one at a time", () => { ctl.replaceChildren(); return oneByOne(0, txs[0]); }));
+    else await oneByOne(0, txs[0]);
   }
 
   /* ---------------------------------------------------------------- launched coins */
@@ -384,13 +652,15 @@
     const setup = section("Setup", "Do the steps in order. Step 1 needs both programs' upgrade authority in your wallet (the guide's step 10); step 2 hands them to your Squads right after.");
     setup.append(cards);
     await setupSection(setup, st);
+    const round = probe.batch ? section("Launch approvals to sign", "Your daily round: every founder whose chosen coin passes every check, in a few transactions (up to 5 cities each). The site checks everything again before it builds them; your wallet signs them, the site never does.") : null;
     const cities = section("Cities", "A founder can launch only after you approve their city on chain. The name and ticker are fixed at approval.");
     const coins = section("Launched coins", "These buttons do what a keeper would do. Anyone may pay for them; nobody can move the city's money anywhere else.");
     const platform = section("Platform fees", "Vicinity's share of every trade and launch waits on Meteora until the dev wallet collects it.");
     const pause = section("Launches", "Pausing stops new launches only. Trading and fees go on.");
     pauseSection(pause, st);
+    if (round) top.append(round);
     top.append(setup, cities, coins, platform, pause);
-    await Promise.all([citiesSection(cities), coinsSection(coins), platformSection(platform)]);
+    await Promise.all([...(round ? [batchSection(round)] : []), citiesSection(cities), coinsSection(coins), platformSection(platform)]);
   }
 
   async function mount(panel, deps) {
