@@ -1,12 +1,13 @@
 # Citycoin.dev v5: schema and API design
 
-> **DESIGN. NOT BUILT.** Nothing in this file exists in the live site at main `4aa408e` or in the draft program at `ec148c2`.
-> No table, column, trigger, route, switch or program instruction described below has been created, migrated, deployed,
-> audited or approved by an owner review event. The only pieces that exist as code are the policy document
-> (`docs/citycoin-master/policy.json`), its frozen mirror `src/masterpolicy.js` and `test/masterpolicy.test.js`, and, on the local
-> branch `cc/s02` (not merged, not deployed), two adapters that read it: `src/maintoken.js` (stage S02A, amendment 01) and
-> `src/v5policy.js` (stage S07: `validatePolicy` on the Worker's settings, and the `PUBLIC_V5` routes of section 4.9). Section 2.2
-> says how the Worker reads its switches and inputs. Every table, other route and every other switch below is still design.
+> **DESIGN, PARTLY BUILT, NOTHING ACTIVATED.** The live site is main (behaving as `4aa408e` did); the draft program is at `ec148c2`
+> (PR #83, not merged). No table, column, trigger, route, switch or program instruction described below has been migrated into the
+> production database, activated, audited or approved by an owner review event. Code that exists on main with every switch off: the
+> policy document (`docs/citycoin-master/policy.json`), its frozen mirror `src/masterpolicy.js` and `test/masterpolicy.test.js`
+> (PR #95); `src/maintoken.js` (stage S02A) and `src/v5policy.js` (stage S07: `validatePolicy` on the Worker's settings, and the
+> `PUBLIC_V5` routes of section 4.9) (PR #96). Stage S08 adds the statement lists of sections 3.2 to 3.8 as code
+> (`src/cc5schema.js`, recorded in `schema-migrations.md`), which no Worker route or job calls yet. Section 2.2 says how the Worker
+> reads its switches and inputs. The identity tables of section 3.1, every other route and every other switch below are still design.
 
 Master change order v5 (23 Oct 2026), sections 16, 20 to 31 and 43, with the identity, metadata and launch sections they depend
 on (18, 19, 24 to 26, 36, 37). Prepared 24 Oct 2026, and updated the same day for owner amendment 01 (section 2.4): the main token

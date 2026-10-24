@@ -4,7 +4,7 @@ Master change order v5, sections 07 (BR-05), 16, 17 (WP-01), 20 to 32 and 37. De
 and section 5. Plan: `implementation-report.md` stage S08 and rows A14, B14 and D08. This file is the stage record; the implementation
 report is updated by the release step.
 
-**Status on 24 October 2026: nothing here is applied or called.** Local branch `cc/s08` only (not pushed, not merged, not deployed). No
+**Status on 24 October 2026: nothing here is applied or called.** Stage S08, in the pull request that carries this file; nothing in it is applied to any database. No
 route, job or `src/index.js` path imports the new module, so the Worker issues exactly the D1 statements it issues today, whatever the
 switches say (shown statement by statement in section 5), and the built `public/` does not change. No production or remote database was
 read or written for this work: the census and the backup tools (section 8) ran only against Cloudflare's local D1 with synthetic rows,
